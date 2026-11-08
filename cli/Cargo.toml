@@ -1,0 +1,29 @@
+[package]
+name = "source-sentry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Tracks documentation and records against the repository sources they describe"
+keywords = ["documentation", "staleness", "review", "ci", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+source-sentry-core.workspace = true
+source-sentry-git.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+similar.workspace = true
+anstream.workspace = true
+owo-colors.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

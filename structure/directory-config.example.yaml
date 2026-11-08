@@ -1,0 +1,42 @@
+# A directory config, at <directory>/source-sentry.yaml. It applies to this
+# directory and to everything below it.
+
+# Scans this directory for documents. A directory with a lockfile is scanned
+# by default; set `root: false` to stop that. Not inherited by subdirectories.
+root: true
+# Ignores every setting from parent directories. The repository config still
+# applies. Not inherited by subdirectories.
+inherit: false
+
+# Presets from .source-sentry/presets/, applied in order before this file's
+# own settings. 'logs' means presets/logs.yaml.
+imports: ['logs']
+
+# Defaults for documents in this directory, including files nothing tracks
+# yet.
+classes: ['internal-docs']
+owners: ['platform']
+
+documents:
+  # Added to the ignores inherited from parent directories. A leading `!`
+  # brings a path back, and the last matching line wins.
+  ignore:
+    - 'scratch/'
+    - '!scratch/keep.md'
+
+# Extra rules for a context declared in the repository config. They apply only
+# to documents in this directory.
+rules:
+  production:
+    - classes: ['internal-docs']
+      facts: ['overdue']
+      outcome: warn
+
+# Files whose names carry a version. The pattern is a regular expression that
+# must match a whole path relative to this directory; the `version` group
+# captures the part used for ordering.
+series:
+  daily-logs:
+    pattern: '(?P<version>\d{4}-\d{2}-\d{2})\.md'
+    version-kind: date # integer, dotted or date.
+    lifecycle: records-only # Every entry is a record. `living` keeps the newest entry editable.

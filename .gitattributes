@@ -1,0 +1,4 @@
+# Text files are stored and checked out with LF line endings on every
+# platform, so tests that embed fixtures with `include_str!` read the same
+# bytes on Windows as on Linux.
+* text=auto eol=lf

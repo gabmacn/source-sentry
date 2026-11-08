@@ -1,0 +1,84 @@
+# cargo-about configuration for the third-party licence notices that ship in
+# every release archive as `THIRD-PARTY-LICENSES.txt`.
+# The release workflow runs, from this directory:
+#
+#     cargo about generate --locked --fail --manifest-path cli/Cargo.toml \
+#         --output-file THIRD-PARTY-LICENSES.txt about.hbs
+#
+# `accepted` lists only the licences that the release's dependencies use, so a
+# dependency under any other licence stops the release until it is reviewed
+# and added here. Earlier entries are preferred when a crate offers a choice.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+]
+
+# The release targets, so that platform-specific dependencies are included.
+# Both Windows targets are listed while the Windows build is undecided.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnu",
+]
+
+# Build and development dependencies are not part of the binary.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Source Sentry's own crates carry its licence, which ships as `LICENSE`.
+private = { ignore = true, registries = ["gmn"] }
+
+# Crate configuration must come last.
+
+# libgit2-sys compiles in libgit2, whose C sources carry their own licence: the
+# GPL, version 2, with a linking exception that permits distributing it linked
+# into other programs. Its COPYING file also holds the licences of the code
+# libgit2 bundles. The checksums tie this clarification to libgit2-sys
+# 0.18.8+1.9.7; a new version must be reviewed and clarified again.
+[libgit2-sys]
+accepted = ["GPL-2.0-only WITH GCC-exception-2.0"]
+
+[libgit2-sys.clarify]
+license = "(MIT OR Apache-2.0) AND GPL-2.0-only WITH GCC-exception-2.0"
+
+[[libgit2-sys.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397"
+
+[[libgit2-sys.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+
+[[libgit2-sys.clarify.files]]
+path = "libgit2/COPYING"
+license = "GPL-2.0-only WITH GCC-exception-2.0"
+checksum = "e0938121c0554985fe17196ac38fc590d149268e9c46e0c0e7a2eae1354fae71"
+
+# libz-sys compiles in zlib where the system provides none, as on Windows.
+# The checksums tie this clarification to libz-sys 1.1.29.
+[libz-sys]
+accepted = ["Zlib"]
+
+[libz-sys.clarify]
+license = "(MIT OR Apache-2.0) AND Zlib"
+
+[[libz-sys.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "34c467b6945a22696d060b8fdd2379d464acb3408d4c599d3dc5fe4fa1b4c84f"
+
+[[libz-sys.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+
+[[libz-sys.clarify.files]]
+path = "src/zlib/LICENSE"
+license = "Zlib"
+checksum = "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"

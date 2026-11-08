@@ -1,0 +1,161 @@
+# Source Sentry: the GitLab CI recipe.
+#
+# Copy this file to .gitlab-ci.yml, or include it from there. The README
+# beside this recipe explains the gates, the merge checks they need and the
+# files to protect.
+#
+# This recipe has not yet run on real CI. The installation job pins a release
+# of Source Sentry by version and checksum; its values are placeholders that
+# you must replace.
+#
+# Contexts: merge requests, pushes and scheduled pipelines use `default`. The
+# deploy job uses `production`, which the repository config
+# (.source-sentry/source-sentry.yaml) must declare; otherwise every production
+# check fails with exit 3.
+#
+# The evaluation instant is $CI_PIPELINE_CREATED_AT, which GitLab sets once
+# per pipeline, so every check in a pipeline is measured at the same instant.
+#
+# Scheduled runs: create a daily schedule for the default branch under
+# Build > Pipeline schedules. Deadlines pass without anyone committing, so the
+# schedule is what reports them.
+#
+# Merge requests: on Premium and Ultimate, enable merged results pipelines
+# (Settings > Merge requests > Merge options), so that a merge request is
+# checked at a temporary merged commit, which is what will land. Without
+# them, as on the Free tier, a merge request pipeline checks the source
+# branch's head.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - prepare
+  - check
+  - deploy
+
+variables:
+  # Source Sentry reads history to date changes, and a shallow clone makes it
+  # stop with exit 4. A depth of 0 fetches the full history. A fresh clone
+  # per job keeps a shallow working copy from an earlier job from being
+  # reused.
+  GIT_DEPTH: '0'
+  GIT_STRATEGY: clone
+
+# Debian with git, curl and CA certificates: what installing and checking
+# need. Source Sentry's binaries need glibc 2.36 or newer, so musl-based
+# images such as Alpine do not work.
+default:
+  image: buildpack-deps:trixie-scm
+
+# INSTALLATION. Downloads Source Sentry's release archive for the runner's
+# architecture, once per pipeline, checks it against the SHA-256 pinned
+# below, and passes the binary to every check. Releases are not signed, so
+# the pinned checksum, rather than the release's own SHA256SUMS, is what ties
+# this pipeline to known bytes. Replace the three values marked REPLACE with
+# those of one release; the pipeline fails here until you do. The README
+# beside this recipe explains where to find them.
+source-sentry-install:
+  stage: prepare
+  variables:
+    SOURCE_SENTRY_VERSION: 'X.Y.Z' # REPLACE: a released version, such as 0.1.0, without the leading v.
+    SOURCE_SENTRY_SHA256_X86_64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the x86_64 archive's SHA-256, from SHA256SUMS.
+    SOURCE_SENTRY_SHA256_AARCH64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the aarch64 archive's SHA-256, from SHA256SUMS.
+    # Where the archives are downloaded from: git.gabmacn.com, or a copy of a
+    # release's files. The checksums apply either way.
+    SOURCE_SENTRY_RELEASES: 'https://git.gabmacn.com/gmn/source-sentry/releases/download'
+  script:
+    - |
+      case "$(uname -m)" in
+        x86_64)
+          target=x86_64-unknown-linux-gnu
+          pin=SOURCE_SENTRY_SHA256_X86_64
+          sha256="$SOURCE_SENTRY_SHA256_X86_64"
+          ;;
+        aarch64)
+          target=aarch64-unknown-linux-gnu
+          pin=SOURCE_SENTRY_SHA256_AARCH64
+          sha256="$SOURCE_SENTRY_SHA256_AARCH64"
+          ;;
+        *)
+          echo "Source Sentry publishes Linux archives for x86_64 and aarch64 only, not for $(uname -m)." >&2
+          exit 1
+          ;;
+      esac
+      if ! printf '%s\n' "$SOURCE_SENTRY_VERSION" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'; then
+        echo "SOURCE_SENTRY_VERSION is '$SOURCE_SENTRY_VERSION', not a version such as 0.1.0. Pin a release's version and checksums in this job." >&2
+        exit 1
+      fi
+      name="source-sentry-$SOURCE_SENTRY_VERSION-$target"
+      case "$sha256" in
+        *[!0]*) ;;
+        *)
+          echo "$pin is a placeholder. Pin the SHA-256 of $name.tar.gz, from the release's SHA256SUMS." >&2
+          exit 1
+          ;;
+      esac
+      download="$(mktemp -d)"
+      url="$SOURCE_SENTRY_RELEASES/v$SOURCE_SENTRY_VERSION/$name.tar.gz"
+      curl --fail --location --silent --show-error --retry 5 --retry-connrefused \
+        --output "$download/$name.tar.gz" "$url" \
+        || { echo "Could not download $url." >&2; exit 1; }
+      (cd "$download" && printf '%s  %s\n' "$sha256" "$name.tar.gz" | sha256sum --check --strict) \
+        || { echo "$name.tar.gz does not match $pin, so it was not extracted." >&2; exit 1; }
+      tar -xzf "$download/$name.tar.gz" -C "$download"
+      "$download/$name/source-sentry" --version \
+        || { echo "The binary does not run here. It needs glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
+      mkdir -p .source-sentry-install/bin
+      cp "$download/$name/source-sentry" .source-sentry-install/bin/
+  artifacts:
+    paths:
+      - .source-sentry-install/bin/source-sentry
+
+# Both gates in one job. With `--fail-on warn`, the exit code is 0 when
+# everything passes, 1 for a warning, and 2 or more for a failure or an
+# error. GitLab tolerates exit 1 only: a warning shows the job with an orange
+# warning while the pipeline still succeeds (the report gate), and anything
+# worse fails the pipeline and blocks the merge (the continue gate).
+source-sentry-gates:
+  stage: check
+  needs: [source-sentry-install]
+  allow_failure:
+    exit_codes: [1]
+  script:
+    - chmod +x .source-sentry-install/bin/source-sentry
+    - >-
+      .source-sentry-install/bin/source-sentry check
+      --context default --fail-on warn
+      --at "$CI_PIPELINE_CREATED_AT"
+
+# The production context's continue gate decides whether this commit may
+# deploy. With the example repository config, a stale privacy policy fails
+# here, although it only warns in `default`.
+source-sentry-production-continue:
+  stage: check
+  needs: [source-sentry-install]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - chmod +x .source-sentry-install/bin/source-sentry
+    - >-
+      .source-sentry-install/bin/source-sentry check
+      --context production --fail-on fail
+      --at "$CI_PIPELINE_CREATED_AT"
+
+# Deploys only when the production context's continue gate passed. A job
+# with `needs` waits for those jobs alone, so `source-sentry-gates`, in the
+# default context, does not hold the deploy back.
+deploy-production:
+  stage: deploy
+  needs:
+    - job: source-sentry-production-continue
+      artifacts: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment: production
+  script:
+    - echo "Replace this job's script with the project's deployment."

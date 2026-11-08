@@ -1,0 +1,35 @@
+[package]
+name = "source-sentry-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Source Sentry's documentation tracking logic, which performs no I/O"
+keywords = ["documentation", "staleness", "review", "attestation"]
+categories = ["development-tools"]
+
+[dependencies]
+thiserror.workspace = true
+globset.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+sha2.workspace = true
+chrono.workspace = true
+jiff.workspace = true
+rrule.workspace = true
+regex.workspace = true
+
+[features]
+# Exposes the in-memory fakes in `testing` to other crates' tests.
+testing = []
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

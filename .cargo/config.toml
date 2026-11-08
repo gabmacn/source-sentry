@@ -1,0 +1,16 @@
+# The Cargo registry that Source Sentry's crates are published to, which
+# belongs to the organisation `gmn`. Cargo reads this file when it runs in
+# this directory or below; elsewhere, add the same section to
+# `~/.cargo/config.toml`, as the README describes.
+#
+# Publishing also needs a token, which belongs in Cargo's credentials, never in
+# this file.
+[registries.gmn]
+index = "sparse+https://git.gabmacn.com/api/packages/gmn/cargo/"
+
+# Windows binaries link the C runtime statically, so that they run without the
+# Visual C++ Redistributable. Release builds and local builds in this
+# workspace both read this setting. `cargo install` from the registry does
+# not, since packages do not carry this file.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

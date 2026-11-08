@@ -1,0 +1,242 @@
+# Source Sentry: the GitHub Actions recipe.
+#
+# Copy this file to .github/workflows/source-sentry.yml. The README beside
+# this recipe explains the gates, the branch protection they need and the
+# files to protect.
+#
+# This recipe has not yet run on real CI. The installation step in the
+# `prepare` job pins a release of Source Sentry by version and checksum; its
+# values are placeholders that you must replace.
+#
+# Contexts: pull requests, pushes and scheduled runs use `default`. The deploy
+# job uses `production`, which the repository config
+# (.source-sentry/source-sentry.yaml) must declare; otherwise every production
+# check fails with exit 3.
+
+name: Source Sentry
+
+on:
+  pull_request:
+  push:
+    branches: [main] # The branch that deploys. Adjust it if yours differs.
+  schedule:
+    # Deadlines pass without anyone committing, so a daily run reports them.
+    # Any daily time reports a deadline within a day of its passing.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Captures the evaluation instant and downloads the binary once per run, so
+  # that every gate below is measured at the same instant, with the same
+  # binary.
+  prepare:
+    name: Source Sentry prepare
+    runs-on: ubuntu-24.04
+    outputs:
+      at: ${{ steps.instant.outputs.at }}
+    steps:
+      - name: Capture the evaluation instant
+        id: instant
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # INSTALLATION. Downloads Source Sentry's release archive for the
+      # runner's architecture, checks it against the SHA-256 pinned below, and
+      # extracts the binary that the gates share. Releases are not signed, so
+      # the pinned checksum, rather than the release's own SHA256SUMS, is what
+      # ties this run to known bytes. Replace the three values marked REPLACE
+      # with those of one release; the run fails here until you do. The README
+      # beside this recipe explains where to find them.
+      - name: Install Source Sentry
+        env:
+          SOURCE_SENTRY_VERSION: 'X.Y.Z' # REPLACE: a released version, such as 0.1.0, without the leading v.
+          SOURCE_SENTRY_SHA256_X86_64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the x86_64 archive's SHA-256, from SHA256SUMS.
+          SOURCE_SENTRY_SHA256_AARCH64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the aarch64 archive's SHA-256, from SHA256SUMS.
+          # Where the archives are downloaded from: git.gabmacn.com, or a copy
+          # of a release's files. The checksums apply either way.
+          SOURCE_SENTRY_RELEASES: 'https://git.gabmacn.com/gmn/source-sentry/releases/download'
+        run: |
+          case "$(uname -m)" in
+            x86_64)
+              target=x86_64-unknown-linux-gnu
+              pin=SOURCE_SENTRY_SHA256_X86_64
+              sha256="$SOURCE_SENTRY_SHA256_X86_64"
+              ;;
+            aarch64)
+              target=aarch64-unknown-linux-gnu
+              pin=SOURCE_SENTRY_SHA256_AARCH64
+              sha256="$SOURCE_SENTRY_SHA256_AARCH64"
+              ;;
+            *)
+              echo "::error::Source Sentry publishes Linux archives for x86_64 and aarch64 only, not for $(uname -m)."
+              exit 1
+              ;;
+          esac
+          if ! printf '%s\n' "$SOURCE_SENTRY_VERSION" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'; then
+            echo "::error::SOURCE_SENTRY_VERSION is '$SOURCE_SENTRY_VERSION', not a version such as 0.1.0. Pin a release's version and checksums in this step."
+            exit 1
+          fi
+          name="source-sentry-$SOURCE_SENTRY_VERSION-$target"
+          case "$sha256" in
+            *[!0]*) ;;
+            *)
+              echo "::error::$pin is a placeholder. Pin the SHA-256 of $name.tar.gz, from the release's SHA256SUMS."
+              exit 1
+              ;;
+          esac
+          mkdir "$RUNNER_TEMP/source-sentry-download"
+          cd "$RUNNER_TEMP/source-sentry-download" || exit 1
+          url="$SOURCE_SENTRY_RELEASES/v$SOURCE_SENTRY_VERSION/$name.tar.gz"
+          curl --fail --location --silent --show-error --retry 5 --retry-connrefused \
+            --output "$name.tar.gz" "$url" \
+            || { echo "::error::Could not download $url."; exit 1; }
+          printf '%s  %s\n' "$sha256" "$name.tar.gz" | sha256sum --check --strict \
+            || { echo "::error::$name.tar.gz does not match $pin, so it was not extracted."; exit 1; }
+          tar -xzf "$name.tar.gz"
+          "$name/source-sentry" --version \
+            || { echo "::error::The binary does not run here. It needs glibc 2.36 or newer; musl-based systems such as Alpine are not supported."; exit 1; }
+          # Artifacts drop the executable bit; a tar archive keeps it.
+          tar -cf "$RUNNER_TEMP/source-sentry.tar" -C "$name" source-sentry
+
+      - name: Share the binary with the gates
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-sentry
+          path: ${{ runner.temp }}/source-sentry.tar
+          if-no-files-found: error
+
+  # The report gate asks "Is anything wrong?" It fails on a warning or a
+  # failure, to show a failing mark that prompts a fix. Do not make it a
+  # required check.
+  report-gate:
+    name: Source Sentry report gate
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      # For a pull request, the commit is GitHub's merge commit
+      # (refs/pull/<number>/merge), which is what will land. GitHub runs no
+      # pull request workflow while the pull request has a merge conflict.
+      - name: Check out the commit with its full history
+        uses: actions/checkout@v7
+        with:
+          # Source Sentry reads history to date changes. A shallow clone makes
+          # it stop with exit 4.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the commit
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::Checked out $(git rev-parse HEAD), but this run is for $GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Fetch the prepared binary
+        uses: actions/download-artifact@v8
+        with:
+          name: source-sentry
+          path: ${{ runner.temp }}/source-sentry
+
+      - name: Check (report gate)
+        env:
+          AT: ${{ needs.prepare.outputs.at }}
+        run: |
+          tar -xf "$RUNNER_TEMP/source-sentry/source-sentry.tar" -C "$RUNNER_TEMP/source-sentry"
+          "$RUNNER_TEMP/source-sentry/source-sentry" check \
+            --context default --fail-on warn \
+            --at "${AT:?The prepare job provided no evaluation instant.}"
+
+  # The continue gate asks "May the build continue?" It fails only on a
+  # failure, or on a configuration, integrity or operational error. Make it a
+  # required check.
+  continue-gate:
+    name: Source Sentry continue gate
+    # It needs `prepare` only, never the report gate, which fails on every
+    # warning and would leave this job skipped.
+    needs: prepare
+    # GitHub skips a job whose dependency failed, and branch protection
+    # counts a skipped check as passing. `always()` keeps this job from being
+    # skipped: if `prepare` failed, the download below fails, and so does this
+    # check.
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the commit with its full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the commit
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::Checked out $(git rev-parse HEAD), but this run is for $GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Fetch the prepared binary
+        uses: actions/download-artifact@v8
+        with:
+          name: source-sentry
+          path: ${{ runner.temp }}/source-sentry
+
+      - name: Check (continue gate)
+        env:
+          AT: ${{ needs.prepare.outputs.at }}
+        run: |
+          tar -xf "$RUNNER_TEMP/source-sentry/source-sentry.tar" -C "$RUNNER_TEMP/source-sentry"
+          "$RUNNER_TEMP/source-sentry/source-sentry" check \
+            --context default --fail-on fail \
+            --at "${AT:?The prepare job provided no evaluation instant.}"
+
+  # The production context's continue gate decides whether this commit may
+  # deploy. With the example repository config, a stale privacy policy fails
+  # here, although it only warns in `default`.
+  continue-gate-production:
+    name: Source Sentry continue gate (production)
+    needs: prepare
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the commit with its full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the commit
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::Checked out $(git rev-parse HEAD), but this run is for $GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Fetch the prepared binary
+        uses: actions/download-artifact@v8
+        with:
+          name: source-sentry
+          path: ${{ runner.temp }}/source-sentry
+
+      - name: Check (production continue gate)
+        env:
+          AT: ${{ needs.prepare.outputs.at }}
+        run: |
+          tar -xf "$RUNNER_TEMP/source-sentry/source-sentry.tar" -C "$RUNNER_TEMP/source-sentry"
+          "$RUNNER_TEMP/source-sentry/source-sentry" check \
+            --context production --fail-on fail \
+            --at "${AT:?The prepare job provided no evaluation instant.}"
+
+  # Deploys only when the production context's continue gate passed. The
+  # default context's gates do not hold the deploy back. A skipped or failed
+  # production gate skips this job.
+  deploy-production:
+    name: Deploy to production (placeholder)
+    needs: continue-gate-production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - name: Deploy (placeholder)
+        run: echo "Replace this step with the project's deployment."

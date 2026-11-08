@@ -1,0 +1,59 @@
+# The repository config, at .source-sentry/source-sentry.yaml.
+
+# The format version for the whole repository. Only this file sets it.
+version: 1
+# Due dates end at midnight in this time zone. Use an IANA name, such as
+# 'Europe/Madrid'.
+time-zone: 'UTC'
+
+# Every class and context used anywhere in the repository is declared here.
+define:
+  classes:
+    internal-docs:
+      description: 'Engineering documentation that lives close to the code.'
+    marketing:
+      description: 'Material produced for people outside the team.'
+    privacy:
+      description: 'Describes the personal data that the application retains.'
+    security: {}
+  # A context decides what each finding means for a build. You choose one when
+  # running a check; `default` applies when you choose none.
+  contexts:
+    # Defining `default` replaces the built-in default context.
+    default:
+      fallback: warn # For any finding that no rule matches.
+      rules:
+        - facts: ['missed', 'unattested']
+          outcome: notice
+    staging:
+      fallback: warn
+      rules:
+        - facts: ['missed']
+          outcome: notice
+    production:
+      fallback: warn
+      rules:
+        - facts: ['missed']
+          outcome: notice
+        # Blocks a production deploy until the privacy policy is updated. When
+        # several rules match, the most severe outcome wins.
+        - classes: ['privacy']
+          facts: ['stale', 'overdue', 'unattested', 'timing-unknown', 'upstream-stale']
+          outcome: fail
+
+# Settings that every directory inherits, unless it overrides them.
+imports: ['engineering'] # Presets from .source-sentry/presets/.
+documents:
+  # Which files count as documents, and how each one is read. `include` and
+  # `adapters` match the built-in defaults; nothing is ignored by default.
+  include: ['*.md', '*.txt', '*.pdf']
+  adapters:
+    - match: '*.md'
+      adapter: md-utf8 # Can carry its own declaration in frontmatter.
+    - match: '*.txt'
+      adapter: md-utf8
+    - match: '*.pdf'
+      adapter: opaque # Tracked through lockfiles only.
+  ignore: ['node_modules/', 'target/']
+schedule:
+  grace: 0 # Documents must follow their sources at once.

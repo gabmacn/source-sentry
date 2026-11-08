@@ -1,0 +1,14 @@
+# The built-in default context, version 1. The repository config's `version`
+# selects it.
+#
+# It applies when you choose no context and the repository config defines no
+# context named `default`. Defining `default` there replaces this context
+# entirely.
+#
+# A fresh document always passes. A missed series entry is listed in the
+# report without failing it, and every other finding warns.
+
+fallback: warn # For any finding that no rule matches.
+rules:
+  - facts: ['missed']
+    outcome: notice

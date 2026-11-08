@@ -1,0 +1,22 @@
+# A preset, at .source-sentry/presets/logs.yaml, which other configs import as
+# 'logs'. It can hold any setting a directory config can, except `root` and
+# `inherit`. Its patterns apply relative to the config that imports it.
+
+# Presets can import other presets.
+imports: ['common']
+
+classes: ['internal-docs']
+schedule:
+  grace: 7
+
+series:
+  weekly-logs:
+    pattern: 'log-(?P<version>\d+)\.md'
+    version-kind: integer
+    lifecycle: records-only
+    # A new sealed log is due every Monday, with three days of grace.
+    schedule:
+      grace: 3
+      cadence:
+        dtstart: 2026-12-07
+        rrule: 'FREQ=WEEKLY;BYDAY=MO'

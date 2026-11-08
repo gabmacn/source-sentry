@@ -1,0 +1,38 @@
+# Source Sentry reads only the `source-sentry` key of a document's frontmatter,
+# and leaves every other key untouched.
+source-sentry:
+  # When someone last reread the whole document, and who.
+  reviewed:
+    at: 2026-11-07T15:02:44Z # Always in UTC.
+    by: 'Ana Ribeiro (Legal)' # Given with `attest --reviewer`.
+  # Classes decide which context rules apply to this document. Declare them in
+  # .source-sentry/source-sentry.yaml.
+  classes: ['privacy']
+  owners: ['legal']
+  # Replaces the schedule this document would otherwise inherit.
+  schedule:
+    grace: 14 # Days the document may lag behind a changed source.
+    cadence:
+      dtstart: 2026-12-01 # The first due date.
+      rrule: 'FREQ=MONTHLY;INTERVAL=2' # An iCalendar recurrence rule, without times of day.
+  sources:
+    # A leading `/` starts at the repository root. Any other path is relative
+    # to this document.
+    - path: '/src/models/user.rs'
+      # Written by `attest`: the version of the source that was reviewed, and
+      # who reviewed it, and when.
+      oid: 'sha1:1234567890abcdef1234567890abcdef12345678'
+      reviewed:
+        at: 2026-11-07T14:32:05Z
+        by: 'Bruno Costa' # Taken from git's user.name.
+    # Not reviewed yet, so the document stays unattested until someone does.
+    - path: '../diagrams/user-flow.svg'
+    # Every file matching the pattern is a source with its own review. Quote
+    # patterns, because YAML misreads an unquoted `*` or `!`.
+    - pattern: '/db/migrations/*.sql'
+      members:
+        - path: '/db/migrations/0001-init.sql'
+          oid: 'sha1:abcdef1234567890abcdef1234567890abcdef12'
+          reviewed:
+            at: 2026-11-07T14:32:05Z
+            by: null # Nobody could be identified.

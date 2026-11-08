@@ -1,0 +1,54 @@
+{
+  "documents": {
+    "abstract:privacy-training-video": {
+      "reviewed": {
+        "at": "2026-11-07T11:15:00Z",
+        "by": "Ana Ribeiro (Legal)"
+      },
+      "sources": [
+        {
+          "oid": "sha1:5ba93c9db0cff93f52b521d7420e43f6eda2784f",
+          "path": "/src/auth/consent.rs",
+          "reviewed": {
+            "at": "2026-11-07T11:15:00Z",
+            "by": "Ana Ribeiro (Legal)"
+          }
+        },
+        {
+          "oid": "sha1:3c363836cf4e16666669a25da280a1865c2d2874",
+          "path": "/src/models/user.rs",
+          "reviewed": {
+            "at": "2026-11-07T11:15:00Z",
+            "by": "Ana Ribeiro (Legal)"
+          }
+        },
+        {
+          "path": "/web/src/pages/settings/privacy.tsx"
+        }
+      ],
+      "url": "https://www.youtube.com/watch?v=EXAMPLE"
+    },
+    "google-drive:1a2B3c4D5e6F7g8H9i0J": {
+      "reviewed": {
+        "at": "2026-11-06T09:40:00Z",
+        "by": "Ana Ribeiro (Legal)"
+      },
+      "schedule": {
+        "grace": 0
+      },
+      "sources": [
+        {
+          "oid": "sha1:58e6b3a414a1e090dfc6029add0f3555ccba127f",
+          "path": "/db/schema.sql",
+          "reviewed": {
+            "at": "2026-11-06T09:40:00Z",
+            "by": "Ana Ribeiro (Legal)"
+          }
+        }
+      ],
+      "url": "https://docs.google.com/document/d/1a2B3c4D5e6F7g8H9i0J/edit"
+    }
+  },
+  "retired": {},
+  "schema": 1
+}

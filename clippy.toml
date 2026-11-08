@@ -1,0 +1,5 @@
+# Test code may unwrap, expect and panic, so that a failing test fails
+# clearly. Production code follows the lints in Cargo.toml.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

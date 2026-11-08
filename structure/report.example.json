@@ -1,0 +1,220 @@
+{
+  "at": "2026-11-07T18:00:00Z",
+  "context": {
+    "name": "production",
+    "origin": {
+      "file": ".source-sentry/source-sentry.yaml",
+      "import-chain": [],
+      "kind": "config",
+      "line": 20,
+      "scope": "repository"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "empty-pattern",
+      "location": {
+        "field": "documents[\"onboarding.md\"].sources[2]",
+        "file": "docs/source-sentry.lock",
+        "line": 31
+      },
+      "message": "`/db/legacy/*.sql` matches no tracked file.",
+      "related": [],
+      "severity": "warning"
+    }
+  ],
+  "exit-code": 2,
+  "gates": {
+    "continue": "fail",
+    "report": "fail"
+  },
+  "revision": {
+    "head": "sha1:4f3c2a1b5e6d7c8f9a0b1c2d3e4f5a6b7c8d9e0f",
+    "kind": "working-tree"
+  },
+  "schema": 1,
+  "subjects": [
+    {
+      "deadline": {
+        "due": "2026-11-03",
+        "overdue-from": "2026-11-04T00:00:00Z"
+      },
+      "declared-in": "docs/source-sentry.lock",
+      "document": "docs/privacy.md",
+      "facts": [
+        "stale",
+        "overdue"
+      ],
+      "field": "documents[\"privacy.md\"]",
+      "judgement": [
+        {
+          "fact": "stale",
+          "outcome": "fail",
+          "rule": {
+            "classes": [
+              "privacy"
+            ],
+            "facts": [
+              "stale",
+              "overdue",
+              "unattested",
+              "timing-unknown",
+              "upstream-stale"
+            ],
+            "origin": {
+              "file": ".source-sentry/source-sentry.yaml",
+              "import-chain": [],
+              "kind": "config",
+              "line": 24,
+              "scope": "repository"
+            },
+            "outcome": "fail"
+          }
+        },
+        {
+          "fact": "overdue",
+          "outcome": "fail",
+          "rule": {
+            "classes": [
+              "privacy"
+            ],
+            "facts": [
+              "stale",
+              "overdue",
+              "unattested",
+              "timing-unknown",
+              "upstream-stale"
+            ],
+            "origin": {
+              "file": ".source-sentry/source-sentry.yaml",
+              "import-chain": [],
+              "kind": "config",
+              "line": 24,
+              "scope": "repository"
+            },
+            "outcome": "fail"
+          }
+        }
+      ],
+      "kind": "document",
+      "mode": "lockfile",
+      "outcome": "fail",
+      "settings": {
+        "cadence": {
+          "origin": {
+            "kind": "built-in"
+          },
+          "value": null
+        },
+        "classes": {
+          "origin": {
+            "field": "documents[\"privacy.md\"].classes",
+            "file": "docs/source-sentry.lock",
+            "kind": "declaration"
+          },
+          "value": [
+            "privacy"
+          ]
+        },
+        "grace": {
+          "origin": {
+            "file": "docs/source-sentry.yaml",
+            "import-chain": [],
+            "kind": "config",
+            "line": 7,
+            "scope": "directory:docs"
+          },
+          "value": 14
+        },
+        "owners": {
+          "origin": {
+            "field": "documents[\"privacy.md\"].owners",
+            "file": "docs/source-sentry.lock",
+            "kind": "declaration"
+          },
+          "value": [
+            "legal"
+          ]
+        }
+      },
+      "sources": [
+        {
+          "attested": "sha1:58e6b3a414a1e090dfc6029add0f3555ccba127f",
+          "clock": {
+            "commit": "sha1:7d2e9b0c1a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d",
+            "since": "2026-10-20T10:00:00Z"
+          },
+          "current": "sha1:9c1185a5c5e9fc54612808977ee8f548b2258d31",
+          "path": "db/schema.sql",
+          "state": "drifted"
+        }
+      ]
+    },
+    {
+      "facts": [
+        "unclaimed"
+      ],
+      "judgement": [
+        {
+          "fact": "unclaimed",
+          "outcome": "warn",
+          "rule": null
+        }
+      ],
+      "kind": "unclaimed",
+      "outcome": "warn",
+      "path": "docs/new-page.md",
+      "root": "docs"
+    },
+    {
+      "facts": [
+        "missed"
+      ],
+      "judgement": [
+        {
+          "fact": "missed",
+          "outcome": "notice",
+          "rule": {
+            "classes": [],
+            "facts": [
+              "missed"
+            ],
+            "origin": {
+              "file": ".source-sentry/source-sentry.yaml",
+              "import-chain": [],
+              "kind": "config",
+              "line": 21,
+              "scope": "repository"
+            },
+            "outcome": "notice"
+          }
+        }
+      ],
+      "kind": "series",
+      "missed": [
+        {
+          "after": "2026-07-01",
+          "due": "2026-09-01",
+          "last-day": "2026-09-15"
+        }
+      ],
+      "name": "security-audits",
+      "outcome": "notice",
+      "scope": "directory:audits"
+    }
+  ],
+  "summary": {
+    "errors": {
+      "configuration": 0,
+      "integrity": 0,
+      "operational": 0
+    },
+    "outcomes": {
+      "fail": 1,
+      "notice": 1,
+      "pass": 9,
+      "warn": 1
+    }
+  },
+  "threshold": "warn"
+}

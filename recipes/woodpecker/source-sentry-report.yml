@@ -1,0 +1,118 @@
+# Source Sentry: the Woodpecker report gate.
+#
+# This folder holds three workflows. Copy all three files into .woodpecker/
+# and keep their names: Woodpecker names each workflow, and the status it
+# reports to the forge, after its file. A .woodpecker/ folder takes precedence
+# over a .woodpecker.yml file. The README beside this folder explains the
+# gates, the branch protection they need on the forge and the files to
+# protect.
+#
+# This workflow has not yet run on real CI. The `install` step pins a release
+# of Source Sentry by version and checksum; its values are placeholders that
+# you must replace, identically in all three files.
+#
+# The report gate asks "Is anything wrong?" It fails on a warning or a
+# failure, and so does this workflow's status,
+# ci/woodpecker/<event>/source-sentry-report. That status prompts a fix; do
+# not require it.
+#
+# Woodpecker substitutes its own variables throughout this file, comments
+# included, before running it, so variables meant for the shell are written
+# with a doubled dollar sign.
+
+when:
+  - event: [pull_request, cron, manual]
+  - event: push
+    evaluate: 'CI_COMMIT_BRANCH == CI_REPO_DEFAULT_BRANCH'
+
+# The workspace volume is shared by the steps of this workflow, but not with
+# the other workflows. The binary is installed under its base, outside the
+# checkout.
+workspace:
+  base: /woodpecker
+  path: src
+
+# Source Sentry reads history to date changes. The default clone is shallow
+# and partial, and either makes it stop with exit 4, because `check` never
+# fetches missing history or objects. This clone fetches everything and checks
+# out CI_COMMIT_SHA, the same commit in every workflow of the pipeline. For a
+# pull request, that commit is the pull request's head.
+clone:
+  - name: clone
+    image: docker.io/woodpeckerci/plugin-git:2.12.1
+    settings:
+      partial: false
+      depth: 0
+
+steps:
+  # INSTALLATION. Downloads Source Sentry's release archive for the agent's
+  # architecture, checks it against the SHA-256 pinned below, and installs the
+  # binary for the steps that follow. Releases are not signed, so the pinned
+  # checksum, rather than the release's own SHA256SUMS, is what ties this
+  # workflow to known bytes. Workflows share no files, so each of the three
+  # workflows downloads the archive itself; with the same pins, all three run
+  # the same file. Replace the three values marked REPLACE with those of one
+  # release, identically in all three files; the pipeline fails here until you
+  # do. The README beside this folder explains where to find them.
+  - name: install
+    image: docker.io/library/buildpack-deps:trixie-scm
+    environment:
+      SOURCE_SENTRY_VERSION: 'X.Y.Z' # REPLACE: a released version, such as 0.1.0, without the leading v.
+      SOURCE_SENTRY_SHA256_X86_64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the x86_64 archive's SHA-256, from SHA256SUMS.
+      SOURCE_SENTRY_SHA256_AARCH64: '0000000000000000000000000000000000000000000000000000000000000000' # REPLACE: the aarch64 archive's SHA-256, from SHA256SUMS.
+      # Where the archives are downloaded from: git.gabmacn.com, or a copy of
+      # a release's files. The checksums apply either way.
+      SOURCE_SENTRY_RELEASES: 'https://git.gabmacn.com/gmn/source-sentry/releases/download'
+    commands:
+      - |
+        case "$(uname -m)" in
+          x86_64)
+            target=x86_64-unknown-linux-gnu
+            pin=SOURCE_SENTRY_SHA256_X86_64
+            sha256="$${SOURCE_SENTRY_SHA256_X86_64}"
+            ;;
+          aarch64)
+            target=aarch64-unknown-linux-gnu
+            pin=SOURCE_SENTRY_SHA256_AARCH64
+            sha256="$${SOURCE_SENTRY_SHA256_AARCH64}"
+            ;;
+          *)
+            echo "Source Sentry publishes Linux archives for x86_64 and aarch64 only, not for $(uname -m)." >&2
+            exit 1
+            ;;
+        esac
+        if ! printf '%s\n' "$${SOURCE_SENTRY_VERSION}" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?'; then
+          echo "SOURCE_SENTRY_VERSION is '$${SOURCE_SENTRY_VERSION}', not a version such as 0.1.0. Pin a release's version and checksums in this step, in all three files." >&2
+          exit 1
+        fi
+        name="source-sentry-$${SOURCE_SENTRY_VERSION}-$${target}"
+        case "$${sha256}" in
+          *[!0]*) ;;
+          *)
+            echo "$${pin} is a placeholder. Pin the SHA-256 of $${name}.tar.gz, from the release's SHA256SUMS, in all three files." >&2
+            exit 1
+            ;;
+        esac
+        download="$(mktemp -d)"
+        url="$${SOURCE_SENTRY_RELEASES}/v$${SOURCE_SENTRY_VERSION}/$${name}.tar.gz"
+        curl --fail --location --silent --show-error --retry 5 --retry-connrefused \
+          --output "$${download}/$${name}.tar.gz" "$${url}" \
+          || { echo "Could not download $${url}." >&2; exit 1; }
+        (cd "$${download}" && printf '%s  %s\n' "$${sha256}" "$${name}.tar.gz" | sha256sum --check --strict) \
+          || { echo "$${name}.tar.gz does not match $${pin}, so it was not extracted." >&2; exit 1; }
+        tar -xzf "$${download}/$${name}.tar.gz" -C "$${download}"
+        "$${download}/$${name}/source-sentry" --version \
+          || { echo "The binary does not run here. It needs glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
+        mkdir -p /woodpecker/source-sentry/bin
+        cp "$${download}/$${name}/source-sentry" /woodpecker/source-sentry/bin/
+
+  # The evaluation instant is CI_PIPELINE_CREATED, which Woodpecker sets once
+  # per pipeline, for every workflow, converted to RFC 3339.
+  - name: report-gate
+    image: docker.io/library/buildpack-deps:trixie-scm
+    commands:
+      - '[ "$(git rev-parse HEAD)" = "$${CI_COMMIT_SHA}" ] || { echo "Checked out $(git rev-parse HEAD), but this pipeline is for $${CI_COMMIT_SHA}." >&2; exit 1; }'
+      - AT="$(date -u -d "@$${CI_PIPELINE_CREATED}" +%Y-%m-%dT%H:%M:%SZ)"
+      - >-
+        /woodpecker/source-sentry/bin/source-sentry check
+        --context default --fail-on warn --at "$${AT}"

@@ -1,0 +1,33 @@
+{{!-
+  The cargo-about template for THIRD-PARTY-LICENSES.txt, which ships in every
+  release archive. `about.toml` explains how it is generated. Triple braces
+  print values unescaped, since the output is plain text.
+-}}
+Third-party licences
+====================
+
+Source Sentry is licensed under the MIT licence, in LICENSE. It includes the
+following third-party software, under the licences below.
+
+Licences used
+-------------
+
+{{#each overview}}
+- {{{name}}} ({{{id}}}): {{{count}}}
+{{/each}}
+{{#each licenses}}
+
+--------------------------------------------------------------------------------
+
+{{{name}}} ({{{id}}})
+{{#if (eq id "GPL-2.0-only")}}
+This licence applies with the linking exception that the text below states.
+{{/if}}
+
+Used by:
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}}: {{{crate.repository}}}{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}
