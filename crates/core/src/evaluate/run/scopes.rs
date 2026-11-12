@@ -8,11 +8,11 @@ use super::model::AppliedContext;
 use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location, Mode};
 use crate::config::{
 	ConfigSet, DirectorySettings, DocumentDefaults, Origin, RemoteSettings,
-	Resolved,
+	Resolved, Series,
 };
 use crate::evaluate::schedule::{EffectiveSchedule, ScheduleError, TimeZone};
 use crate::evaluate::settings::{
-	DeclarationSite, EffectiveSettings, SettingOrigin,
+	DeclarationSite, Effective, EffectiveSettings, SettingOrigin,
 };
 use crate::model::{ClassName, Context, DocumentId, RepoPath, Rule};
 use crate::policy::{PolicyError, select_context, validate_context};
@@ -203,6 +203,38 @@ impl<'c> Scopes<'c> {
 		)
 	}
 
+	/// A series' defaults and rules with its own schedule applied field by
+	/// field. The final value says whether the series sets its own cadence.
+	pub(super) fn of_series(
+		&mut self,
+		series: &Series,
+	) -> (EffectiveSettings, Vec<Resolved<Rule>>, bool) {
+		let (defaults, rules) = self.of_directory(&series.anchor);
+		let mut settings = EffectiveSettings::new(&defaults, None);
+		let Some(schedule) = &series.schedule else {
+			return (settings, rules, false);
+		};
+		if let Some(grace) = schedule.grace {
+			settings.grace = Effective {
+				value: grace,
+				origin: SettingOrigin::Config(series.origin.clone()),
+			};
+		}
+		let own = !schedule.cadence.is_inherit();
+		if own {
+			let mut origin = series.origin.clone();
+			origin.position = self
+				.configs
+				.series_cadence_position(series)
+				.or(origin.position);
+			settings.cadence = Effective {
+				value: schedule.cadence.as_set().cloned(),
+				origin: SettingOrigin::Config(origin),
+			};
+		}
+		(settings, rules, own)
+	}
+
 	/// The effective settings and scoped rules of `claim`'s document: its
 	/// declaration over the defaults of its directory, or of its remote owner.
 	pub(super) fn of_claim(
@@ -238,17 +270,13 @@ impl<'c> Scopes<'c> {
 		(settings, rules)
 	}
 
-	/// The validated schedule of `settings`, or `None`
-	/// when its cadence is invalid. Every [`ScheduleError`] but
-	/// [`ScheduleError::OutOfRange`] is a configuration error; that one is an
-	/// operational error. Either is reported at the cadence's origin, about
-	/// `document` when the document's own declaration sets the cadence.
+	/// The effective schedule of `settings`, or `None` when its cadence is
+	/// invalid. Config loading and discovery have already reported every
+	/// invalid written cadence at its own location, so resolving a schedule
+	/// does not report it again for each document or series that uses it.
 	pub(super) fn schedule(
 		&mut self,
 		settings: &EffectiveSettings,
-		cadence_field: &str,
-		document: Option<&DocumentId>,
-		diagnostics: &mut Vec<Diagnostic>,
 	) -> Option<EffectiveSchedule> {
 		let key: ScheduleKey = (
 			settings.grace.value,
@@ -258,22 +286,13 @@ impl<'c> Scopes<'c> {
 				.as_ref()
 				.map(|cadence| (cadence.dtstart, cadence.rrule.clone())),
 		);
-		let result = self
+		self
 			.schedules
 			.entry(key)
-			.or_insert_with(|| EffectiveSchedule::new(&settings.schedule()));
-		match result {
-			Ok(schedule) => Some(schedule.clone()),
-			Err(error) => {
-				diagnostics.push(schedule_diagnostic(
-					error,
-					&settings.cadence.origin,
-					cadence_field,
-					document,
-				));
-				None
-			}
-		}
+			.or_insert_with(|| EffectiveSchedule::new(&settings.schedule()))
+			.as_ref()
+			.ok()
+			.cloned()
 	}
 }
 
@@ -290,39 +309,20 @@ fn scoped(
 
 /// The diagnostic for a schedule error, at the origin of the cadence that
 /// caused it. A config's cadence is written under `cadence_field`, such as
-/// `schedule.cadence`.
+/// `schedule.cadence`. A declaration's claim supplies its written line.
 pub(super) fn schedule_diagnostic(
 	error: &ScheduleError,
 	origin: &SettingOrigin,
 	cadence_field: &str,
-	document: Option<&DocumentId>,
+	claim: Option<&Claim>,
 ) -> Diagnostic {
-	let (kind, message) = match error {
-		ScheduleError::OutOfRange => (
-			DiagnosticKind::DateOutOfRange,
-			format!(
-				"{error}, so a deadline or cadence window could not be computed and \
-				 the evaluation is incomplete. Check the grace period and the \
-				 cadence's dates"
-			),
-		),
-		ScheduleError::UnknownTimeZone(_)
-		| ScheduleError::InvalidRule { .. }
-		| ScheduleError::TimeOfDay { .. }
-		| ScheduleError::Bounded { .. }
-		| ScheduleError::UnsupportedRule { .. }
-		| ScheduleError::NoOccurrence { .. }
-		| ScheduleError::DtstartNotOccurrence { .. } => (
-			DiagnosticKind::InvalidSchedule,
-			format!(
-				"{error}. Until the cadence is corrected, the documents and series \
-				 that use it have no deadline"
-			),
-		),
-	};
 	let (location, about) = match origin {
 		SettingOrigin::Declaration { file, field } => {
-			(Location::field(file.clone(), field.clone()), document)
+			let location = claim.map_or_else(
+				|| Location::field(file.clone(), field.clone()),
+				|claim| claim.location_of(field.clone()),
+			);
+			(location, claim.map(|claim| &claim.document))
 		}
 		SettingOrigin::Config(origin) => {
 			(config_location(origin, cadence_field), None)
@@ -331,7 +331,7 @@ pub(super) fn schedule_diagnostic(
 			(Location::field(repository_config(), cadence_field), None)
 		}
 	};
-	let diagnostic = Diagnostic::new(kind, location, message);
+	let diagnostic = Diagnostic::schedule(error, location);
 	match about {
 		Some(document) => diagnostic.about(document.clone()),
 		None => diagnostic,

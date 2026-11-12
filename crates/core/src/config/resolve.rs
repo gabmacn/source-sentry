@@ -618,6 +618,31 @@ impl ConfigSet {
 		self.directories.keys()
 	}
 
+	/// The written cadence position of an effective series, including one
+	/// imported from a preset. Its scope identifies the importing config.
+	pub(crate) fn series_cadence_position(
+		&self,
+		series: &Series,
+	) -> Option<Position> {
+		let node = match &series.scope {
+			Scope::Repository => self.repository.as_ref(),
+			Scope::Directory(directory) => self.directories.get(directory),
+			Scope::Remote(owner) => self.remotes.get(owner),
+			Scope::BuiltIn => None,
+		}?;
+		let file = series.origin.file.as_ref()?;
+		let parsed = std::iter::once(&node.file)
+			.chain(node.imports.iter().map(|import| &import.preset))
+			.find(|parsed| parsed.path == *file)?;
+		parsed
+			.series
+			.as_ref()?
+			.value
+			.get(&series.name)?
+			.value
+			.cadence_position
+	}
+
 	/// Every directory that holds a lockfile, `source-sentry.lock`.
 	pub fn lockfile_directories(&self) -> impl Iterator<Item = &RepoPath> {
 		self.lockfile_directories.iter()

@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use super::history::{Query, starts};
 use super::model::{StartedClock, Timing};
 use super::scopes::schedule_diagnostic;
-use crate::claims::{Diagnostic, DiagnosticKind, Location};
+use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location};
 use crate::evaluate::clock::{
 	ClockError, ClockStart, Drift, ObligationStart, SourceQuery, drift_sources,
 };
@@ -171,8 +171,8 @@ pub(super) struct ClockContext<'a> {
 	/// Where a config writes the subject's cadence, such as
 	/// `schedule.cadence`.
 	pub(super) cadence_field: &'a str,
-	/// The document the clocks belong to.
-	pub(super) document: &'a DocumentId,
+	/// The declaration the clocks belong to, with its written field lines.
+	pub(super) claim: &'a Claim,
 }
 
 impl ClockContext<'_> {
@@ -197,7 +197,7 @@ impl ClockContext<'_> {
 				diagnostics.push(clock_diagnostic(
 					error,
 					location.clone(),
-					self.document,
+					&self.claim.document,
 					what,
 				));
 				Timing::Failed
@@ -221,7 +221,7 @@ impl ClockContext<'_> {
 					&error,
 					&self.settings.cadence.origin,
 					self.cadence_field,
-					Some(self.document),
+					Some(self.claim),
 				));
 				None
 			}

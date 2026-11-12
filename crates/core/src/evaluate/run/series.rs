@@ -20,7 +20,7 @@ use crate::evaluate::cadence::{self, CadenceStatus, Completion};
 use crate::evaluate::schedule::{
 	Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone,
 };
-use crate::evaluate::settings::{Effective, EffectiveSettings, SettingOrigin};
+use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{DocumentId, Fact, Lifecycle, RepoPath, Rule};
 
 /// One series, ready for its completions to be answered.
@@ -52,9 +52,7 @@ pub(super) fn plan<'a>(
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> SeriesPlan<'a> {
 	let series = &members.series;
-	let (defaults, rules) = scopes.of_directory(&series.anchor);
-	let mut settings = EffectiveSettings::new(&defaults, None);
-	let own = override_schedule(&mut settings, series);
+	let (settings, rules, own) = scopes.of_series(series);
 	let cadence_field = if own {
 		format!("series.{}.schedule.cadence", series.name)
 	} else {
@@ -62,7 +60,7 @@ pub(super) fn plan<'a>(
 	};
 	let has_cadence = settings.cadence.value.is_some();
 	let schedule = if has_cadence {
-		scopes.schedule(&settings, &cadence_field, None, diagnostics)
+		scopes.schedule(&settings)
 	} else {
 		None
 	};
@@ -115,32 +113,6 @@ pub(super) fn plan<'a>(
 		awaiting,
 		completions,
 	}
-}
-
-/// Applies the series' own schedule over its scope's, field by field, and
-/// says whether it set the cadence.
-fn override_schedule(
-	settings: &mut EffectiveSettings,
-	series: &Series,
-) -> bool {
-	let Some(schedule) = &series.schedule else {
-		return false;
-	};
-	let origin = || SettingOrigin::Config(series.origin.clone());
-	if let Some(grace) = schedule.grace {
-		settings.grace = Effective {
-			value: grace,
-			origin: origin(),
-		};
-	}
-	if schedule.cadence.is_inherit() {
-		return false;
-	}
-	settings.cadence = Effective {
-		value: schedule.cadence.as_set().cloned(),
-		origin: origin(),
-	};
-	true
 }
 
 /// Reports a `living` series whose newest entry is missing or sealed.

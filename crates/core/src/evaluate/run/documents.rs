@@ -84,12 +84,7 @@ impl<'i> Planner<'i, '_, '_> {
 				body: Body::Record(check),
 			};
 		}
-		let schedule = self.scopes.schedule(
-			&settings,
-			CADENCE_FIELD,
-			Some(&claim.document),
-			self.diagnostics,
-		);
+		let schedule = self.scopes.schedule(&settings);
 		let unattested = is_unattested(&claim.declaration);
 		let sites = sites(claim, self.inventory, self.scopes);
 		let unattested_slot = unattested.then(|| {
@@ -448,7 +443,7 @@ impl Finisher<'_> {
 					zone: self.zone,
 					settings: &settings,
 					cadence_field: CADENCE_FIELD,
-					document: &claim.document,
+					claim,
 				};
 				let unattested = unattested.map(|slot| {
 					context.timing(

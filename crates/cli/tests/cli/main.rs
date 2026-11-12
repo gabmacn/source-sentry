@@ -23,6 +23,8 @@ mod records;
 #[cfg(test)]
 mod review;
 #[cfg(test)]
+mod schedules;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod track;

@@ -51,6 +51,13 @@ The exit code is:
 A diagnostic of severity `warning`, such as a pattern that matches nothing,
 is reported but never changes the exit code.
 
+Every written cadence is validated when its config or declaration loads,
+including unused presets, overridden settings and sealed records. An invalid
+cadence is reported once at its written line as `invalid-schedule`, a
+configuration error (exit 3). Deadlines and series windows are also checked
+when the inherited grace, repository time zone and relevant clocks are
+resolved; a valid cadence can still lack a required future due date.
+
 The report gate and the continue gate are two invocations, which differ only
 in `--fail-on`. Both receive the same `--at`, captured once by the CI recipe.
 

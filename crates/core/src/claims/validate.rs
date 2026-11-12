@@ -9,11 +9,13 @@ use super::{
 	Tombstone,
 };
 use crate::config::ConfigSet;
+use crate::evaluate::schedule::EffectiveSchedule;
 use crate::model::DocumentId;
 
 /// Reports double claims, identities that two owner lockfiles share, entries
 /// outside their lockfile's authority, listed documents that the snapshot
-/// lacks, and undeclared classes.
+/// lacks, undeclared classes, and invalid schedules, including those of
+/// sealed records.
 ///
 /// `claims` must be sorted by document.
 pub(super) fn validate(
@@ -28,6 +30,24 @@ pub(super) fn validate(
 	authority(lockfiles, claims, tombstones, diagnostics);
 	missing_documents(claims, diagnostics);
 	undeclared_classes(claims, configs, diagnostics);
+	schedules(claims, diagnostics);
+}
+
+/// Validates each written schedule before evaluation decides whether its
+/// document needs a deadline. Inherited settings are validated in configs.
+fn schedules(claims: &[Claim], diagnostics: &mut Vec<Diagnostic>) {
+	for claim in claims {
+		let Some(schedule) = &claim.declaration.schedule else {
+			continue;
+		};
+		if let Err(error) = EffectiveSchedule::new(schedule) {
+			let location =
+				claim.location_of(format!("{}.schedule.cadence", claim.field));
+			diagnostics.push(
+				Diagnostic::schedule(&error, location).about(claim.document.clone()),
+			);
+		}
+	}
 }
 
 /// How a claim's site reads in a message.

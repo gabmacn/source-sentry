@@ -51,7 +51,7 @@ use crate::claims::{
 	Diagnostic, DiagnosticKind, Inventory, Location, Unclaimed,
 };
 use crate::config::{
-	ConfigError, ConfigSet, Origin, Resolved, SUPPORTED_VERSIONS,
+	ConfigError, ConfigErrorKind, ConfigSet, Origin, Resolved, SUPPORTED_VERSIONS,
 };
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{DocumentId, Fact, RepoPath, Rule};
@@ -168,7 +168,14 @@ pub fn check<S: Snapshot, H: History>(
 	subjects.extend(series);
 
 	diagnostics.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
-	diagnostics.dedup();
+	// Different clocks can expose the same cadence's lack of a due date.
+	// Keep one error at that written cadence, even when the dates differ.
+	diagnostics.dedup_by(|left, right| {
+		left == right
+			|| (left.kind == DiagnosticKind::InvalidSchedule
+				&& right.kind == DiagnosticKind::InvalidSchedule
+				&& left.location == right.location)
+	});
 	let summary = judge_all(&mut subjects, applied.as_ref(), &diagnostics);
 	Ok(Evaluation {
 		revision: revision.clone(),
@@ -183,9 +190,10 @@ pub fn check<S: Snapshot, H: History>(
 }
 
 /// The evaluation of a snapshot whose configs cannot be loaded: nothing is
-/// judged, and each config error is an `invalid-config` diagnostic, so that a
-/// report can still be written and the exit code is 3. The version and time
-/// zone are the built-in ones, because no config supplied others.
+/// judged, and each config error is an `invalid-config` diagnostic, except
+/// invalid cadences, which keep `invalid-schedule`. A report can still be
+/// written and the exit code is 3. The version and time zone are the built-in
+/// ones, because no config supplied others.
 #[must_use]
 pub fn unloadable(
 	revision: &Revision,
@@ -201,11 +209,13 @@ pub fn unloadable(
 				column: error.position.map(|position| position.column),
 				field: error.setting.clone(),
 			};
-			Diagnostic::new(
-				DiagnosticKind::InvalidConfig,
-				location,
-				error.to_string(),
-			)
+			let kind = match error.kind {
+				ConfigErrorKind::InvalidSchedule { .. } => {
+					DiagnosticKind::InvalidSchedule
+				}
+				_ => DiagnosticKind::InvalidConfig,
+			};
+			Diagnostic::new(kind, location, error.to_string())
 		})
 		.collect();
 	let summary = judge_all(&mut [], None, &diagnostics);

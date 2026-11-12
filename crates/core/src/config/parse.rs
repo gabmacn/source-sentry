@@ -197,6 +197,8 @@ pub(super) struct SeriesDefinition {
 	pub(super) version_kind: VersionKind,
 	pub(super) lifecycle: Lifecycle,
 	pub(super) schedule: Option<Schedule>,
+	/// Where the series writes its cadence, for errors after resolution.
+	pub(super) cadence_position: Option<Position>,
 }
 
 /// Parses and checks one config file of the given kind.
@@ -937,6 +939,8 @@ impl Converter<'_> {
 							pattern,
 							version_kind: version_kind.value,
 							lifecycle: lifecycle.value,
+							cadence_position: self
+								.position_of(&format!("{setting}.schedule.cadence")),
 							schedule,
 						},
 						position,

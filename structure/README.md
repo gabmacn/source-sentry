@@ -119,7 +119,8 @@ Other JSON variants:
 
 When a config cannot be loaded, nothing is evaluated: the report has
 `context: null`, an empty `subjects` array and an `invalid-config` diagnostic
-for each config error. The exit code is 3.
+for each config error, except invalid cadences, which use `invalid-schedule`.
+The exit code is 3.
 
 ## Diagnostic codes
 

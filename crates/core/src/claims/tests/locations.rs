@@ -4,6 +4,42 @@ use super::{BASE, REPOSITORY, REVIEW, inventory, lockfile, only};
 use crate::claims::{DiagnosticKind, entry_field};
 use crate::testing::path;
 
+/// Discovery checks schedules even when a sealed record needs no deadline.
+#[test]
+fn a_sealed_records_cadence_is_validated_during_discovery() {
+	let lock = r#"{
+  "documents": {
+    "guide.md": {
+      "schedule": {
+        "cadence": {
+          "dtstart": "2026-01-02",
+          "rrule": "FREQ=MONTHLY;BYMONTHDAY=1"
+        }
+      },
+      "seal": {
+        "at": "2026-10-01T10:00:00Z",
+        "by": null,
+        "oid": "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709"
+      }
+    }
+  },
+  "retired": {},
+  "schema": 1
+}"#;
+	let inventory = inventory(&[
+		("docs/source-sentry.lock", lock),
+		("docs/guide.md", "# Guide\n"),
+	]);
+	let diagnostic = only(&inventory, DiagnosticKind::InvalidSchedule);
+	assert_eq!(diagnostic.location.file, path("docs/source-sentry.lock"));
+	assert_eq!(diagnostic.location.line, Some(5));
+	assert_eq!(
+		diagnostic.location.field.as_deref(),
+		Some("documents[\"guide.md\"].schedule.cadence")
+	);
+	assert!(inventory.has_errors());
+}
+
 #[test]
 fn lockfile_fields_keep_their_entry_keys_and_lines() {
 	for (key, remote) in [

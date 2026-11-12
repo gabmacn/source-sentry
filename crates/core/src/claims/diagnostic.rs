@@ -14,6 +14,7 @@
 
 use std::fmt;
 
+use crate::evaluate::schedule::ScheduleError;
 use crate::model::{DocumentId, RepoPath};
 use crate::policy::ErrorKind;
 
@@ -133,7 +134,8 @@ pub enum DiagnosticKind {
 	/// warning.
 	CaseCollision,
 	/// A config cannot be loaded, so nothing was evaluated. Reported by
-	/// [`crate::evaluate::unloadable`], one per config error.
+	/// [`crate::evaluate::unloadable`], except for invalid schedules, which keep
+	/// their own diagnostic kind.
 	InvalidConfig,
 	/// The requested context is not declared, so no outcome can be decided.
 	/// Reported by evaluation.
@@ -150,8 +152,8 @@ pub enum DiagnosticKind {
 	/// The configured time zone is not an IANA name.
 	/// Reported by evaluation.
 	InvalidTimeZone,
-	/// A cadence that is invalid, or that has no due date where one is
-	/// needed. Reported by evaluation.
+	/// A cadence that is invalid, reported when configs or declarations load,
+	/// or that has no due date where evaluation needs one.
 	InvalidSchedule,
 	/// A source that is a submodule, which Source Sentry does not support.
 	/// Reported by evaluation, at the declaration that
@@ -360,6 +362,36 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+	/// A schedule error at its written cadence or resolved setting. Calendar
+	/// overflow remains operational; other schedule errors are configuration
+	/// errors.
+	pub(crate) fn schedule(error: &ScheduleError, location: Location) -> Self {
+		let (kind, message) = match error {
+			ScheduleError::OutOfRange => (
+				DiagnosticKind::DateOutOfRange,
+				format!(
+					"{error}, so a deadline or cadence window could not be computed and \
+					 the evaluation is incomplete. Check the grace period and the \
+					 cadence's dates"
+				),
+			),
+			ScheduleError::UnknownTimeZone(_)
+			| ScheduleError::InvalidRule { .. }
+			| ScheduleError::TimeOfDay { .. }
+			| ScheduleError::Bounded { .. }
+			| ScheduleError::UnsupportedRule { .. }
+			| ScheduleError::NoOccurrence { .. }
+			| ScheduleError::DtstartNotOccurrence { .. } => (
+				DiagnosticKind::InvalidSchedule,
+				format!(
+					"{error}. Until the cadence is corrected, the documents and series \
+					 that use it have no deadline"
+				),
+			),
+		};
+		Self::new(kind, location, message)
+	}
+
 	/// A diagnostic of `kind` at `location`, about no document in particular
 	/// and with no related locations.
 	#[must_use]
