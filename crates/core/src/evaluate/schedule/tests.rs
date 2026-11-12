@@ -216,6 +216,9 @@ fn malformed_rules_are_rejected() {
 		"RRULE:FREQ=WEEKLY",
 		"EXRULE:FREQ=WEEKLY",
 		"FREQ=WEEKLY\nFREQ=DAILY",
+		"FREQ=DAILY;BY\u{017f}ECOND=0",
+		"FREQ=DAILY;UNT\u{0131}L=20271201T000000Z",
+		"FREQ=DAILY;WK\u{017f}T=MO",
 	] {
 		assert!(
 			matches!(
@@ -245,6 +248,144 @@ fn combinations_that_rfc_5545_forbids_are_rejected() {
 				ScheduleError::InvalidRule { .. }
 			),
 			"{rrule:?} must be invalid",
+		);
+	}
+}
+
+/// Non-ASCII weekday tokens are rejected without entering the parser's slices.
+#[test]
+fn non_ascii_weekdays_are_invalid_rules() {
+	for value in ["日", "💥", "1日", "éSU", "SU,💥"] {
+		let rule = format!("FREQ=MONTHLY;BYDAY={value}");
+		assert!(matches!(
+			rejection("2026-11-01", &rule),
+			ScheduleError::InvalidRule { .. }
+		));
+	}
+}
+
+/// Malformed and overflowing ordinal prefixes must not become plain weekdays.
+#[test]
+fn malformed_weekday_ordinals_are_invalid_rules() {
+	for value in [
+		"garbageSU",
+		"999999999999SU",
+		"+SU",
+		"-SU",
+		"--1SU",
+		"1.0SU",
+		"1 SU",
+		"0001SU",
+		"54SU",
+		"-54SU",
+	] {
+		let rule = format!("FREQ=MONTHLY;BYDAY={value}");
+		assert!(
+			matches!(
+				rejection("2026-11-01", &rule),
+				ScheduleError::InvalidRule { .. }
+			),
+			"{rule:?} must be invalid"
+		);
+	}
+}
+
+/// Zero selectors, including signed forms and list members, are invalid.
+#[test]
+fn zero_recurrence_selectors_are_invalid_rules() {
+	for part in [
+		"BYMONTHDAY=0",
+		"BYMONTHDAY=+0",
+		"BYMONTHDAY=-0",
+		"BYMONTHDAY=1,0",
+		"BYDAY=0SU",
+		"BYDAY=+0SU",
+		"BYDAY=-0SU",
+		"BYDAY=1SU,0MO",
+		"BYWEEKDAY=0SU",
+		"byday=0su",
+		"BYYEARDAY=0",
+		"BYWEEKNO=0",
+		"BYDAY=SU;BYSETPOS=0",
+	] {
+		let rule = format!("FREQ=YEARLY;{part}");
+		assert!(
+			matches!(
+				rejection("2026-11-01", &rule),
+				ScheduleError::InvalidRule { .. }
+			),
+			"{rule:?} must be invalid"
+		);
+	}
+}
+
+/// Empty properties and separators cannot silently disappear during parsing.
+#[test]
+fn empty_recurrence_components_are_invalid_rules() {
+	for rule in [
+		"FREQ=MONTHLY;BYMONTHDAY=",
+		"FREQ=YEARLY;BYYEARDAY=",
+		"FREQ=YEARLY;BYWEEKNO=",
+		"FREQ=MONTHLY;BYMONTH=",
+		"FREQ=MONTHLY;BYDAY=SU;BYSETPOS=",
+		"FREQ=MONTHLY;",
+		";FREQ=MONTHLY",
+		"FREQ=MONTHLY;;BYDAY=SU",
+		"FREQ=MONTHLY;BYDAY=SU,",
+		"FREQ=MONTHLY;BYMONTHDAY=,1",
+	] {
+		assert!(
+			matches!(
+				rejection("2026-11-01", rule),
+				ScheduleError::InvalidRule { .. }
+			),
+			"{rule:?} must be invalid"
+		);
+	}
+}
+
+/// A time property is forbidden even when it has no value or invalid syntax.
+#[test]
+fn time_properties_are_rejected_by_presence() {
+	for part in ["BYHOUR", "BYMINUTE", "BYSECOND"] {
+		for value in ["", "garbage", "0"] {
+			let rule = format!("FREQ=DAILY;{}={value}", part.to_lowercase());
+			assert_eq!(
+				rejection("2026-11-01", &rule),
+				ScheduleError::TimeOfDay { rule, part }
+			);
+		}
+	}
+}
+
+/// Bounds are forbidden even when their values are empty or malformed.
+#[test]
+fn recurrence_bounds_are_rejected_by_presence() {
+	for part in ["COUNT", "UNTIL"] {
+		for value in ["", "garbage"] {
+			let rule = format!("FREQ=DAILY;{}={value}", part.to_lowercase());
+			assert_eq!(
+				rejection("2026-11-01", &rule),
+				ScheduleError::Bounded { rule, part }
+			);
+		}
+	}
+}
+
+/// Signed ordinals and case-insensitive weekday names retain their meaning.
+#[test]
+fn valid_weekday_spellings_keep_their_occurrences() {
+	for (part, next) in [
+		("BYDAY=SU", "2026-11-08"),
+		("byday=su", "2026-11-08"),
+		("BYWEEKDAY=SU", "2026-11-08"),
+		("BYDAY=+1SU", "2026-12-06"),
+		("BYDAY=01SU", "2026-12-06"),
+	] {
+		let rule = format!("FREQ=MONTHLY;{part}");
+		assert_eq!(
+			recurrence("2026-11-01", &rule).next_on_or_after(date("2026-11-02")),
+			Ok(date(next))
 		);
 	}
 }

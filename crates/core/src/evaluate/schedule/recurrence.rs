@@ -143,12 +143,102 @@ fn parse(rule: &str) -> Result<RRule<Unvalidated>, ScheduleError> {
 			 without `RRULE:` or other properties",
 		));
 	}
+	check_parts(rule)?;
 	rule
 		.parse()
 		.map_err(|error: rrule::RRuleError| invalid(rule, error.to_string()))
 }
 
-/// Rejects time-of-day parts, `COUNT` and `UNTIL`.
+/// Checks written parts before the dependency discards or normalises them.
+fn check_parts(rule: &str) -> Result<(), ScheduleError> {
+	for component in rule.split(';') {
+		let Some((name, value)) = component.split_once('=') else {
+			return Err(invalid(rule, "each rule part must be `NAME=value`"));
+		};
+		if !name.is_ascii() {
+			return Err(invalid(rule, "rule part names must use ASCII letters"));
+		}
+		let name = name.to_ascii_uppercase();
+		let time_of_day = match name.as_str() {
+			"BYHOUR" => Some("BYHOUR"),
+			"BYMINUTE" => Some("BYMINUTE"),
+			"BYSECOND" => Some("BYSECOND"),
+			_ => None,
+		};
+		if let Some(part) = time_of_day {
+			return Err(ScheduleError::TimeOfDay {
+				rule: rule.to_owned(),
+				part,
+			});
+		}
+		let bound = match name.as_str() {
+			"COUNT" => Some("COUNT"),
+			"UNTIL" => Some("UNTIL"),
+			_ => None,
+		};
+		if let Some(part) = bound {
+			return Err(ScheduleError::Bounded {
+				rule: rule.to_owned(),
+				part,
+			});
+		}
+		if name.is_empty() || value.split(',').any(str::is_empty) {
+			return Err(invalid(
+				rule,
+				"rule part names and values must not be empty",
+			));
+		}
+		match name.as_str() {
+			"BYDAY" | "BYWEEKDAY" => check_weekdays(rule, value)?,
+			"BYMONTHDAY"
+				if value.split(',').any(|day| day.parse::<i16>() == Ok(0)) =>
+			{
+				return Err(invalid(rule, "BYMONTHDAY values must not be zero"));
+			}
+			_ => {}
+		}
+	}
+	Ok(())
+}
+
+/// Checks ASCII weekday names and optional signed, nonzero ordinals from
+/// 1 to 53 before the dependency slices or normalises the tokens.
+fn check_weekdays(rule: &str, value: &str) -> Result<(), ScheduleError> {
+	for token in value.split(',') {
+		let bad_token = || {
+			invalid(
+				rule,
+				format!(
+					"`{token}` is not a valid BYDAY value; use a weekday such as \
+					 `MO`, optionally preceded by a nonzero ordinal from -53 to 53"
+				),
+			)
+		};
+		let (ordinal, weekday) = token
+			.split_at_checked(token.len().saturating_sub(2))
+			.ok_or_else(bad_token)?;
+		if !matches!(
+			weekday.to_ascii_uppercase().as_str(),
+			"MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU"
+		) {
+			return Err(bad_token());
+		}
+		if !ordinal.is_empty() {
+			let digits = ordinal.strip_prefix(['+', '-']).unwrap_or(ordinal);
+			if !(1..=2).contains(&digits.len())
+				|| !digits.bytes().all(|byte| byte.is_ascii_digit())
+				|| !digits
+					.parse::<u8>()
+					.is_ok_and(|number| (1..=53).contains(&number))
+			{
+				return Err(bad_token());
+			}
+		}
+	}
+	Ok(())
+}
+
+/// Rejects time-of-day frequencies after the written properties are checked.
 fn check_date_only(
 	rule: &str,
 	parsed: &RRule<Unvalidated>,
@@ -161,30 +251,14 @@ fn check_date_only(
 		| Frequency::Monthly
 		| Frequency::Weekly
 		| Frequency::Daily => None,
-	}
-	.or_else(|| (!parsed.get_by_hour().is_empty()).then_some("BYHOUR"))
-	.or_else(|| (!parsed.get_by_minute().is_empty()).then_some("BYMINUTE"))
-	.or_else(|| (!parsed.get_by_second().is_empty()).then_some("BYSECOND"));
+	};
 	if let Some(part) = time_of_day {
 		return Err(ScheduleError::TimeOfDay {
 			rule: rule.to_owned(),
 			part,
 		});
 	}
-	let bound = if parsed.get_count().is_some() {
-		Some("COUNT")
-	} else if parsed.get_until().is_some() {
-		Some("UNTIL")
-	} else {
-		None
-	};
-	match bound {
-		Some(part) => Err(ScheduleError::Bounded {
-			rule: rule.to_owned(),
-			part,
-		}),
-		None => Ok(()),
-	}
+	Ok(())
 }
 
 /// Enforces RFC 5545's restrictions that the evaluator does not, because it

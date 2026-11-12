@@ -28,6 +28,82 @@ fn indent(text: &str, prefix: &str) -> String {
 	indented
 }
 
+/// Invalid raw recurrence tokens still produce a complete JSON diagnostic.
+#[test]
+fn malformed_recurrence_tokens_give_configuration_reports() {
+	for rule in [
+		"FREQ=MONTHLY;BYDAY=日",
+		"FREQ=MONTHLY;BYDAY=💥",
+		"FREQ=MONTHLY;BYDAY=garbageSU",
+		"FREQ=MONTHLY;BYDAY=999999999999SU",
+		"FREQ=DAILY;BY\u{017f}ECOND=0",
+		"FREQ=DAILY;UNT\u{0131}L=20271201T000000Z",
+		"FREQ=MONTHLY;BYMONTHDAY=0",
+		"FREQ=MONTHLY;BYDAY=0SU",
+		"FREQ=DAILY;BYHOUR=",
+		"FREQ=DAILY;BYMINUTE=",
+		"FREQ=DAILY;BYSECOND=",
+		"FREQ=MONTHLY;BYMONTHDAY=",
+		"FREQ=DAILY;",
+	] {
+		let repo = TestRepo::init();
+		let file = ".source-sentry/source-sentry.yaml";
+		repo.write(
+			file,
+			&format!(
+				"version: 1\nschedule:\n  cadence:\n    dtstart: '2026-11-01'\n    rrule: '{rule}'\n"
+			),
+		);
+		assert_invalid_schedule(&repo, file, "schedule.cadence", 3, rule);
+	}
+}
+
+/// Invalid raw rules are refused before creating or extending a declaration.
+#[test]
+fn malformed_recurrence_tokens_are_never_written() {
+	let repo = TestRepo::init();
+	repo.commit_at("2026-10-01T10:00:00Z");
+	for existing in [false, true] {
+		if existing {
+			repo
+				.run(&["track", "docs/guide.md", "--yes"])
+				.expect_code(0);
+		}
+		let before = existing.then(|| repo.read("docs/source-sentry.lock"));
+		let index = repo.git(&["write-tree"]);
+		for rule in [
+			"FREQ=MONTHLY;BYDAY=日",
+			"FREQ=MONTHLY;BYDAY=garbageSU",
+			"FREQ=DAILY;BY\u{017f}ECOND=0",
+			"FREQ=DAILY;UNT\u{0131}L=20271201T000000Z",
+			"FREQ=MONTHLY;BYMONTHDAY=0",
+			"FREQ=MONTHLY;BYDAY=0SU",
+			"FREQ=DAILY;BYHOUR=",
+			"FREQ=DAILY;BYMINUTE=",
+			"FREQ=DAILY;BYSECOND=",
+			"FREQ=MONTHLY;BYMONTHDAY=",
+			"FREQ=DAILY;",
+		] {
+			let run = repo.run(&[
+				"track",
+				"docs/guide.md",
+				"--cadence",
+				"2026-11-01",
+				rule,
+				"--yes",
+			]);
+			run.expect_code(2);
+			assert!(run.stderr.contains(rule), "{}", run.stderr);
+			assert_eq!(repo.git(&["write-tree"]), index);
+			if let Some(before) = &before {
+				assert_eq!(&repo.read("docs/source-sentry.lock"), before);
+			} else {
+				assert!(!repo.exists("docs/source-sentry.lock"));
+			}
+		}
+	}
+}
+
 /// Checks both snapshots and human output for one error at its written line.
 fn assert_invalid_schedule(
 	repo: &TestRepo,
