@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 
 use crate::model::{
 	ClassName, Declaration, Member, ObjectId, PathError, PathSource,
-	PatternSource, RepoPath, Retired, Review, Schedule, Seal, SourceDecl,
+	PatternSource, Rename, RepoPath, Retired, Review, Schedule, Seal, SourceDecl,
 	resolve_project_source,
 };
 
@@ -38,6 +38,14 @@ impl fmt::Display for Site {
 /// `source-sentry.sources[1].path` or `documents["a.md"].seal`.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DeclarationError {
+	/// A former document path is not a canonical rooted spelling.
+	#[error("`{at}`: {reason}")]
+	InvalidRename {
+		/// The former path's field.
+		at: String,
+		/// The constraint it violates.
+		reason: &'static str,
+	},
 	/// A field that this kind of file must not carry: `seal` outside local
 	/// lockfiles, `url` outside remote lockfiles, or `completed` in a remote
 	/// lockfile.
@@ -179,6 +187,8 @@ pub(super) struct RawDeclaration {
 	#[serde(default)]
 	owners: Vec<String>,
 	#[serde(default)]
+	renamed: Vec<Rename>,
+	#[serde(default)]
 	reviewed: Option<Review>,
 	#[serde(default)]
 	schedule: Option<Schedule>,
@@ -196,6 +206,7 @@ impl From<RawDeclaration> for Declaration {
 			classes: raw.classes,
 			completed: raw.completed,
 			owners: raw.owners,
+			renamed: raw.renamed,
 			reviewed: raw.reviewed,
 			schedule: raw.schedule,
 			seal: raw.seal,
@@ -353,6 +364,33 @@ pub(super) fn validate(
 			"completed",
 			"remote documents cannot belong to a series",
 		));
+	}
+	for (index, rename) in declaration.renamed.iter().enumerate() {
+		let field = at.key("renamed").index(index).key("from");
+		let invalid = |reason| DeclarationError::InvalidRename {
+			at: field.to_string(),
+			reason,
+		};
+		let path = rename
+			.from
+			.strip_prefix(":/")
+			.or_else(|| rename.from.strip_prefix('/'))
+			.ok_or_else(|| {
+				invalid("a former document path must start with `/` or `:/`")
+			})?;
+		if path.is_empty()
+			|| path.split('/').any(|part| matches!(part, "" | "." | ".."))
+		{
+			return Err(invalid(
+				"a former document path must name a document with canonical path components",
+			));
+		}
+		let resolved = resolve(scope, &rename.from, &field)?;
+		if resolved.is_lockfile() {
+			return Err(invalid(
+				"a former document path cannot name a Source Sentry lockfile",
+			));
+		}
 	}
 	if let Some(index) = declaration
 		.owners

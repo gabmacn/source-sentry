@@ -201,6 +201,9 @@ fn completion_queries(
 			add_former_sites(&document, inventory, &mut sites);
 			queries.push((
 				Query {
+					project: inventory.project.clone(),
+					projects: inventory.projects.clone(),
+					renamed: Vec::new(),
 					document: document.clone(),
 					sites,
 					condition,
@@ -218,6 +221,9 @@ fn completion_queries(
 		) {
 			queries.push((
 				Query {
+					project: inventory.project.clone(),
+					projects: inventory.projects.clone(),
+					renamed: claim.declaration.renamed.clone(),
 					document: document.clone(),
 					sites: sites(claim, inventory, scopes),
 					condition,

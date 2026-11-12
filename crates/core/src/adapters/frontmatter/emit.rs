@@ -43,6 +43,18 @@ pub(super) fn block(declaration: &Declaration, eol: Eol) -> String {
 	if let Some(review) = &declaration.completed {
 		out.review(1, "completed", review);
 	}
+	if !declaration.renamed.is_empty() {
+		out.line(1, "renamed:");
+		for rename in &declaration.renamed {
+			out.line(2, &format!("- from: {}", quote(&rename.from)));
+			out.line(3, &format!("at: {}", timestamp(&rename.at)));
+			let by = rename
+				.by
+				.as_deref()
+				.map_or_else(|| "null".to_owned(), quote);
+			out.line(3, &format!("by: {by}"));
+		}
+	}
 	if !declaration.classes.is_empty() {
 		let classes = declaration.classes.iter().map(ClassName::as_str);
 		out.line(1, &format!("classes: {}", flow(classes)));

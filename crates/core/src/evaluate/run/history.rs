@@ -48,6 +48,10 @@ use crate::ports::{
 };
 use crate::{DIR_NAME, REMOTES_DIR_NAME};
 
+mod provenance;
+
+use provenance::{Evidence, Provenance};
+
 /// A file that may hold a document's declaration.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Site {
@@ -138,6 +142,12 @@ impl Condition {
 /// One question for [`starts`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Query {
+	/// The declaration's current project and all known project boundaries.
+	pub(super) project: RepoPath,
+	/// Project roots used to resolve former declarations.
+	pub(super) projects: std::collections::BTreeSet<RepoPath>,
+	/// The current declaration's explicit rename chain, if still live.
+	pub(super) renamed: Vec<crate::model::Rename>,
 	/// The document whose declaration is read.
 	pub(super) document: DocumentId,
 	/// The files that may declare it.
@@ -170,7 +180,7 @@ pub(super) fn starts<H: History>(
 	let mut predicates: Vec<Predicate<'_, '_, H>> = queries
 		.iter()
 		.map(|query| Predicate::new(query, &reader))
-		.collect();
+		.collect::<Result<_, _>>()?;
 	introduced_at(history, revision, at, &mut predicates)
 }
 
@@ -292,8 +302,11 @@ struct Reader<'h, H> {
 	history: &'h H,
 	/// Frontmatter parses also depend on the document, whose path relative
 	/// sources are validated against, so its path is part of the key.
-	cache: RefCell<HashMap<(ObjectId, SiteKind, RepoPath), Rc<Parsed>>>,
+	cache: RefCell<HashMap<ParseKey, Rc<Parsed>>>,
 }
+
+/// A parse depends on the blob, adapter, document directory and project root.
+type ParseKey = (ObjectId, SiteKind, RepoPath, RepoPath);
 
 impl<H: History> Reader<'_, H> {
 	/// The blob `oid` of `site`, parsed.
@@ -307,7 +320,12 @@ impl<H: History> Reader<'_, H> {
 		oid: &ObjectId,
 		site: &Site,
 	) -> Result<Rc<Parsed>, BackendError> {
-		let key = (oid.clone(), site.kind.clone(), site.path.clone());
+		let key = (
+			oid.clone(),
+			site.kind.clone(),
+			site.path.clone(),
+			site.project.clone(),
+		);
 		if let Some(parsed) = self.cache.borrow().get(&key) {
 			return Ok(Rc::clone(parsed));
 		}
@@ -348,10 +366,15 @@ struct Predicate<'q, 'r, H> {
 	/// The sites' paths, in order, then the pattern member the condition
 	/// itself reads, if any.
 	paths: Vec<RepoPath>,
+	/// The identity active at this point in the backwards walk.
+	provenance: Provenance,
 }
 
 impl<'q, 'r, H> Predicate<'q, 'r, H> {
-	fn new(query: &'q Query, reader: &'r Reader<'r, H>) -> Self {
+	fn new(
+		query: &'q Query,
+		reader: &'r Reader<'r, H>,
+	) -> Result<Self, BackendError> {
 		let mut paths: Vec<RepoPath> =
 			query.sites.iter().map(|site| site.path.clone()).collect();
 		match &query.condition {
@@ -361,11 +384,12 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 			| Condition::Sealed { .. }
 			| Condition::Completed { .. } => {}
 		}
-		Self {
+		Ok(Self {
 			query,
 			reader,
 			paths,
-		}
+			provenance: Provenance::new(query)?,
+		})
 	}
 
 	/// How many times `declaration` and `retired` match the condition, given
@@ -373,6 +397,7 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 	fn occurrences(
 		&self,
 		project: &RepoPath,
+		document: &DocumentId,
 		declaration: Option<&Declaration>,
 		retired: &[Retired],
 		own_path_exists: bool,
@@ -383,7 +408,13 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 				usize::from(declaration.is_some_and(|declaration| {
 					declaration.sources.iter().any(|source| match source {
 						SourceDecl::Path(source) => {
-							self.resolve(project, &source.path).as_ref() == Some(path)
+							resolve_project_source(
+								project,
+								local_path(document),
+								&source.path,
+							)
+							.ok()
+							.as_ref() == Some(path)
 						}
 						SourceDecl::Pattern(_) => false,
 					})
@@ -393,7 +424,14 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 				own_path_exists
 					&& declaration.is_some_and(|declaration| {
 						declaration.sources.iter().any(|source| match source {
-							SourceDecl::Pattern(source) => &source.pattern == pattern,
+							SourceDecl::Pattern(source) => {
+								crate::claims::SourceGlob::compile_project(
+									project,
+									local_path(document),
+									&source.pattern,
+								)
+								.is_ok_and(|glob| glob.rooted() == *pattern)
+							}
 							SourceDecl::Path(_) => false,
 						})
 					}),
@@ -417,20 +455,6 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 			}
 		}
 	}
-
-	/// A declared source path, resolved as discovery resolves it, or
-	/// `None` when it does not resolve.
-	fn resolve(&self, project: &RepoPath, declared: &str) -> Option<RepoPath> {
-		resolve_project_source(
-			project,
-			match &self.query.document {
-				DocumentId::Local(document) => Some(document),
-				DocumentId::Remote(_) => None,
-			},
-			declared,
-		)
-		.ok()
-	}
 }
 
 impl<H: History> RunPredicate for Predicate<'_, '_, H> {
@@ -440,44 +464,72 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 
 	fn holds(
 		&mut self,
-		_commit: &Commit,
+		commit: &Commit,
 		blobs: &[Option<&ObjectId>],
 	) -> Result<bool, BackendError> {
-		let sites = self.query.sites.len();
-		let own_path_exists = blobs.get(sites).is_some_and(Option::is_some);
-		let mut unreadable = false;
-		let mut occurrences = 0;
-		for (site, blob) in self.query.sites.iter().zip(blobs) {
-			let Some(oid) = blob else {
-				continue;
+		let own_path_exists = blobs
+			.get(self.query.sites.len())
+			.is_some_and(Option::is_some);
+		loop {
+			let historical;
+			let view = if self.provenance.original() {
+				blobs[..self.query.sites.len()].to_vec()
+			} else {
+				historical = self
+					.reader
+					.history
+					.blobs_at(&commit.id, &self.provenance.paths())?;
+				historical.iter().map(Option::as_ref).collect()
 			};
-			let parsed = self.reader.parse(oid, site)?;
-			match parsed.entry(&self.query.document) {
-				Entry::Unreadable => unreadable |= !site.former,
-				Entry::Found {
-					declaration,
-					retired,
-				} => {
-					// A live on-file incarnation and earlier tombstones can be
-					// in different files, so count matching markers across sites.
-					occurrences += self.occurrences(
-						&site.project,
+			let mut evidence = Evidence::default();
+			let mut nearest = false;
+			for (site, oid) in self.provenance.sites().iter().zip(view) {
+				let Some(oid) = oid else {
+					continue;
+				};
+				let primary = !self.provenance.original()
+					&& matches!(site.kind, SiteKind::LocalLockfile { .. })
+					&& !std::mem::replace(&mut nearest, true);
+				let parsed = self.reader.parse(oid, site)?;
+				match parsed.entry(self.provenance.document()) {
+					Entry::Unreadable => evidence.unreadable |= !site.former || primary,
+					Entry::Found {
 						declaration,
 						retired,
-						own_path_exists,
-					);
-					if occurrences >= self.query.condition.required_occurrences() {
-						return Ok(true);
+					} => {
+						evidence.occurrences += self.occurrences(
+							&site.project,
+							self.provenance.document(),
+							declaration,
+							retired,
+							own_path_exists,
+						);
+						if let Some(declaration) = declaration {
+							evidence.record(&site.project, declaration)?;
+						}
 					}
 				}
 			}
+			if self.provenance.follow(&evidence)? {
+				continue;
+			}
+			let pattern_file =
+				!matches!(self.query.condition, Condition::Pattern { .. })
+					|| own_path_exists;
+			return Ok(
+				evidence.occurrences >= self.query.condition.required_occurrences()
+					|| (evidence.unreadable
+						&& self.query.condition.is_obligation()
+						&& pattern_file),
+			);
 		}
-		// An unreadable file never delays an obligation's clock. A pattern's
-		// obligation still needs its file to exist.
-		let pattern_file = match self.query.condition {
-			Condition::Pattern { .. } => own_path_exists,
-			_ => true,
-		};
-		Ok(unreadable && self.query.condition.is_obligation() && pattern_file)
+	}
+}
+
+/// The local path used to resolve a historical source, if it is local.
+fn local_path(document: &DocumentId) -> Option<&RepoPath> {
+	match document {
+		DocumentId::Local(path) => Some(path),
+		DocumentId::Remote(_) => None,
 	}
 }

@@ -23,6 +23,20 @@ pub struct Review {
 	pub by: Option<String>,
 }
 
+/// One explicit document rename. Entries retain command order, newest last;
+/// informational timestamps do not determine historical introduction dates.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Rename {
+	/// When the rename was recorded, in UTC to the second.
+	pub at: DateTime<Utc>,
+	/// Who recorded it, or `None` when nobody could be identified.
+	pub by: Option<String>,
+	/// The former document path: `/` starts at the declaration's project
+	/// root, and `:/` starts at the repository root.
+	pub from: String,
+}
+
 impl Review {
 	/// A review at `at`, truncated to the second, by `by`.
 	#[must_use]
@@ -203,6 +217,9 @@ pub struct Declaration {
 	/// Owner identifiers.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub owners: Vec<String>,
+	/// Explicit former paths, oldest rename first. Absent before any rename.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub renamed: Vec<Rename>,
 	/// The last review of the whole document.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reviewed: Option<Review>,

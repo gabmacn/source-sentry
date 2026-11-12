@@ -3,6 +3,74 @@
 use super::*;
 use crate::testing::path;
 
+/// Both adapters preserve rename order and locate every nested field.
+#[test]
+fn rename_provenance_round_trips_in_both_adapters() {
+	use crate::adapters::lockfile::LocalLockfile;
+	use crate::model::Declaration;
+	let declaration: Declaration = serde_json::from_value(serde_json::json!({
+		"renamed": [
+			{"from": "/docs/first.md", "at": "2026-11-02T00:00:00Z", "by": null},
+			{"from": ":/other/second.md", "at": "2026-11-01T00:00:00Z", "by": "Recorder"},
+		]
+	})).unwrap();
+	let project = path("product");
+	let document = path("product/docs/current.md");
+	let mut lockfile = LocalLockfile::new(path("product/docs"));
+	lockfile
+		.documents
+		.insert(document.clone(), declaration.clone());
+	let bytes = lockfile.to_bytes_in_project(&project).unwrap();
+	assert_eq!(
+		LocalLockfile::parse_in_project(&project, &lockfile.directory, &bytes)
+			.unwrap(),
+		lockfile
+	);
+	let bytes = frontmatter::write_in_projects(
+		&project,
+		&project,
+		&document,
+		&document,
+		b"---\ntitle: Keep\n---\n# Body\n",
+		Some(&declaration),
+	)
+	.unwrap();
+	assert_eq!(
+		frontmatter::read_in_project(&project, &document, &bytes).unwrap(),
+		Some(declaration)
+	);
+	let lines = frontmatter::field_lines(&bytes);
+	assert_eq!(lines["source-sentry.renamed[0].from"], 5);
+	assert_eq!(lines["source-sentry.renamed[1].at"], 9);
+}
+
+/// Invalid provenance retains its indexed field in either adapter.
+#[test]
+fn rename_provenance_requires_canonical_rooted_document_paths() {
+	use crate::adapters::lockfile::LocalLockfile;
+	for from in [
+		"old.md",
+		"/",
+		"/./old.md",
+		"/a/../old.md",
+		"/a//old.md",
+		"/source-sentry.lock",
+		":/../old.md",
+		"/a\\old.md",
+	] {
+		let declaration = serde_json::json!({"renamed": [{"from": from, "at": "2026-01-01T00:00:00Z", "by": null}]});
+		let bytes = serde_json::to_vec(&serde_json::json!({"schema": 1, "retired": {}, "documents": {"new.md": declaration}})).unwrap();
+		let error = LocalLockfile::parse(&RepoPath::ROOT, &bytes).unwrap_err();
+		assert!(error.to_string().contains("renamed[0].from"), "{error}");
+		let yaml = format!(
+			"---\nsource-sentry:\n  renamed:\n    - from: '{from}'\n      at: 2026-01-01T00:00:00Z\n      by: null\n---\n"
+		);
+		let error =
+			frontmatter::read(&path("new.md"), yaml.as_bytes()).unwrap_err();
+		assert!(error.to_string().contains("renamed[0].from"), "{error}");
+	}
+}
+
 #[test]
 fn adapters_use_the_config_spelling() {
 	for (adapter, name) in

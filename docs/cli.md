@@ -333,7 +333,7 @@ source-sentry migrate [--dry-run] [--yes]
   It copies the declared classes, owners, grace, cadence and sources.
   Relative source paths and patterns are re-expressed for the new document's
   directory; `/`-rooted spellings stay unchanged. Attestations, the document's
-  `reviewed`, its seal and `completed` are never copied. Options add sources,
+  `reviewed`, its seal, `completed` and `renamed` are never copied. Options add sources,
   classes and owners, and override grace or cadence, as when extending a
   tracked document. Placement follows the usual rules. The plan names the
   predecessor and shows the copied declaration before the options apply.
@@ -386,7 +386,15 @@ source-sentry migrate [--dry-run] [--yes]
   used by the declaration.
 
   Every source review, the document's `reviewed`, its seal and `completed`
-  are kept. Other documents' path sources follow the new path and retain
+  are kept. The declaration appends `renamed: [{from, at, by}]`, newest last,
+  with the current time and git's `user.name` (or `null`). `from` uses
+  `/docs/old.md` from the destination project's root, or `:/other/old.md`
+  from the repository root when the former path is outside that project.
+  Project moves also re-express earlier provenance entries and show each
+  rewrite in the plan. Evaluation follows earlier identities before each
+  rename's introducing commit, keeping obligation clocks and series credit
+  before and after committing the move. Informational timestamps never date
+  those clocks. Other documents' path sources follow the new path and retain
   their reviews. A reviewed pattern member follows only when the pattern
   also matches the new path; otherwise the pattern stays unchanged and
   `check` reports the membership change. Conflicting destination member

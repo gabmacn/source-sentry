@@ -17,7 +17,8 @@ use super::{LockfileError, position_of};
 use crate::adapters::declaration::FieldPath;
 
 /// The fields whose values are arrays.
-const ARRAY_FIELDS: [&str; 4] = ["classes", "owners", "sources", "members"];
+const ARRAY_FIELDS: [&str; 5] =
+	["classes", "owners", "renamed", "sources", "members"];
 
 /// The top-level fields whose values map keys to entries.
 const SECTIONS: [&str; 2] = ["documents", "retired"];

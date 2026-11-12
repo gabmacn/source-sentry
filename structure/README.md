@@ -110,6 +110,22 @@ a record, which must never change.
 living-series entry's first complete source review. The preset example
 explains how committed completion and seal markers credit series windows.
 
+**`renamed`**, also allowed in frontmatter, is an optional list of explicit
+former document paths, newest rename last. Each entry has `from`, `at` and
+`by`; `by` is a name or `null`. In `from`, `/docs/old.md` starts at the
+current declaration's project root, and `:/other/docs/old.md` names a former
+path outside that project from the repository root. Components are canonical,
+without `.` or `..`. Project moves re-express every earlier entry as well as
+sources, preserving the targets. The list follows command order, even when
+the recorded timestamps move backwards. The schema remains 1.
+
+Evaluation follows each former identity only before the commit introducing
+its rename marker. Obligation clocks, seals and living-series completion
+credits retain their original history, including before a rename is
+committed. Stored timestamps never date these clocks. Unreadable historical
+declarations can only advance an obligation's deadline; they grant no credit.
+Project-rooted provenance also resolves in an exported project's history.
+
 Each pattern source may carry **`reviewed`**, with `at` and `by`, as well as
 its members' reviews. Attesting a pattern writes the same review on the
 pattern and all current members, and drops removed members. Sources are
@@ -139,7 +155,7 @@ The new declaration copies explicit classes, owners, grace, cadence and
 source paths and patterns. Relative sources are re-expressed for the new
 document's directory, with patterns rebased by their literal prefix;
 `/`-rooted spellings stay unchanged. Source attestations, pattern reviews and
-members, the document's `reviewed`, its seal and `completed` are absent.
+members, the document's `reviewed`, its seal, `completed` and `renamed` are absent.
 Registration options add to these values using the ordinary `track` rules.
 The plan shows the predecessor and copied values before confirmation. The
 new declaration uses normal placement, independently of the predecessor's

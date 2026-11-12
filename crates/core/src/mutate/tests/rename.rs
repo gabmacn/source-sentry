@@ -25,6 +25,8 @@ fn plan(
 		&tree.configs,
 		&tree.inventory,
 		&RenameRequest {
+			at: at(),
+			by: Some(super::REVIEWER.to_owned()),
 			old: local(old),
 			new: local(new),
 		},
@@ -75,6 +77,7 @@ fn a_sealed_lockfile_document_keeps_every_marker_and_rebases_sources() {
 	assert_eq!(renamed.seal, before.seal);
 	assert_eq!(renamed.completed, before.completed);
 	let mut expected = before;
+	expected.renamed = renamed.renamed.clone();
 	if let SourceDecl::Path(source) = &mut expected.sources[0] {
 		source.path = "../../src/a.rs".to_owned();
 	}
@@ -156,6 +159,8 @@ fn an_on_file_declaration_travels_and_keeps_other_bytes() {
 		&tree.configs,
 		&tree.inventory,
 		&RenameRequest {
+			at: at(),
+			by: Some(super::REVIEWER.to_owned()),
 			old: local("docs/guide.md"),
 			new: local("archive/deep/guide.md"),
 		},
@@ -209,6 +214,8 @@ fn ambiguous_on_file_origins_are_refused() {
 			&tree.configs,
 			&tree.inventory,
 			&RenameRequest {
+				at: at(),
+				by: Some(super::REVIEWER.to_owned()),
 				old: local("docs/guide.md"),
 				new: local("archive/guide.md"),
 			},
@@ -237,6 +244,8 @@ fn an_on_file_destination_requires_a_declaration_adapter() {
 		&tree.configs,
 		&tree.inventory,
 		&RenameRequest {
+			at: at(),
+			by: Some(super::REVIEWER.to_owned()),
 			old: local("docs/guide.md"),
 			new: local("guide.pdf"),
 		},
@@ -561,7 +570,12 @@ fn invalid_rename_preconditions_are_refused() {
 				&FakeHistory::new(),
 				&tree.configs,
 				&tree.inventory,
-				&RenameRequest { old, new }
+				&RenameRequest {
+					at: at(),
+					by: Some(super::REVIEWER.to_owned()),
+					old,
+					new
+				}
 			)
 			.is_err()
 		);

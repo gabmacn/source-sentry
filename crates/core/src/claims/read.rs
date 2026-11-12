@@ -386,7 +386,8 @@ fn invalid_declaration(
 /// The field that a declaration error names.
 fn declaration_field(error: &DeclarationError) -> &str {
 	match error {
-		DeclarationError::NotAllowed { at, .. }
+		DeclarationError::InvalidRename { at, .. }
+		| DeclarationError::NotAllowed { at, .. }
 		| DeclarationError::Unpaired { at, .. }
 		| DeclarationError::Path { at, .. }
 		| DeclarationError::Duplicate { at, .. }

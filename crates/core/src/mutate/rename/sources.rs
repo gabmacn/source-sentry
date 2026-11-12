@@ -21,6 +21,23 @@ pub(in crate::mutate) fn rebase(
 	let from = old.parent().unwrap_or(RepoPath::ROOT);
 	let to = new.parent().unwrap_or(RepoPath::ROOT);
 	let document = DocumentId::Local(new.clone());
+	for rename in &mut declaration.renamed {
+		let target =
+			crate::model::resolve_project_source(old_project, None, &rename.from)
+				.map_err(|error| {
+					cannot_rebase(&document, &rename.from, error.into())
+				})?;
+		let after = target
+			.strip_prefix(new_project)
+			.map_or_else(|| format!(":/{target}"), |relative| format!("/{relative}"));
+		record(
+			changes,
+			&document,
+			&mut rename.from,
+			after,
+			RenameSourceKind::Provenance,
+		);
+	}
 	for source in &mut declaration.sources {
 		match source {
 			SourceDecl::Path(source) => {

@@ -174,7 +174,9 @@ fn rename_rebases_carried_frontmatter_before_validating_its_new_directory() {
 	assert!(after.contains("title: Keep me\n"));
 	assert!(after.ends_with("---\n# Body\n"));
 	assert!(after.contains("path: 'src/a.rs'"), "{after}");
-	assert_eq!(after, before.replace("../../src/a.rs", "src/a.rs"));
+	assert!(before.contains("../../src/a.rs"));
+	assert!(after.contains("renamed:"));
+	assert!(after.contains("from: '/docs/deep/guide.md'"));
 	assert!(!repo.exists("source-sentry.lock"));
 }
 
@@ -265,7 +267,15 @@ fn rename_preserves_a_sealed_record() {
 	repo
 		.run(&["rename", "docs/guide.md", "docs/record.md", "--yes"])
 		.expect_code(0);
-	let after = lock(&repo, "docs/source-sentry.lock");
+	let mut after = lock(&repo, "docs/source-sentry.lock");
+	assert_eq!(
+		after["documents"]["record.md"]["renamed"][0]["from"],
+		"/docs/guide.md"
+	);
+	after["documents"]["record.md"]
+		.as_object_mut()
+		.unwrap()
+		.remove("renamed");
 	assert_eq!(
 		after["documents"]["record.md"],
 		before["documents"]["guide.md"]

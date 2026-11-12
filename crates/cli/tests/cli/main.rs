@@ -31,6 +31,8 @@ mod records;
 #[cfg(test)]
 mod rename;
 #[cfg(test)]
+mod rename_history;
+#[cfg(test)]
 mod review;
 #[cfg(test)]
 mod schedules;

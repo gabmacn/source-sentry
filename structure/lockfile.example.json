@@ -30,6 +30,13 @@
       "owners": [
         "platform"
       ],
+      "renamed": [
+        {
+          "at": "2026-11-07T15:10:00Z",
+          "by": "Bruno Costa",
+          "from": "/guides/getting-started.md"
+        }
+      ],
       "reviewed": {
         "at": "2026-11-07T15:02:44Z",
         "by": "Bruno Costa"

@@ -89,6 +89,9 @@ impl<'i> Planner<'i, '_, '_> {
 		let sites = sites(claim, self.inventory, self.scopes);
 		let unattested_slot = unattested.then(|| {
 			self.requests.start(Query {
+				project: self.inventory.project.clone(),
+				projects: self.inventory.projects.clone(),
+				renamed: claim.declaration.renamed.clone(),
 				document: claim.document.clone(),
 				sites: sites.clone(),
 				condition: Condition::Declared,
@@ -169,6 +172,9 @@ impl<'i> Planner<'i, '_, '_> {
 					SourceState::Unattested,
 					(!unattested).then(|| {
 						self.requests.start(Query {
+							project: self.inventory.project.clone(),
+							projects: self.inventory.projects.clone(),
+							renamed: claim.declaration.renamed.clone(),
 							document: claim.document.clone(),
 							sites: sites.to_vec(),
 							condition: Condition::PathSource(source.path.clone()),
@@ -208,10 +214,6 @@ impl<'i> Planner<'i, '_, '_> {
 		sources: &mut Vec<Pending>,
 	) {
 		let field = format!("{}.sources[{}].pattern", claim.field, source.index);
-		let declared = match claim.declaration.sources.get(source.index) {
-			Some(SourceDecl::Pattern(declared)) => declared.pattern.clone(),
-			Some(SourceDecl::Path(_)) | None => source.glob.clone(),
-		};
 		// Every current match, with its attestation if it has one, and every
 		// attested member that no longer matches, by path.
 		let mut paths: BTreeMap<&RepoPath, Membership<'_>> = source
@@ -252,10 +254,13 @@ impl<'i> Planner<'i, '_, '_> {
 					SourceState::Added,
 					(!unattested).then(|| {
 						self.requests.start(Query {
+							project: self.inventory.project.clone(),
+							projects: self.inventory.projects.clone(),
+							renamed: claim.declaration.renamed.clone(),
 							document: claim.document.clone(),
 							sites: sites.to_vec(),
 							condition: Condition::Pattern {
-								pattern: declared.clone(),
+								pattern: source.glob.clone(),
 								member: path.clone(),
 							},
 						})

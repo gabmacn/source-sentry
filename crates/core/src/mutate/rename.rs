@@ -11,12 +11,16 @@ use super::{MutateError, Placement, Planned};
 use crate::adapters::frontmatter;
 use crate::claims::{DiagnosticKind, Inventory, Location, Mode, Version};
 use crate::config::{ConfigSet, Scope};
-use crate::model::{Declaration, DocumentId, RepoPath};
+use crate::model::{Declaration, DocumentId, Rename, RepoPath, Review};
 use crate::ports::{History, Revision, Snapshot};
 
 /// The old and new filesystem identities, resolved by the caller.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenameRequest {
+	/// Who records the rename; names containing `@` are refused.
+	pub by: Option<String>,
+	/// When it is recorded, truncated to the second.
+	pub at: chrono::DateTime<chrono::Utc>,
 	/// The declared document whose file has already been moved.
 	pub old: DocumentId,
 	/// Its tracked destination, without an independent declaration.
@@ -39,6 +43,8 @@ pub struct RenamedSource {
 /// How a source is affected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenameSourceKind {
+	/// An earlier document path is re-expressed for another project.
+	Provenance,
 	/// A path source is re-expressed or follows the renamed document.
 	Path,
 	/// A pattern is re-expressed for the moved document's directory.
@@ -138,6 +144,17 @@ pub fn rename<S: Snapshot, H: History>(
 		new,
 		&mut changes,
 	)?;
+	let review = Review::new(
+		request.at,
+		super::repo::checked_reviewer(request.by.as_deref())?,
+	);
+	declaration.renamed.push(Rename {
+		at: review.at,
+		by: review.by,
+		from: old
+			.strip_prefix(destination_configs.project())
+			.map_or_else(|| format!(":/{old}"), |relative| format!("/{relative}")),
+	});
 	let mut settings = super::settings::preview(
 		before,
 		super::settings::effective(

@@ -20,6 +20,8 @@ pub(super) fn run(
 	printer: Printer,
 ) -> Result<u8, Failure> {
 	let request = RenameRequest {
+		at: super::now(),
+		by: super::person(workspace, None)?,
 		old: workspace.document(&args.old)?,
 		new: workspace.document(&args.new)?,
 	};
@@ -160,6 +162,7 @@ pub(super) fn source_changes(
 			}
 			kind => {
 				let label = match kind {
+					RenameSourceKind::Provenance => "provenance",
 					RenameSourceKind::Path => "path",
 					RenameSourceKind::Pattern | RenameSourceKind::UnmatchedPattern => {
 						"pattern"
