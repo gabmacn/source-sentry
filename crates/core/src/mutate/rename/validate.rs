@@ -21,7 +21,13 @@ pub(super) fn integrity<S: Snapshot>(
 		.iter()
 		.filter(|diagnostic| {
 			diagnostic.severity().is_fatal()
-				&& diagnostic.document.as_ref() == Some(&renamed.document)
+				&& (diagnostic.document.as_ref() == Some(&renamed.document)
+					|| (diagnostic.kind == DiagnosticKind::DuplicateVersion
+						&& (diagnostic.location.file == *new
+							|| diagnostic
+								.related
+								.iter()
+								.any(|location| location.file == *new))))
 		})
 		.cloned()
 		.collect();

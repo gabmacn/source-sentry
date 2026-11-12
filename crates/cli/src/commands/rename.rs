@@ -66,8 +66,8 @@ fn check_files(
 		Failure::new(exit::OPERATIONAL, "rename requires a working tree")
 	})?;
 	for (path, should_exist) in [(old, false), (new, true)] {
-		let exists = match fs::symlink_metadata(root.join(path.as_str())) {
-			Ok(_) => true,
+		let exists = match exists_exactly(root, path) {
+			Ok(exists) => exists,
 			Err(error) if error.kind() == io::ErrorKind::NotFound => false,
 			Err(error) => {
 				return Err(Failure::new(
@@ -93,6 +93,29 @@ fn check_files(
 		}
 	}
 	Ok(())
+}
+
+/// Checks actual directory-entry spellings, including every parent, instead
+/// of accepting case-insensitive filesystem aliases for the old git path.
+fn exists_exactly(
+	root: &std::path::Path,
+	path: &source_sentry_core::model::RepoPath,
+) -> io::Result<bool> {
+	let mut directory = root.to_path_buf();
+	for component in path.components() {
+		let mut found = false;
+		for entry in fs::read_dir(&directory)? {
+			if entry?.file_name() == std::ffi::OsStr::new(component) {
+				found = true;
+				break;
+			}
+		}
+		if !found {
+			return Ok(false);
+		}
+		directory.push(component);
+	}
+	Ok(true)
 }
 
 /// The declaration move, preserved metadata, source rewrites and series
@@ -122,7 +145,10 @@ fn summary(workspace: &Workspace, summary: &RenameSummary) -> String {
 			let _ = writeln!(
 				text,
 				"  change series `{}` ({}) from version {} to {}",
-				before.name, before.scope, before.version, after.version
+				before.name,
+				scope(workspace, &before.scope),
+				before.version,
+				after.version
 			);
 			return text;
 		}
@@ -130,18 +156,35 @@ fn summary(workspace: &Workspace, summary: &RenameSummary) -> String {
 			let _ = writeln!(
 				text,
 				"  leave series `{}` ({}) at version {}",
-				before.name, before.scope, before.version
+				before.name,
+				scope(workspace, &before.scope),
+				before.version
 			);
 		}
 		if let Some(after) = &summary.series_after {
 			let _ = writeln!(
 				text,
 				"  join series `{}` ({}) at version {}",
-				after.name, after.scope, after.version
+				after.name,
+				scope(workspace, &after.scope),
+				after.version
 			);
 		}
 	}
 	text
+}
+
+/// A series scope in sentence form, with directory paths displayed locally.
+fn scope(
+	workspace: &Workspace,
+	scope: &source_sentry_core::config::Scope,
+) -> String {
+	match scope {
+		source_sentry_core::config::Scope::Directory(path) => {
+			format!("directory {}", workspace.display_path(path))
+		}
+		other => other.to_string(),
+	}
 }
 
 /// Lists every rewritten source and reviewed member before confirmation.

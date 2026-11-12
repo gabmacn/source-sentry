@@ -118,6 +118,41 @@ fn request(file: &str) -> TrackRequest {
 	}
 }
 
+/// Inheriting a valid drive-like filename keeps its protective relative
+/// spelling and remains registrable on hosts that cannot create that name.
+#[test]
+fn inheritance_keeps_drive_like_source_names_registrable() {
+	let lock = lockfile(
+		&[(
+			"audits/v1.md",
+			r#"{"sources":[{"path":"./C:source.rs"},{"pattern":"./c:/*.rs"}]}"#,
+		)],
+		&[],
+	);
+	let tree = Tree::new(&[
+		(REPOSITORY, &config("records-only")),
+		("source-sentry.lock", &lock),
+		("audits/v1.md", PLAIN),
+		("audits/v2.md", PLAIN),
+		("audits/C:source.rs", SOURCE),
+		("audits/c:/a.rs", SOURCE),
+	]);
+	tree.assert_clean();
+	let planned = track(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request("audits/v2.md"),
+	)
+	.unwrap();
+	let sources = &planned.summary.registered.declaration.sources;
+	assert_eq!(
+		sources.iter().map(SourceDecl::declared).collect::<Vec<_>>(),
+		["./C:source.rs", "./c:/*.rs"]
+	);
+	tree.apply(&planned.plan).assert_clean();
+}
+
 /// Both lifecycles and both declaration placements copy settings and identities.
 #[test]
 fn copies_settings_and_sources_without_evidence() {

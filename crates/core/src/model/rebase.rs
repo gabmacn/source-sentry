@@ -94,7 +94,7 @@ pub fn rebase_pattern(
 		.map_err(|error| RebaseError::Glob(error.kind().to_string()))?;
 	let prefix = relative(&from.join(prefix)?, to);
 	Ok(if prefix == "." {
-		suffix.to_owned()
+		protect_relative(suffix)
 	} else {
 		format!("{prefix}/{suffix}")
 	})
@@ -119,7 +119,18 @@ fn relative(target: &RepoPath, directory: &RepoPath) -> String {
 	if parts.is_empty() {
 		".".to_owned()
 	} else {
-		parts.join("/")
+		protect_relative(&parts.join("/"))
+	}
+}
+
+/// Prevents a relative first component from reading as a Windows drive.
+fn protect_relative(path: &str) -> String {
+	if path.as_bytes().get(1) == Some(&b':')
+		&& path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+	{
+		format!("./{path}")
+	} else {
+		path.to_owned()
 	}
 }
 

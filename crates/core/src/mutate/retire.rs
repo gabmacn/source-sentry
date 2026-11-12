@@ -121,7 +121,7 @@ pub fn retire<S: Snapshot>(
 		(document, placement) => {
 			return Err(MutateError::TargetMismatch {
 				document: document.clone(),
-				target: placement.to_string(),
+				target: placement.into(),
 			});
 		}
 	};

@@ -223,9 +223,9 @@ fn refused(request: &RenameRequest, reason: &'static str) -> MutateError {
 	}
 }
 
-/// The declaration to carry and its original site. Only missing-document
-/// diagnostics are tolerated on a lockfile origin; all other errors must
-/// be corrected first.
+/// The declaration to carry and its original site. A missing origin and
+/// the requested pair's temporary duplicate version are tolerated; other
+/// errors must be corrected first.
 fn origin<S: Snapshot, H: History>(
 	repo: &Repo<'_, S>,
 	history: &H,
@@ -233,13 +233,14 @@ fn origin<S: Snapshot, H: History>(
 ) -> Result<(Declaration, Placement, Location), MutateError> {
 	if repo.inventory.claims_of(&request.old).next().is_some() {
 		let claim = repo.claim(&request.old)?;
-		repo.refuse_errors(
-			&request.old,
-			&[
-				DiagnosticKind::MissingDocument,
-				DiagnosticKind::MissingRecord,
-			],
-		)?;
+		let mut tolerated = vec![
+			DiagnosticKind::MissingDocument,
+			DiagnosticKind::MissingRecord,
+		];
+		if requested_pair_duplicates(repo.inventory, request) {
+			tolerated.push(DiagnosticKind::DuplicateVersion);
+		}
+		repo.refuse_errors(&request.old, &tolerated)?;
 		if repo.inventory.claims_of(&request.new).next().is_some() {
 			return Err(refused(
 				request,
@@ -317,6 +318,32 @@ fn origin<S: Snapshot, H: History>(
 		Placement::OnFile,
 		Location::field(old.clone(), crate::claims::FRONTMATTER_FIELD),
 	))
+}
+
+/// A temporary duplicate consists of exactly the requested missing old path
+/// and present destination in the same series and version. Other duplicates
+/// remain errors, and final verification still checks the destination.
+fn requested_pair_duplicates(
+	inventory: &Inventory,
+	request: &RenameRequest,
+) -> bool {
+	let (DocumentId::Local(old), DocumentId::Local(new)) =
+		(&request.old, &request.new)
+	else {
+		return false;
+	};
+	inventory.series.iter().any(|series| {
+		let Some(member) = series.members.iter().find(|member| &member.path == old)
+		else {
+			return false;
+		};
+		let group: Vec<_> = series
+			.members
+			.iter()
+			.filter(|other| other.version == member.version)
+			.collect();
+		group.len() == 2 && group.iter().any(|member| &member.path == new)
+	})
 }
 
 /// Reads only the old path at `HEAD`, never guessing from equal content.

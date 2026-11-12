@@ -13,6 +13,8 @@ use crate::ports::{BackendError, BackendErrorKind};
 pub(super) struct Evidence {
 	/// Matching obligations or completion markers across declaring sites.
 	pub(super) occurrences: usize,
+	/// Matching markers in live declarations, independently of tombstones.
+	pub(super) live_occurrences: usize,
 	/// An authoritative declaration could not be read.
 	pub(super) unreadable: bool,
 	/// Rename markers from readable declarations, with resolved identities.
@@ -119,9 +121,15 @@ impl Provenance {
 	pub(super) fn follow(
 		&mut self,
 		evidence: &Evidence,
+		required: usize,
+		obligation: bool,
 	) -> Result<bool, BackendError> {
 		let recorded = &evidence.markers;
-		if !self.adopted && !recorded.is_empty() {
+		// A retired incarnation may share its marker with a later live one.
+		// Learn a chain only where this query actually names that live marker.
+		let live =
+			evidence.live_occurrences > 0 && evidence.occurrences == required;
+		if !self.adopted && !recorded.is_empty() && (obligation || live) {
 			self.links = evidence
 				.markers
 				.iter()

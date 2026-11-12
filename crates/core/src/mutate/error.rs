@@ -7,7 +7,7 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 
-use super::{Expectation, Placement};
+use super::{Expectation, Placement, Target};
 use crate::adapters::Adapter;
 use crate::adapters::frontmatter::FrontmatterError;
 use crate::adapters::lockfile::LockfileError;
@@ -390,8 +390,8 @@ pub enum MutateError {
 	TargetMismatch {
 		/// The document.
 		document: DocumentId,
-		/// The target, described.
-		target: String,
+		/// The requested placement, retaining its structured paths.
+		target: Target,
 	},
 	/// A source path or pattern that cannot be resolved.
 	#[error("the source `{declared}` of `{document}` is invalid: {error}")]

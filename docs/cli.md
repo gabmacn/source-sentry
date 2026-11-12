@@ -28,9 +28,11 @@ platform's native form: `/home/me/project/docs/guide.md` on Unix, or
 meaning. `-C` changes the effective starting directory for every relative
 argument.
 
-Source spellings, given to `--source` or `--pattern` of `track`, `untrack`,
-`diff` and `attest`, and the path of `--expect`, start in the current
-directory when relative. In source spellings, `/` means the document's
+Source spellings, given to `--source` of `track`, `untrack`, `diff` and
+`attest`, to `--pattern` of `track` and `untrack`, and the path of `--expect`,
+start in the current directory when relative.
+`diff` and `attest` select declared patterns through `--source`.
+In source spellings, `/` means the document's
 project root and `:/` means the repository root: `/src/a.rs` names
 `src/a.rs` inside that project, while `:/src/a.rs` names the repository's
 `src/a.rs`. Sources may leave a project, using parents or `:/`, but may never

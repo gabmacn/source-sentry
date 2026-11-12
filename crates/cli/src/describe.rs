@@ -100,7 +100,11 @@ pub(crate) fn inheritance_hint(
 	};
 	let predecessor = file.inherit_from.as_ref()?;
 	let path = workspace.display_path(&file.path);
-	let path = if path.starts_with('-') {
+	let path = if path.starts_with('-')
+		|| matches!(
+			crate::cli::parse_document(&path),
+			Ok(crate::cli::DocumentArg::Remote(_))
+		) {
 		format!("./{path}")
 	} else {
 		path

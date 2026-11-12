@@ -49,72 +49,9 @@ fn diagnostics(workspace: &Workspace, diagnostics: &[Diagnostic]) -> String {
 		.join("\n")
 }
 
-/// A planner refusal whose diagnostic locations belong to this invocation.
+mod mutation;
+
+/// A planner refusal whose structured paths belong to this invocation.
 pub(super) fn mutation(workspace: &Workspace, error: &MutateError) -> String {
-	match error {
-		MutateError::RenameRefused { old, new, reason } => format!(
-			"cannot rename `{}` to `{}`: {reason}",
-			workspace.display_document(old),
-			workspace.display_document(new)
-		),
-		MutateError::CannotRenameSource {
-			document,
-			declared,
-			error,
-		} => format!(
-			"cannot rename `{}`: cannot re-express source `{declared}`: {error}",
-			workspace.display_document(document)
-		),
-		MutateError::RenameMemberConflict {
-			document,
-			pattern,
-			path,
-		} => format!(
-			"the pattern `{pattern}` of `{}` already reviews `{}`. Run `diff` and review the pattern's membership before renaming; neither review was discarded",
-			workspace.display_document(document),
-			workspace.display_path(path)
-		),
-		MutateError::DocumentHasErrors {
-			document,
-			diagnostics: errors,
-		} => format!(
-			"`{}` has errors to fix first:\n{}",
-			workspace.display_document(document),
-			diagnostics(workspace, errors)
-		),
-		MutateError::WouldIntroduce {
-			diagnostics: errors,
-		} => format!(
-			"the change would introduce these errors, so nothing was planned:\n{}",
-			diagnostics(workspace, errors)
-		),
-		MutateError::InvalidConfigs { errors } => format!(
-			"the configs would no longer load after the change, so nothing was planned:\n{}",
-			errors
-				.iter()
-				.map(|error| format!("  - {}", config(workspace, error)))
-				.collect::<Vec<_>>()
-				.join("\n")
-		),
-		MutateError::DoubleClaim { document, sites } => format!(
-			"`{}` is claimed {} times ({}). Keep one declaration and remove the others first",
-			workspace.display_document(document),
-			sites.len(),
-			sites
-				.iter()
-				.map(|site| describe::location(workspace, site))
-				.collect::<Vec<_>>()
-				.join(", ")
-		),
-		MutateError::AlreadyClaimed { document, sites } => format!(
-			"`{}` is already tracked ({}), and a second claim would be a double claim. Use `track --from` to move it",
-			workspace.display_document(document),
-			sites
-				.iter()
-				.map(|site| describe::location(workspace, site))
-				.collect::<Vec<_>>()
-				.join(", ")
-		),
-		_ => super::chain(error),
-	}
+	mutation::render(workspace, error)
 }

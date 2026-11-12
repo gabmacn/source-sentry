@@ -4,6 +4,36 @@ use super::{BASE, REPOSITORY, REVIEW, inventory, lockfile, only};
 use crate::claims::{DiagnosticKind, entry_field};
 use crate::testing::path;
 
+/// Lockfiles locate each field of an explicit rename independently, and an
+/// invalid timestamp retains its indexed field and written line.
+#[test]
+fn lockfiles_locate_rename_provenance_fields() {
+	use crate::adapters::lockfile::{LocalLockfile, LockfileError};
+	let lock = r#"{
+  "documents": {"guide.md": {"renamed": [{
+    "from": "/docs/old.md",
+    "at": "2026-01-01T00:00:00Z",
+    "by": null
+  }]}},
+  "retired": {}, "schema": 1
+}"#;
+	let found = inventory(&[(REPOSITORY, BASE), ("source-sentry.lock", lock)]);
+	let claim = &found.claims[0];
+	for (field, line) in [("from", 3), ("at", 4), ("by", 5)] {
+		assert_eq!(
+			claim.lines[&format!("{}.renamed[0].{field}", claim.field)],
+			line
+		);
+	}
+	let invalid = lock.replace("2026-01-01T00:00:00Z", "invalid");
+	let error = LocalLockfile::parse(&path(""), invalid.as_bytes()).unwrap_err();
+	let LockfileError::Invalid { at, position, .. } = error else {
+		panic!("an invalid rename timestamp");
+	};
+	assert_eq!(at, "documents[\"guide.md\"].renamed[0].at");
+	assert_eq!(position.line, 4);
+}
+
 /// Local and remote lockfiles locate a pattern's review separately from members.
 #[test]
 fn lockfiles_locate_pattern_reviews() {

@@ -497,27 +497,51 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 						declaration,
 						retired,
 					} => {
-						evidence.occurrences += self.occurrences(
+						let live = self.occurrences(
 							&site.project,
 							self.provenance.document(),
 							declaration,
-							retired,
+							&[],
 							own_path_exists,
 						);
+						evidence.live_occurrences += live;
+						evidence.occurrences += live
+							+ self.occurrences(
+								&site.project,
+								self.provenance.document(),
+								None,
+								if self.provenance.original() {
+									retired
+								} else {
+									&[]
+								},
+								own_path_exists,
+							);
 						if let Some(declaration) = declaration {
 							evidence.record(&site.project, declaration)?;
 						}
 					}
 				}
 			}
-			if self.provenance.follow(&evidence)? {
+			// Before a rename, the carried marker belonged to the old live
+			// declaration, independently of older tombstones at either path.
+			let required = if self.provenance.original() {
+				self.query.condition.required_occurrences()
+			} else {
+				1
+			};
+			if self.provenance.follow(
+				&evidence,
+				required,
+				self.query.condition.is_obligation(),
+			)? {
 				continue;
 			}
 			let pattern_file =
 				!matches!(self.query.condition, Condition::Pattern { .. })
 					|| own_path_exists;
 			return Ok(
-				evidence.occurrences >= self.query.condition.required_occurrences()
+				evidence.occurrences >= required
 					|| (evidence.unreadable
 						&& self.query.condition.is_obligation()
 						&& pattern_file),

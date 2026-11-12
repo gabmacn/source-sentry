@@ -353,7 +353,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 			}
 			(document, target) => Err(MutateError::TargetMismatch {
 				document: document.clone(),
-				target: target.to_string(),
+				target: target.clone(),
 			}),
 		}
 	}

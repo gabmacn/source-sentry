@@ -108,6 +108,35 @@ impl TestRepo {
 		self.git_with_env(args, &[])
 	}
 
+	/// Runs git plumbing with literal UTF-8 input, including tree entries that
+	/// cannot be checked out on the current platform.
+	pub fn git_input(&self, args: &[&str], input: &str) -> String {
+		use std::io::Write as _;
+		let mut command = Command::new("git");
+		self.isolate(&mut command);
+		let mut child = command
+			.args(args)
+			.current_dir(&self.path)
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.unwrap();
+		child
+			.stdin
+			.take()
+			.unwrap()
+			.write_all(input.as_bytes())
+			.unwrap();
+		let output = child.wait_with_output().unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		String::from_utf8(output.stdout).unwrap().trim().to_owned()
+	}
+
 	/// Stages everything and commits it, dated `date`.
 	pub fn commit_at(&self, date: &str) {
 		self.git(&["add", "--all"]);

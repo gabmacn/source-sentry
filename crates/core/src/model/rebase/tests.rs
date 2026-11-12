@@ -9,6 +9,31 @@ fn path(value: &str) -> RepoPath {
 	RepoPath::new(value).unwrap()
 }
 
+/// Generated relative spellings retain a protective dot before a drive-like
+/// first component, for both literal paths and glob suffixes.
+#[test]
+fn drive_like_first_components_keep_their_protective_dot() {
+	let directory = path("audits");
+	for declared in ["./C:source.rs", "./c:/source.rs"] {
+		assert_eq!(
+			rebase_path(declared, &directory, &directory).unwrap(),
+			declared
+		);
+	}
+	for declared in ["./C:*.rs", "./c:/*.rs"] {
+		let rebased = rebase_pattern(declared, &directory, &directory).unwrap();
+		assert_eq!(rebased, declared);
+		assert_eq!(
+			SourceGlob::compile(Some(&path("audits/v1.md")), declared)
+				.unwrap()
+				.rooted(),
+			SourceGlob::compile(Some(&path("audits/v2.md")), &rebased)
+				.unwrap()
+				.rooted()
+		);
+	}
+}
+
 /// Paths and patterns retain their repository identities after rebasing.
 #[test]
 fn directories_and_rooted_spellings() {

@@ -81,6 +81,22 @@ impl fmt::Display for Target {
 	}
 }
 
+/// A resolved placement expressed as a registration target.
+impl From<&Placement> for Target {
+	fn from(placement: &Placement) -> Self {
+		match placement {
+			Placement::OnFile => Self::OnFile,
+			Placement::Lockfile { directory } => Self::Lockfile {
+				directory: Some(directory.clone()),
+			},
+			Placement::Remote { project, owner } => Self::Remote {
+				project: project.clone(),
+				owner: owner.clone(),
+			},
+		}
+	}
+}
+
 /// What to register.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackRequest {
@@ -299,7 +315,7 @@ pub(super) fn register<S: Snapshot>(
 		(document, target) => {
 			return Err(MutateError::TargetMismatch {
 				document: document.clone(),
-				target: target.to_string(),
+				target: target.clone(),
 			});
 		}
 	};
@@ -869,7 +885,7 @@ pub(super) fn location(
 		}
 		(document, placement) => Err(MutateError::TargetMismatch {
 			document: document.clone(),
-			target: placement.to_string(),
+			target: placement.into(),
 		}),
 	}
 }

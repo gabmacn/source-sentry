@@ -29,10 +29,6 @@ pub(crate) struct Workspace {
 	/// The working tree as git reports it, for messages: on Windows,
 	/// without the `\\?\` prefix that canonicalizing adds.
 	root_shown: PathBuf,
-	/// The current directory as the process received it. Command-line paths
-	/// are relative to it, as in git, even when `-C` names another
-	/// repository.
-	working: PathBuf,
 	/// The current directory, canonicalized, for comparing with `root`.
 	current: PathBuf,
 	/// `-C` as given, which commands printed for copying repeat.
@@ -91,7 +87,6 @@ impl Workspace {
 			repository,
 			root,
 			root_shown,
-			working,
 			current,
 			repo_argument: repo.map(Path::to_path_buf),
 		})
@@ -106,15 +101,15 @@ impl Workspace {
 	/// Exit 64 when the path lies outside the working tree or cannot be a
 	/// repository path.
 	pub(crate) fn repo_path(&self, argument: &Path) -> Result<RepoPath, Failure> {
-		let absolute = normalize(&self.working.join(argument));
-		let resolved = resolve_existing(&absolute);
-		let relative = resolved.strip_prefix(&self.root).map_err(|_| {
-			Failure::usage(format!(
-				"`{}` is outside the repository at {}",
-				argument.display(),
-				self.root_shown.display()
-			))
-		})?;
+		let absolute = normalize(&self.current.join(argument));
+		let relative =
+			repository_relative(&absolute, &self.root).ok_or_else(|| {
+				Failure::usage(format!(
+					"`{}` is outside the repository at {}",
+					argument.display(),
+					self.root_shown.display()
+				))
+			})?;
 		let mut components = Vec::new();
 		for component in relative.components() {
 			let Component::Normal(name) = component else {
@@ -152,7 +147,7 @@ impl Workspace {
 			.map_err(|error| Failure::usage(error.to_string()))?;
 			self.root_shown.join(path.as_str())
 		} else {
-			source_argument_path(&self.root_shown, &self.working, argument)?
+			source_argument_path(&self.root_shown, &self.current, argument)?
 		};
 		self.repo_path(&absolute)
 	}
@@ -311,28 +306,20 @@ fn normalize(path: &Path) -> PathBuf {
 	normalized
 }
 
-/// Canonicalizes the longest existing ancestor of `path`, which is
-/// absolute and normalized, and appends the rest, so that a path that does
-/// not exist still compares with the canonical working tree.
-fn resolve_existing(path: &Path) -> PathBuf {
-	let mut missing = Vec::new();
-	let mut existing = path;
-	loop {
-		if let Ok(canonical) = existing.canonicalize() {
-			let mut resolved = canonical;
-			for name in missing.iter().rev() {
-				resolved.push(name);
-			}
-			return resolved;
-		}
-		match (existing.parent(), existing.file_name()) {
-			(Some(parent), Some(name)) => {
-				missing.push(name.to_os_string());
-				existing = parent;
-			}
-			_ => return path.to_path_buf(),
+/// Finds the filesystem spelling of the repository root before resolving
+/// anything inside it. Everything below that boundary stays lexical, so
+/// git symlinks and case-only renames retain their exact identities.
+fn repository_relative(path: &Path, root: &Path) -> Option<PathBuf> {
+	let ancestors: Vec<_> = path.ancestors().collect();
+	for ancestor in ancestors.into_iter().rev() {
+		if ancestor
+			.canonicalize()
+			.is_ok_and(|canonical| canonical == root)
+		{
+			return path.strip_prefix(ancestor).ok().map(Path::to_path_buf);
 		}
 	}
+	None
 }
 
 /// An I/O failure while resolving directories: exit 4.

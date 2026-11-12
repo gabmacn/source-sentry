@@ -1,7 +1,7 @@
 //! Writes a declaration as a `source-sentry` block in the house style of
 //! `structure/example.yaml`.
 //!
-//! - Fields come in the example's order: `reviewed`, `completed`, `classes`,
+//! - Fields come in this order: `reviewed`, `completed`, `renamed`, `classes`,
 //!   `owners`, `schedule` (`grace`, then `cadence`) and `sources`; a path
 //!   source lists `path`, `oid` and `reviewed`, and a pattern source lists
 //!   `pattern`, `reviewed` and `members`. `completed`, which the example lacks,

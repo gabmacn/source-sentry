@@ -1,7 +1,7 @@
 //! Declarations, as written in frontmatter and in lockfiles.
 //!
 //! One set of types serves both formats, because a lockfile entry has exactly
-//! the fields of an on-file declaration plus `seal` and `completed`. Fields are
+//! the fields of an on-file declaration plus `seal`. Fields are
 //! declared in alphabetical order, which is the order lockfiles serialize them
 //! in. Which fields may appear where is validated by the adapters.
 
