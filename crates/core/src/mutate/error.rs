@@ -146,6 +146,18 @@ pub enum MutateError {
 		/// The path it resolves to.
 		path: RepoPath,
 	},
+	/// An explicit source names a Source Sentry lockfile.
+	#[error(
+		"the source `{declared}` of `{document}` names a Source Sentry lockfile. \
+		 A lockfile cannot be a source: recording a review rewrites it and \
+		 makes the document stale again. Choose a source file instead"
+	)]
+	LockfileSource {
+		/// The document.
+		document: DocumentId,
+		/// The source as declared.
+		declared: String,
+	},
 	/// A new pattern that matches nothing.
 	#[error(
 		"the new pattern `{pattern}` of `{document}` matches no tracked file, \

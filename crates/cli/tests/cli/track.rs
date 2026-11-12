@@ -4,6 +4,110 @@ use serde_json::{Value, json};
 
 use crate::support::{AT, TestRepo, document};
 
+/// `track` refuses both lockfile families with exit 2 and an actionable
+/// explanation, even when the lockfile does not exist yet.
+#[test]
+fn track_refuses_lockfile_sources() {
+	let repo = TestRepo::init();
+	for source in [
+		"/source-sentry.lock",
+		"/docs/source-sentry.lock",
+		"/.source-sentry/remotes/legal.lock",
+	] {
+		let run =
+			repo.run(&["track", "docs/guide.md", "--source", source, "--yes"]);
+		run.expect_code(2);
+		assert!(
+			run.stderr.contains("recording a review rewrites it"),
+			"{}",
+			run.stderr
+		);
+		assert!(!repo.exists("docs/source-sentry.lock"));
+	}
+}
+
+/// Pattern reviews never include lockfiles, and lockfile-only patterns
+/// are empty. Configuration files still participate in reviews.
+#[test]
+fn pattern_check_diff_and_attest_exclude_lockfiles() {
+	let repo = TestRepo::init();
+	repo.write(
+		"inputs/source-sentry.lock",
+		r#"{"documents": {}, "retired": {}, "schema": 1}"#,
+	);
+	repo.write("inputs/source-sentry.yaml", "{}\n");
+	repo.write(
+		".source-sentry/remotes/legal.lock",
+		r#"{"documents": {}, "retired": {}, "schema": 1}"#,
+	);
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--pattern",
+			"/**/source-sentry.lock",
+			"--yes",
+		])
+		.expect_code(2);
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--pattern",
+			"/inputs/*",
+			"--pattern",
+			"/.source-sentry/remotes/*",
+			"--yes",
+		])
+		.expect_code(2);
+	repo
+		.run(&["track", "docs/guide.md", "--pattern", "/inputs/*", "--yes"])
+		.expect_code(0);
+	let diff = repo.run(&["diff", "docs/guide.md", "--format", "json"]);
+	diff.expect_code(0);
+	assert!(
+		!diff.stdout.contains("inputs/source-sentry.lock"),
+		"{}",
+		diff.stdout
+	);
+	assert!(diff.stdout.contains("inputs/source-sentry.yaml"));
+	repo
+		.run(&["attest", "docs/guide.md", "--yes"])
+		.expect_code(0);
+	let lock: Value =
+		serde_json::from_str(&repo.read("docs/source-sentry.lock")).unwrap();
+	assert_eq!(
+		lock["documents"]["guide.md"]["sources"][0]["members"]
+			.as_array()
+			.unwrap()
+			.len(),
+		1
+	);
+	let check = repo.run(&["check", "--at", AT, "--format", "json"]);
+	check.expect_code(0);
+	assert!(!check.stdout.contains("inputs/source-sentry.lock"));
+}
+
+/// Existing declarations report a located configuration error instead of
+/// attempting to review a lockfile.
+#[test]
+fn check_reports_lockfile_source_at_its_declaration() {
+	let repo = TestRepo::init();
+	repo.write("docs/guide.md", "---\nsource-sentry:\n  sources:\n    - path: /source-sentry.lock\n---\n# Guide\n");
+	let run = repo.run(&["check", "--at", AT, "--format", "json"]);
+	run.expect_code(3);
+	let report = run.json();
+	let diagnostic = report["diagnostics"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|diagnostic| diagnostic["code"] == "lockfile-source")
+		.unwrap();
+	assert_eq!(diagnostic["severity"], "configuration-error");
+	assert_eq!(diagnostic["location"]["file"], "docs/guide.md");
+	assert_eq!(diagnostic["location"]["line"], 4);
+}
+
 /// A submodule has no content to review, so `track` refuses to declare it,
 /// as a path or as a new pattern's match, rather than leave every later
 /// `check` to report it.

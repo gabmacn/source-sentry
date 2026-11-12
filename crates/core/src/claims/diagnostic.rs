@@ -110,6 +110,8 @@ pub enum DiagnosticKind {
 	UndeclaredClass,
 	/// A source or member path that cannot be resolved.
 	InvalidSourcePath,
+	/// A path source names a Source Sentry lockfile, which reviews rewrite.
+	LockfileSource,
 	/// An explicitly named source of a live obligation that the snapshot
 	/// lacks.
 	MissingSource,
@@ -204,6 +206,7 @@ impl DiagnosticKind {
 			Self::MissingRecord => "missing-record",
 			Self::UndeclaredClass => "undeclared-class",
 			Self::InvalidSourcePath => "invalid-source-path",
+			Self::LockfileSource => "lockfile-source",
 			Self::MissingSource => "missing-source",
 			Self::InvalidPattern => "invalid-pattern",
 			Self::SelfDependency => "self-dependency",
@@ -255,6 +258,7 @@ impl DiagnosticKind {
 			| Self::MissingDocument
 			| Self::UndeclaredClass
 			| Self::InvalidSourcePath
+			| Self::LockfileSource
 			| Self::MissingSource
 			| Self::InvalidPattern
 			| Self::SelfDependency

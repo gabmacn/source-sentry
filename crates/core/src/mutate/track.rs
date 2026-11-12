@@ -920,19 +920,7 @@ pub(super) fn sources<S: Snapshot>(
 					None => resolve_rooted(source),
 				}
 				.map_err(|error| invalid(source, error))?;
-				if local == Some(&path) {
-					return Err(MutateError::SelfDependency {
-						document: document.clone(),
-						declared: source.clone(),
-					});
-				}
-				if !repo.tracked.contains(&path) {
-					return Err(MutateError::MissingSource {
-						document: document.clone(),
-						declared: source.clone(),
-						path,
-					});
-				}
+				check_path(repo, document, source, &path)?;
 				named.push((path.clone(), source));
 				if let Some(first) = paths.insert(path, source) {
 					return Err(MutateError::DuplicateSource {
@@ -996,4 +984,34 @@ pub(super) fn sources<S: Snapshot>(
 		});
 	}
 	Ok(declared)
+}
+
+/// Checks that an explicit source names a tracked file other than its
+/// document or a Source Sentry lockfile.
+fn check_path<S: Snapshot>(
+	repo: &Repo<'_, S>,
+	document: &DocumentId,
+	declared: &str,
+	path: &RepoPath,
+) -> Result<(), MutateError> {
+	if path.is_lockfile() {
+		return Err(MutateError::LockfileSource {
+			document: document.clone(),
+			declared: declared.to_owned(),
+		});
+	}
+	if document == &DocumentId::Local(path.clone()) {
+		return Err(MutateError::SelfDependency {
+			document: document.clone(),
+			declared: declared.to_owned(),
+		});
+	}
+	if !repo.tracked.contains(path) {
+		return Err(MutateError::MissingSource {
+			document: document.clone(),
+			declared: declared.to_owned(),
+			path: path.clone(),
+		});
+	}
+	Ok(())
 }

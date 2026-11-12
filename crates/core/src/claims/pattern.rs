@@ -177,10 +177,12 @@ impl SourceGlob {
 		format!("/{}", self.glob)
 	}
 
-	/// Whether the pattern matches `path`.
+	/// Whether the pattern matches `path`, excluding Source Sentry lockfiles.
 	#[must_use]
 	pub fn is_match(&self, path: &RepoPath) -> bool {
-		path.starts_with(&self.prefix) && self.matcher.is_match(path.as_str())
+		!path.is_lockfile()
+			&& path.starts_with(&self.prefix)
+			&& self.matcher.is_match(path.as_str())
 	}
 
 	/// Every path in `tracked` that the pattern matches: its current matches,

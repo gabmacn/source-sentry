@@ -14,6 +14,87 @@ use crate::claims::{
 use crate::model::{Declaration, PathSource, PatternSource, SourceDecl};
 use crate::testing::path;
 
+/// Both local and remote lockfiles are forbidden, even for sealed records;
+/// diagnostics retain the source's written line and document.
+#[test]
+fn lockfile_path_sources_are_configuration_errors() {
+	for source in [
+		"/source-sentry.lock",
+		"../source-sentry.lock",
+		"/.source-sentry/remotes/legal.lock",
+	] {
+		let inventory = inventory(&[(
+			"docs/a.md",
+			&markdown(&format!("  sources:\n    - path: '{source}'\n")),
+		)]);
+		let diagnostic = only(&inventory, DiagnosticKind::LockfileSource);
+		assert_eq!(diagnostic.severity(), Severity::Configuration);
+		assert_eq!(diagnostic.document, Some(local("docs/a.md")));
+		assert_eq!(diagnostic.location.line, Some(5));
+	}
+	let inventory = inventory(&[
+		(
+			"docs/source-sentry.lock",
+			&lockfile(&[("a.md", &sealed_with_source("source-sentry.lock"))], &[]),
+		),
+		("docs/a.md", ""),
+	]);
+	only(&inventory, DiagnosticKind::LockfileSource);
+}
+
+/// Lockfiles are excluded from current and recorded pattern membership;
+/// configuration files remain ordinary sources.
+#[test]
+fn patterns_exclude_lockfiles_and_keep_configs() {
+	let inventory = inventory(&[
+		(
+			"docs/a.md",
+			&with_patterns(&["/inputs/**", "/.source-sentry/remotes/*"]),
+		),
+		("inputs/source-sentry.lock", &lockfile(&[], &[])),
+		("inputs/source-sentry.yaml", "{}\n"),
+		(".source-sentry/remotes/legal.lock", &lockfile(&[], &[])),
+		(".source-sentry/remotes/legal.yaml", "{}\n"),
+	]);
+	assert_clean(&inventory);
+	let found = patterns(&inventory, "docs/a.md");
+	assert_eq!(matches(found[0]), ["inputs/source-sentry.yaml"]);
+	assert_eq!(matches(found[1]), [".source-sentry/remotes/legal.yaml"]);
+}
+
+/// Old attestations of lockfiles do not remain pattern members, including
+/// in sealed declarations, and a lockfile-only pattern is empty.
+#[test]
+fn recorded_pattern_members_also_exclude_lockfiles() {
+	for sealed in [false, true] {
+		let seal = if sealed {
+			format!(
+				r#", "seal": {{"at": "2026-11-07T00:00:00Z", "by": null, "oid": {OID}}}"#
+			)
+		} else {
+			String::new()
+		};
+		let declaration = format!(
+			r#"{{"sources": [{{"pattern": "/**/source-sentry.lock", "members": [{{"path": "/source-sentry.lock", "oid": {OID}, "reviewed": {REVIEW}}}]}}]{seal}}}"#
+		);
+		let inventory = inventory(&[
+			(
+				"source-sentry.lock",
+				&lockfile(&[("a.md", &declaration)], &[]),
+			),
+			("a.md", ""),
+		]);
+		let found = patterns(&inventory, "a.md");
+		assert!(found[0].members.is_empty());
+		assert_eq!(matches(found[0]), Vec::<String>::new());
+		if sealed {
+			assert_clean(&inventory);
+		} else {
+			only(&inventory, DiagnosticKind::EmptyPattern);
+		}
+	}
+}
+
 /// The resolved patterns of the only claim of `document`.
 fn patterns<'a>(
 	inventory: &'a Inventory,

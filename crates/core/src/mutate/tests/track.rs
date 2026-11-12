@@ -41,6 +41,60 @@ fn nearest() -> Target {
 	Target::Lockfile { directory: None }
 }
 
+/// Explicit lockfiles are refused before existence checks, while config
+/// files stay valid path sources.
+#[test]
+fn lockfiles_cannot_be_registered_as_sources() {
+	let tree = fixture(&[]);
+	for declared in [
+		"/source-sentry.lock",
+		"source-sentry.lock",
+		"/.source-sentry/remotes/legal.lock",
+	] {
+		let result = track(
+			&tree.snapshot,
+			&tree.configs,
+			&tree.inventory,
+			&request(local("docs/guide.md"), nearest(), vec![source(declared)]),
+		);
+		assert!(
+			matches!(result, Err(MutateError::LockfileSource { .. })),
+			"{result:?}"
+		);
+	}
+	track(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request(
+			local("docs/guide.md"),
+			nearest(),
+			vec![source("/.source-sentry/source-sentry.yaml")],
+		),
+	)
+	.unwrap();
+}
+
+/// A new pattern with no permitted members is refused as empty.
+#[test]
+fn a_pattern_matching_only_lockfiles_is_empty() {
+	let tree = fixture(&[("source-sentry.lock", &lockfile(&[], &[]))]);
+	let result = track(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request(
+			local("docs/guide.md"),
+			nearest(),
+			vec![SourceSpec::Pattern("/**/source-sentry.lock".to_owned())],
+		),
+	);
+	assert!(
+		matches!(result, Err(MutateError::EmptyPattern { .. })),
+		"{result:?}"
+	);
+}
+
 /// The unattested declaration of `/src/a.rs`.
 fn unattested() -> Vec<SourceDecl> {
 	vec![SourceDecl::Path(PathSource {

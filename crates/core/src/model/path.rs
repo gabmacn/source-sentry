@@ -107,6 +107,19 @@ impl RepoPath {
 		)
 	}
 
+	/// Whether this path names a Source Sentry lockfile, which can never be
+	/// a source because recording a review rewrites it.
+	#[must_use]
+	pub fn is_lockfile(&self) -> bool {
+		self.file_name() == Some(crate::LOCKFILE_NAME)
+			|| self.parent().is_some_and(|parent| {
+				parent.as_str() == ".source-sentry/remotes"
+					&& self
+						.file_name()
+						.is_some_and(|name| name.strip_suffix(".lock").is_some())
+			})
+	}
+
 	/// The components from the root down.
 	pub fn components(&self) -> impl Iterator<Item = &str> {
 		self.0.split('/').filter(|component| !component.is_empty())

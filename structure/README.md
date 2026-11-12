@@ -170,6 +170,7 @@ Context rules cannot downgrade errors.
 | `missing-record` | integrity-error | A sealed record is absent without retirement. |
 | `undeclared-class` | configuration-error | A class is not declared. |
 | `invalid-source-path` | configuration-error | A source or member path cannot resolve. |
+| `lockfile-source` | configuration-error | A path source names a Source Sentry lockfile; recording reviews rewrites it. |
 | `missing-source` | configuration-error | An explicit live source is absent. |
 | `invalid-pattern` | configuration-error | A source pattern cannot compile or resolve. |
 | `self-dependency` | configuration-error | A document names itself as a source. |

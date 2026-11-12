@@ -100,6 +100,18 @@ impl Resolver<'_> {
 				return None;
 			}
 		};
+		if path.is_lockfile() {
+			self.report(
+				DiagnosticKind::LockfileSource,
+				field,
+				format!(
+					"`{path}` is a Source Sentry lockfile, and cannot be a source: \
+					 recording a review rewrites it and makes the document stale \
+					 again. Remove this source"
+				),
+			);
+			return None;
+		}
 		if self.document() == Some(&path) {
 			self.report_self_dependency(field.clone(), &source.path);
 		}
@@ -193,6 +205,7 @@ impl Resolver<'_> {
 		let mut members = BTreeMap::new();
 		for (position, member) in source.members.iter().enumerate() {
 			match self.resolve(&member.path) {
+				Ok(path) if path.is_lockfile() => {}
 				Ok(path) => {
 					members.insert(
 						path,
