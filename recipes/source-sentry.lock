@@ -1,0 +1,191 @@
+{
+  "documents": {
+    "README.md": {
+      "sources": [
+        {
+          "members": [
+            {
+              "oid": "sha1:8e00b2dddc7e141926bc8d70b8dbd97367e32846",
+              "path": "forgejo-actions.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:dc2af330a9032425182ec191eaae8c3fbeb44e01",
+              "path": "github-actions.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:cb87af1889b4d9861fd13425ab18b8de6d41c2cf",
+              "path": "gitlab-ci.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:db34a641b7d49918ae5dbafbbd308fb07e163dca",
+              "path": "woodpecker/source-sentry-continue.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:fc53594bc4727044fa80fdca5bf3c654593e6500",
+              "path": "woodpecker/source-sentry-deploy.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:165ecaca74e714a3a37abcf9d1ecedb060afca37",
+              "path": "woodpecker/source-sentry-report.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            }
+          ],
+          "pattern": "**/*.yml"
+        },
+        {
+          "oid": "sha1:a89ae7291fd280c67934f4bc23f248fdccafaba3",
+          "path": "../crates/cli/src/cli.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:6d6ce28e738e7edf1785417457b23436f9557b20",
+          "path": "../crates/cli/src/commands/check.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:e3143a9b7db89c120b5b25e7e913800b64a28852",
+          "path": "../crates/cli/src/exit.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:f4f223dfbdac87a62c34d96199cdc91d792b6e3b",
+          "path": "../crates/core/src/config/parse.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "forgejo-actions.yml": {
+      "sources": [
+        {
+          "path": "../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../crates/core/src/policy/gate.rs"
+        }
+      ]
+    },
+    "github-actions.yml": {
+      "sources": [
+        {
+          "path": "../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../crates/core/src/policy/gate.rs"
+        }
+      ]
+    },
+    "gitlab-ci.yml": {
+      "sources": [
+        {
+          "path": "../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../crates/core/src/policy/gate.rs"
+        }
+      ]
+    },
+    "woodpecker/source-sentry-continue.yml": {
+      "sources": [
+        {
+          "path": "../../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../../crates/core/src/policy/gate.rs"
+        }
+      ]
+    },
+    "woodpecker/source-sentry-deploy.yml": {
+      "sources": [
+        {
+          "path": "../../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../../crates/core/src/policy/gate.rs"
+        }
+      ]
+    },
+    "woodpecker/source-sentry-report.yml": {
+      "sources": [
+        {
+          "path": "../../crates/cli/src/cli.rs"
+        },
+        {
+          "path": "../../crates/cli/src/commands/check.rs"
+        },
+        {
+          "path": "../../crates/cli/src/exit.rs"
+        },
+        {
+          "path": "../../crates/core/src/policy/gate.rs"
+        }
+      ]
+    }
+  },
+  "retired": {},
+  "schema": 1
+}

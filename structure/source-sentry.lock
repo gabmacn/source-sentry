@@ -1,0 +1,168 @@
+{
+  "documents": {
+    "README.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:14Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "oid": "sha1:8700352850ef9734165adc6ee859bcfd59772dd6",
+          "path": "../crates/core/src/adapters/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ace6061eafbd4c863e2ae9e38fe6289b036dbb7d",
+          "path": "../crates/core/src/adapters/lockfile/mod.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:beb1d1195f401c8d8edbc9805f6ce490a91cf7f9",
+          "path": "../crates/core/src/adapters/lockfile/shape.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ecf0a9d434e4bfbb2a27a441fec85033065ec297",
+          "path": "../crates/core/src/claims/diagnostic.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:573ccbc7fa9b5f7015a7c96d06f581faa7464162",
+          "path": "../crates/core/src/model/identity.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ad09b8cfbd60faff9fc96c18290bfdb9f0b57e90",
+          "path": "../crates/core/src/report/check.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:d0504fe186999edb5c167c2201bac160a0e84547",
+          "path": "../crates/core/src/report/common.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "directory-config.example.yaml": {
+      "sources": [
+        {
+          "pattern": "../crates/core/src/config/*.rs"
+        }
+      ]
+    },
+    "example.yaml": {
+      "sources": [
+        {
+          "path": "../crates/core/src/adapters/declaration.rs"
+        },
+        {
+          "path": "../crates/core/src/adapters/frontmatter/mod.rs"
+        },
+        {
+          "path": "../crates/core/src/evaluate/cadence.rs"
+        },
+        {
+          "pattern": "../crates/core/src/evaluate/schedule/*.rs"
+        },
+        {
+          "path": "../crates/core/src/model/declaration.rs"
+        }
+      ]
+    },
+    "lockfile.example.json": {
+      "sources": [
+        {
+          "pattern": "../crates/core/src/adapters/lockfile/*.rs"
+        },
+        {
+          "path": "../crates/core/src/model/declaration.rs"
+        }
+      ]
+    },
+    "preset.example.yaml": {
+      "sources": [
+        {
+          "path": "../crates/core/src/claims/series.rs"
+        },
+        {
+          "pattern": "../crates/core/src/config/*.rs"
+        },
+        {
+          "path": "../crates/core/src/evaluate/cadence.rs"
+        },
+        {
+          "path": "../crates/core/src/model/series.rs"
+        }
+      ]
+    },
+    "remote-config.example.yaml": {
+      "sources": [
+        {
+          "pattern": "../crates/core/src/config/*.rs"
+        }
+      ]
+    },
+    "remote-lockfile.example.json": {
+      "sources": [
+        {
+          "pattern": "../crates/core/src/adapters/lockfile/*.rs"
+        },
+        {
+          "path": "../crates/core/src/model/declaration.rs"
+        },
+        {
+          "path": "../crates/core/src/model/identity.rs"
+        }
+      ]
+    },
+    "report.example.json": {
+      "sources": [
+        {
+          "path": "../crates/core/src/claims/diagnostic.rs"
+        },
+        {
+          "path": "../crates/core/src/evaluate/clock.rs"
+        },
+        {
+          "pattern": "../crates/core/src/report/*.rs"
+        }
+      ]
+    },
+    "repository-config.example.yaml": {
+      "sources": [
+        {
+          "pattern": "../crates/core/src/config/*.rs"
+        },
+        {
+          "path": "../crates/core/src/model/rules.rs"
+        },
+        {
+          "pattern": "../crates/core/src/policy/*.rs"
+        }
+      ]
+    }
+  },
+  "retired": {},
+  "schema": 1
+}
