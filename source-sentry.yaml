@@ -11,8 +11,16 @@ root: true
 inherit: false
 
 documents:
-  # The built-in defaults.
-  include: ['*.md', '*.txt', '*.pdf']
+  include:
+    # The built-in defaults.
+    - '*.md'
+    - '*.txt'
+    - '*.pdf'
+    # The example files describe the file formats and the CI integration as
+    # the code defines them, so they must follow the code as prose does.
+    - 'structure/*.yaml'
+    - 'structure/*.json'
+    - 'recipes/**/*.yml'
   # The last matching line wins.
   adapters:
     - match: '*.md'
@@ -24,6 +32,13 @@ documents:
     # The example's frontmatter shows a declaration; it is not this
     # repository's own. Read as opaque, it is tracked through the lockfile.
     - match: 'docs/example.md'
+      adapter: opaque
+    # YAML and JSON files carry no frontmatter.
+    - match: 'structure/*.yaml'
+      adapter: opaque
+    - match: 'structure/*.json'
+      adapter: opaque
+    - match: 'recipes/**/*.yml'
       adapter: opaque
   ignore:
     # Release notes are written once per release, not kept in step with the
