@@ -184,24 +184,6 @@ fn editing_a_source_document_is_seen_by_its_dependents() {
 	assert!(script.summary().contains("0 documents still need review"));
 }
 
-/// Own-source writes are reported without looping, including shared lockfile
-/// writes from other reviews later in the session.
-#[test]
-fn a_review_that_writes_its_source_is_deferred_until_an_edit() {
-	let repo = Repo::new(
-		json!({"docs/a.md": {"sources": [{"path": "/source-sentry.lock"}]}, "docs/b.md": {}}),
-	);
-	let mut script = Script::answers(&repo, &[Answer::Yes, Answer::Yes]);
-	repo.run(&[], &mut script).unwrap();
-	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
-	assert!(script.summary().contains("1 document still needs review"));
-	assert!(
-		script
-			.summary()
-			.contains("recording the review changed a source")
-	);
-}
-
 /// Named sessions report newly stale obligations beyond their selection.
 #[test]
 fn newly_stale_documents_outside_the_selection_are_reported_at_the_end() {
@@ -329,23 +311,29 @@ fn bulk_review_drops_documents_that_no_longer_need_review() {
 	assert!(script.summary().contains("Recorded 1 review"));
 }
 
-/// A bulk write that changes another confirmed comparison refuses that later
+/// A source edited after the first bulk write refuses the later confirmed
 /// review rather than silently approving the newer source version.
 #[test]
 fn bulk_expectations_remain_frozen_across_the_batch() {
 	let repo = Repo::new(
-		json!({"docs/a.md": {}, "docs/b.md": {"sources": [{"path": "/source-sentry.lock"}]}}),
+		json!({"docs/a.md": {}, "docs/b.md": {"sources": [{"path": "/src/b.rs"}]}}),
 	);
 	let mut script = Script::new(
 		&repo,
 		[
 			Step::Answer(Some(Answer::All)),
 			Step::Confirm(Some(true)),
+			Step::ChangeAfterReview(
+				"src/b.rs",
+				"edited during bulk review\n".to_owned(),
+			),
 			Step::Answer(Some(Answer::Quit)),
 		],
 	);
 	repo.run(&[], &mut script).unwrap();
+	assert_eq!(script.confirmations, [(2, 1)]);
 	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
+	assert!(script.displays[1].contains("+edited during bulk review"));
 	assert!(
 		script
 			.messages
@@ -354,62 +342,37 @@ fn bulk_expectations_remain_frozen_across_the_batch() {
 	);
 	assert!(repo.entry("docs/b.md")["sources"][0]["oid"].is_null());
 	assert!(script.summary().contains("Recorded 1 review"));
+	assert!(script.summary().contains("1 document still needs review"));
 }
 
-/// A bulk approval never silently includes obligations created by its writes.
+/// A source edit during bulk review gives a newly stale document its own
+/// prompt, without extending the confirmed batch.
 #[test]
 fn a_newly_stale_document_outside_the_batch_gets_an_individual_prompt() {
-	let repo = Repo::new(json!({"docs/a.md": {}}));
-	repo.write("other/guide.md", "# Other guide\n");
-	repo.write("other/source-sentry.lock", &json!({"schema": 1, "retired": {}, "documents": {"guide.md": {"sources": [{"path": "/source-sentry.lock"}]}}}).to_string());
-	repo.git(&["add", "--all"]);
-	repo.attest("other/guide.md");
+	let repo = Repo::new(
+		json!({"docs/a.md": {}, "docs/b.md": {"sources": [{"path": "/src/b.rs"}]}}),
+	);
+	repo.attest("docs/b.md");
 	repo.commit();
+	let before = repo.entry("docs/b.md");
 	let mut script = Script::new(
 		&repo,
 		[
 			Step::Answer(Some(Answer::All)),
 			Step::Confirm(Some(true)),
+			Step::ChangeAfterReview(
+				"src/b.rs",
+				"edited outside the batch\n".to_owned(),
+			),
 			Step::Answer(Some(Answer::Quit)),
 		],
 	);
 	repo.run(&[], &mut script).unwrap();
 	assert_eq!(script.confirmations, [(1, 0)]);
-	assert_eq!(script.shown, [local("docs/a.md"), local("other/guide.md")]);
+	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
 	assert!(script.displays[1].contains("Sources changed during this session"));
+	assert!(script.displays[1].contains("+edited outside the batch"));
+	assert_eq!(repo.entry("docs/b.md"), before);
+	assert!(script.summary().contains("Recorded 1 review"));
 	assert!(script.summary().contains("1 document still needs review"));
-}
-
-/// A source edit releases a self-written checkpoint, allowing a new review.
-#[test]
-fn an_edit_releases_a_document_deferred_after_its_own_write() {
-	let repo = Repo::new(
-		json!({"docs/a.md": {"sources": [{"path": "/source-sentry.lock"}, {"path": "/src/a.rs"}]}, "docs/b.md": {}}),
-	);
-	let mut script = Script::new(
-		&repo,
-		[
-			Step::Answer(Some(Answer::Yes)),
-			Step::Answer(Some(Answer::Edit)),
-			Step::Edit(vec![("src/a.rs", "edited\n".to_owned())]),
-			Step::Answer(Some(Answer::Next)),
-			Step::Answer(Some(Answer::Reread)),
-		],
-	);
-	repo.run(&[], &mut script).unwrap();
-	assert_eq!(
-		script.shown,
-		[
-			local("docs/a.md"),
-			local("docs/b.md"),
-			local("docs/b.md"),
-			local("docs/a.md")
-		]
-	);
-	assert!(script.summary().contains("Recorded 2 reviews"));
-	assert!(
-		script
-			.summary()
-			.contains("recording the review changed a source")
-	);
 }

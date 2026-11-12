@@ -4,13 +4,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use source_sentry_core::model::{DocumentId, RepoPath};
+use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::{
 	AttestRequest, DocumentDiff, Expectation, MutateError, Selection, attest,
 	diff,
 };
 
-use super::state::{Checkpoint, Stamp, State, changed_sources};
+use super::state::{Checkpoint, State, changed_sources};
 use super::{Answer, Interface, View};
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
@@ -83,9 +83,8 @@ impl<'a> Session<'a> {
 		})
 	}
 
-	/// Rebuilds the evidence after an answer or edit. Known attestation writes
-	/// cannot repeatedly requeue documents whose own review writes a source.
-	fn refresh(&mut self, written: &BTreeSet<RepoPath>) -> Result<(), Failure> {
+	/// Rebuilds the evidence after an answer or edit.
+	fn refresh(&mut self) -> Result<(), Failure> {
 		let next = State::load(self.workspace, self.context)?;
 		for (id, document) in &next.documents {
 			if let Some(previous) = self.state.documents.get(id) {
@@ -126,9 +125,6 @@ impl<'a> Session<'a> {
 				self
 					.reasons
 					.insert(id.clone(), "Newly tracked during this session.".to_owned());
-			}
-			if let Some(answer) = self.answered.get_mut(id) {
-				answer.refresh(document, written);
 			}
 		}
 		self.answered.retain(|id, answer| {
@@ -195,7 +191,7 @@ impl<'a> Session<'a> {
 			Ok(planned) => planned,
 			Err(MutateError::ExpectationMismatch { .. }) => {
 				ui.message("A source changed after it was shown; this review was not recorded. Showing the current changes again.");
-				self.refresh(&BTreeSet::new())?;
+				self.refresh()?;
 				return Ok(false);
 			}
 			Err(error) => return Err(Failure::mutate(self.workspace, &error)),
@@ -205,19 +201,6 @@ impl<'a> Session<'a> {
 			.repository
 			.apply(&planned.plan)
 			.map_err(|error| Failure::apply(self.workspace, &error))?;
-		let written: BTreeSet<_> = planned
-			.plan
-			.writes
-			.iter()
-			.map(|write| write.path.clone())
-			.chain(
-				planned
-					.plan
-					.deletes
-					.iter()
-					.map(|delete| delete.path.clone()),
-			)
-			.collect();
 		self.recorded.push((compared.document.clone(), reread));
 		self.finished += 1;
 		ui.message(&format!(
@@ -225,18 +208,14 @@ impl<'a> Session<'a> {
 			self.workspace.display_document(&compared.document),
 			if reread { " (reread)" } else { "" }
 		));
-		let before = shown_stamp(compared);
-		self.refresh(&written)?;
+		self.refresh()?;
 		if let Some(document) = self.state.documents.get(&compared.document)
 			&& document.pending
 		{
-			let changed = changed_sources(&before.sources, &document.stamp.sources);
-			let answer = if changed.iter().any(|path| written.contains(path)) {
-				Checkpoint::SelfWritten(document.stamp.clone())
-			} else {
-				Checkpoint::Reviewed(document.stamp.clone())
-			};
-			self.answered.insert(compared.document.clone(), answer);
+			self.answered.insert(
+				compared.document.clone(),
+				Checkpoint::Reviewed(document.stamp.clone()),
+			);
 		}
 		Ok(true)
 	}
@@ -325,11 +304,6 @@ impl<'a> Session<'a> {
 			if !self.selected.is_empty() && !self.selected.contains(id) {
 				text.push_str("; outside the selected documents");
 			}
-			if matches!(self.answered.get(id), Some(Checkpoint::SelfWritten(_))) {
-				text.push_str(
-					"; recording the review changed a source, so it was not queued again",
-				);
-			}
 			text.push('\n');
 		}
 		let _ = write!(
@@ -353,7 +327,7 @@ pub(super) fn run(
 	'session: loop {
 		let mut queue = session.queue()?;
 		if queue.is_empty() {
-			session.refresh(&BTreeSet::new())?;
+			session.refresh()?;
 			queue = session.queue()?;
 		}
 		let Some(id) = retry
@@ -386,13 +360,13 @@ pub(super) fn run(
 					if let Err(error) = ui.edit(workspace, &id) {
 						ui.message(&error.message);
 					}
-					session.refresh(&BTreeSet::new())?;
+					session.refresh()?;
 					retry = Some(id.clone());
 					break;
 				}
 				Some(Answer::Next) => {
 					session.finished += 1;
-					session.refresh(&BTreeSet::new())?;
+					session.refresh()?;
 					// `n` leaves the state at the answer, including any edit made
 					// while its prompt was open. Only a later source change retries.
 					if let Some(document) = session.state.documents.get(&id) {
@@ -419,29 +393,7 @@ pub(super) fn run(
 			}
 		}
 	}
-	session.refresh(&BTreeSet::new())?;
+	session.refresh()?;
 	ui.message(&session.summary());
 	Ok(())
-}
-
-/// A comparison's source states, independent of its baseline attestations.
-fn shown_stamp(compared: &DocumentDiff) -> Stamp {
-	let sources = compared
-		.sources
-		.iter()
-		.flat_map(|source| &source.entries)
-		.map(|entry| {
-			let oid = match &entry.current {
-				source_sentry_core::mutate::Current::Missing => None,
-				source_sentry_core::mutate::Current::Present { oid, .. } => {
-					Some(oid.clone())
-				}
-			};
-			(entry.path.clone(), oid)
-		})
-		.collect();
-	Stamp {
-		sources,
-		upstreams: Vec::new(),
-	}
 }

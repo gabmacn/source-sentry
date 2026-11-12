@@ -211,10 +211,7 @@ After every write and editor visit, the working tree is evaluated again.
 Documents that become fresh leave the queue, and documents that become stale
 join it with an explanation of what changed during the session. A skipped
 document returns only if one of its sources changes. A reviewed document
-returns if a later change requires another review. If recording a review
-itself changes a source, that document is reported at the end instead of
-being repeatedly queued by attestation writes; an edit to its sources can
-queue it again.
+returns if a later change requires another review.
 
 Bulk confirmation covers the current remaining queue and its source
 versions. Every write still rebuilds the queue: newly stale documents

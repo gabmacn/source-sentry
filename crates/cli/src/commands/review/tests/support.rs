@@ -164,6 +164,8 @@ pub(super) enum Step {
 	Change(&'static str, String, Answer),
 	/// A response to the bulk confirmation, or end of input.
 	Confirm(Option<bool>),
+	/// An external source edit made immediately after a review is recorded.
+	ChangeAfterReview(&'static str, String),
 	/// The files an editor command changes before it closes.
 	Edit(Vec<(&'static str, String)>),
 }
@@ -290,5 +292,11 @@ impl Interface for Script {
 
 	fn message(&mut self, text: &str) {
 		self.messages.push(text.to_owned());
+		if text.starts_with("Recorded ")
+			&& let Some(Step::ChangeAfterReview(path, content)) = self.steps.front()
+		{
+			fs::write(self.root.join(path), content).unwrap();
+			self.steps.pop_front();
+		}
 	}
 }

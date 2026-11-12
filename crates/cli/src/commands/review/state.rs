@@ -203,9 +203,6 @@ pub(super) enum Checkpoint {
 	Skipped(Stamp),
 	/// An attestation suppresses its resulting state, even if still pending.
 	Reviewed(Stamp),
-	/// An attestation changed one of its own sources. Writes to those source
-	/// files by other attestations must not create an endless review loop.
-	SelfWritten(Stamp),
 }
 
 impl Checkpoint {
@@ -214,24 +211,6 @@ impl Checkpoint {
 		match self {
 			Self::Skipped(stamp) => stamp.sources == document.stamp.sources,
 			Self::Reviewed(stamp) => stamp == &document.stamp,
-			Self::SelfWritten(_) => true,
-		}
-	}
-
-	/// Keeps self-written sources suppressed across known attestation writes,
-	/// but releases them when an edit changes any source outside that write.
-	pub(super) fn refresh(
-		&mut self,
-		document: &Document,
-		written: &BTreeSet<RepoPath>,
-	) {
-		if let Self::SelfWritten(stamp) = self {
-			let changed = changed_sources(&stamp.sources, &document.stamp.sources);
-			if changed.iter().all(|path| written.contains(path)) {
-				*stamp = document.stamp.clone();
-			} else {
-				*self = Self::Reviewed(stamp.clone());
-			}
 		}
 	}
 }
