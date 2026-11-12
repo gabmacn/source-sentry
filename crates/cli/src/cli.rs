@@ -15,10 +15,9 @@ use source_sentry_core::policy::Threshold;
 #[derive(Debug, Parser)]
 #[command(name = "source-sentry", version, about, max_term_width = 100)]
 pub(crate) struct Cli {
-	/// The repository. By default, the current directory, searching upward
-	/// as git does. Accepts a path relative to the current directory or an
-	/// absolute filesystem path, without changing the current directory.
-	#[arg(long, global = true, value_name = "PATH")]
+	/// Run as if started in PATH, as in git. Relative paths and project
+	/// selection start there.
+	#[arg(short = 'C', global = true, value_name = "PATH")]
 	pub(crate) repo: Option<PathBuf>,
 	/// When to use colour. `auto` respects `NO_COLOR` and redirected output.
 	#[arg(
@@ -246,7 +245,7 @@ pub(crate) struct DiffArgs {
 	/// identity such as `abstract:onboarding-video`.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
-	/// A source file from the current directory or `/`, or a pattern as
+	/// A source file from the current directory, `/` or `:/`, or a pattern as
 	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
@@ -277,11 +276,11 @@ pub(crate) struct AttestArgs {
 	/// identity.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
-	/// A source file from the current directory or `/`, or a pattern as
+	/// A source file from the current directory, `/` or `:/`, or a pattern as
 	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
-	/// What the reviewer approved: a path from the current directory or `/`,
+	/// What the reviewer approved: a path from the current directory, `/` or `:/`,
 	/// as `path@oid`, or
 	/// `path@absent` for a removal. When given, the snapshot must match them
 	/// exactly; otherwise the current state is recorded.
@@ -356,10 +355,10 @@ pub(crate) struct TrackArgs {
 	/// A source file, relative to the current directory, or `/`-rooted.
 	#[arg(long = "source", value_name = "PATH")]
 	pub(crate) sources: Vec<String>,
-	/// A glob from the current directory or `/`, whose every match is a source.
+	/// A glob from the current directory, `/` or `:/`, whose every match is a source.
 	#[arg(long = "pattern", value_name = "GLOB")]
 	pub(crate) patterns: Vec<String>,
-	/// A class, which the repository config must declare.
+	/// A class, which the project config must declare.
 	#[arg(long = "class", value_name = "NAME", value_parser = parse_class)]
 	pub(crate) classes: Vec<ClassName>,
 	/// An owner identifier.
@@ -535,7 +534,7 @@ fn parse_instant(value: &str) -> Result<DateTime<Utc>, String> {
 /// An expectation whose path still has its command-line spelling.
 #[derive(Clone, Debug)]
 pub(crate) struct ExpectationArg {
-	/// The path from the current directory or `/`.
+	/// The path from the current directory, `/` or `:/`.
 	pub(crate) path: PathBuf,
 	/// The expected oid, or absence.
 	pub(crate) oid: Option<ObjectId>,

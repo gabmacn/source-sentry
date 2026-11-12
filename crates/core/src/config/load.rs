@@ -24,6 +24,10 @@ use crate::{
 /// everything they rely on.
 #[derive(Clone, Debug)]
 pub struct ConfigSet {
+	/// The project governed by these configs.
+	pub(super) project: RepoPath,
+	/// Every tracked project root in the repository.
+	pub(super) projects: BTreeSet<RepoPath>,
 	/// The snapshot the configs were read from, which completes every [`Origin`].
 	pub(super) revision: Revision,
 	pub(super) version: Resolved<u32>,
@@ -77,15 +81,18 @@ struct Found {
 ///
 /// Nothing under `.source-sentry/` is a directory config or a local
 /// lockfile: the repository config, presets and remote files live there.
-fn discover(paths: Vec<RepoPath>) -> Found {
+fn discover(paths: Vec<RepoPath>, project: &RepoPath) -> Found {
 	let mut found = Found::default();
 	for path in paths {
 		if let Some(inside) = path
-			.as_str()
-			.strip_prefix(DIR_NAME)
+			.strip_prefix(project)
+			.and_then(|path| path.strip_prefix(DIR_NAME))
 			.and_then(|rest| rest.strip_prefix('/'))
 		{
 			discover_inside(&mut found, &path, inside);
+			continue;
+		}
+		if path.components().any(|part| part == DIR_NAME) {
 			continue;
 		}
 		let Some(directory) = path.parent() else {
@@ -213,7 +220,26 @@ impl ConfigSet {
 	///   presets, import cycles, and paired configs that import presets with
 	///   settings a paired config may not have.
 	pub fn load<S: Snapshot>(snapshot: &S) -> Result<Self, LoadError> {
-		let found = discover(snapshot.paths()?);
+		Self::load_project(snapshot, &RepoPath::ROOT)
+	}
+
+	/// Loads the project containing `start`, excluding nested projects.
+	///
+	/// # Errors
+	///
+	/// Fails with the same errors as [`Self::load`].
+	pub fn load_project<S: Snapshot>(
+		snapshot: &S,
+		start: &RepoPath,
+	) -> Result<Self, LoadError> {
+		let paths = snapshot.paths()?;
+		let projects = super::project_roots(&paths);
+		let project = super::project_of(&projects, start);
+		let paths = paths
+			.into_iter()
+			.filter(|path| super::project_of(&projects, path) == project)
+			.collect();
+		let found = discover(paths, &project);
 		let mut errors = Vec::new();
 		let files = Files::read(snapshot, &found, &mut errors)?;
 
@@ -255,6 +281,8 @@ impl ConfigSet {
 		}
 		let repository_file = repository.as_ref().map(|node| node.file.as_ref());
 		Ok(Self {
+			project,
+			projects,
 			revision: snapshot.revision().clone(),
 			version: version(repository_file),
 			time_zone: time_zone(repository_file),

@@ -12,7 +12,7 @@ use source_sentry_core::evaluate::{
 use source_sentry_core::model::{DocumentId, Outcome, RepoPath};
 use source_sentry_core::policy::{ErrorKind, Threshold};
 use source_sentry_core::ports::Snapshot;
-use source_sentry_core::report::{CheckReport, to_json};
+use source_sentry_core::report::{CheckReport, to_project_json};
 use source_sentry_git::GitRepository;
 
 use crate::cli::{CheckArgs, EvaluationArgs, Format};
@@ -41,12 +41,14 @@ pub(super) fn run(
 	match args.format {
 		Format::Json => {
 			let report = CheckReport::new(&evaluation, threshold);
-			let json = to_json(&report).map_err(|error| {
-				Failure::new(
-					exit::OPERATIONAL,
-					format!("cannot write the report: {error}"),
-				)
-			})?;
+			let json =
+				to_project_json(&report, &evaluation.project, &evaluation.projects)
+					.map_err(|error| {
+						Failure::new(
+							exit::OPERATIONAL,
+							format!("cannot write the report: {error}"),
+						)
+					})?;
 			output::data(&json);
 		}
 		Format::Human if printer.is_quiet() => {
@@ -69,6 +71,22 @@ pub(super) fn run(
 				_ => Vec::new(),
 			};
 			printer.print(&render(workspace, &evaluation, threshold, &outside));
+			if let Some(configs) = &configs {
+				let nested: Vec<_> = configs
+					.projects()
+					.iter()
+					.filter(|root| {
+						*root != configs.project() && root.starts_with(configs.project())
+					})
+					.map(|root| workspace.display_path(root))
+					.collect();
+				if !nested.is_empty() {
+					printer.print(&format!(
+						"note  Nested projects not checked: {}. Check each separately.",
+						nested.join(", ")
+					));
+				}
+			}
 		}
 	}
 	Ok(evaluation.exit_code(threshold).code())
@@ -134,10 +152,18 @@ fn evaluate_snapshot<S: Snapshot>(
 	context: &str,
 	report_invalid: bool,
 ) -> Result<(Evaluation, Option<ConfigSet>), Failure> {
-	let configs = match ConfigSet::load(snapshot) {
+	let configs = match ConfigSet::load_project(snapshot, &workspace.scope) {
 		Ok(configs) => configs,
 		Err(LoadError::Invalid(errors)) if report_invalid => {
-			return Ok((unloadable(snapshot.revision(), at, &errors), None));
+			let mut evaluation = unloadable(snapshot.revision(), at, &errors);
+			evaluation.projects = source_sentry_core::config::project_roots(
+				&snapshot.paths().map_err(|error| Failure::backend(&error))?,
+			);
+			evaluation.project = source_sentry_core::config::project_of(
+				&evaluation.projects,
+				&workspace.scope,
+			);
+			return Ok((evaluation, None));
 		}
 		Err(error) => return Err(Failure::load(workspace, &error)),
 	};

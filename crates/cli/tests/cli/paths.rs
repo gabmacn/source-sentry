@@ -62,20 +62,16 @@ fn repo_accepts_an_absolute_filesystem_path() {
 	let diff = repo.run_in(
 		"..",
 		&[
-			"--repo",
+			"-C",
 			repository,
 			"diff",
-			"repo/docs/guide.md",
+			"docs/guide.md",
 			"--source",
 			"/src/a.rs",
 		],
 	);
 	diff.expect_code(0);
-	assert!(
-		diff.stdout.contains("repo/docs/guide.md"),
-		"{}",
-		diff.stdout
-	);
+	assert!(diff.stdout.contains("docs/guide.md"), "{}", diff.stdout);
 	run_printed_attest(&repo, "..", &diff.stdout);
 }
 
@@ -406,14 +402,7 @@ fn json_paths_are_independent_of_the_current_directory() {
 	let nested = repo
 		.run_in(
 			"src",
-			&[
-				"--repo",
-				"..",
-				"diff",
-				"../docs/guide.md",
-				"--format",
-				"json",
-			],
+			&["-C", "..", "diff", "docs/guide.md", "--format", "json"],
 		)
 		.json();
 	assert_eq!(root, nested);
@@ -453,13 +442,7 @@ fn json_commands_run_from_the_root_with_protected_document_names() {
 			.run_in(
 				"src",
 				&[
-					"--repo",
-					"..",
-					"diff",
-					&format!("../{document}"),
-					"--source",
-					"a.rs",
-					"--format",
+					"-C", "..", "diff", document, "--source", "src/a.rs", "--format",
 					"json",
 				],
 			)
@@ -584,7 +567,7 @@ fn placements_and_init_follow_the_same_path_rule() {
 			init.stdout
 		);
 		repo
-			.run_in("docs", &["--repo", "..", "explain", "guide.md"])
+			.run_in("docs", &["-C", "..", "explain", "docs/guide.md"])
 			.expect_code(0);
 	}
 }
@@ -653,22 +636,20 @@ fn failure_locations_use_the_current_directory() {
 	);
 }
 
-/// Repository selection does not change the directory used by pasted hints.
+/// Changing directory is preserved by pasted hints.
 #[test]
 fn printed_commands_preserve_repository_selection() {
 	let repo = TestRepo::init();
 	repo.reviewed_guide();
 	repo.write("src/a.rs", "fn changed() {}\n");
-	let diff = repo.run_in("src", &["--repo", "..", "diff", "../docs/guide.md"]);
+	let diff = repo.run_in("src", &["-C", "..", "diff", "docs/guide.md"]);
 	diff.expect_code(0);
 	run_printed_attest(&repo, "src", &diff.stdout);
 	repo.write("docs/new.md", "# New\n");
-	let preview = repo.run_in("..", &["--repo", "repo", "init"]);
+	let preview = repo.run_in("..", &["-C", "repo", "init"]);
 	preview.expect_code(0);
 	assert!(
-		preview
-			.stdout
-			.contains("source-sentry --repo repo init --all"),
+		preview.stdout.contains("source-sentry -C repo init --all"),
 		"{}",
 		preview.stdout
 	);

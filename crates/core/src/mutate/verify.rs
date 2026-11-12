@@ -102,10 +102,11 @@ pub(super) fn verify<S: Snapshot>(
 			.collect(),
 		deleted: plan.deletes.iter().map(|delete| &delete.path).collect(),
 	};
-	let configs = ConfigSet::load(&overlay).map_err(|error| match error {
-		LoadError::Backend(error) => MutateError::Backend(error),
-		LoadError::Invalid(errors) => MutateError::InvalidConfigs { errors },
-	})?;
+	let configs = ConfigSet::load_project(&overlay, &repo.inventory.project)
+		.map_err(|error| match error {
+			LoadError::Backend(error) => MutateError::Backend(error),
+			LoadError::Invalid(errors) => MutateError::InvalidConfigs { errors },
+		})?;
 	let after = discover(&overlay, &configs)?;
 	let introduced = introduced(repo.inventory, &after);
 	if introduced.is_empty() {

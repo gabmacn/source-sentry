@@ -25,6 +25,8 @@ mod init;
 #[cfg(test)]
 mod paths;
 #[cfg(test)]
+mod projects;
+#[cfg(test)]
 mod records;
 #[cfg(test)]
 mod rename;

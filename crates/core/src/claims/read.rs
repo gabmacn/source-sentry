@@ -33,7 +33,12 @@ pub(super) struct Found {
 /// paired configs.
 pub(super) fn lockfile_kind(path: &RepoPath) -> Option<LockfileKind> {
 	if in_tool_directory(path) {
-		let inside = path.as_str().strip_prefix(DIR_NAME)?.strip_prefix('/')?;
+		let text = path.as_str();
+		let inside = text.strip_prefix(&format!("{DIR_NAME}/")).or_else(|| {
+			text
+				.split_once(&format!("/{DIR_NAME}/"))
+				.map(|(_, inside)| inside)
+		})?;
 		let file = inside.strip_prefix(REMOTES_DIR_NAME)?.strip_prefix('/')?;
 		let owner = file.strip_suffix(".lock")?;
 		return (!owner.is_empty() && !owner.contains('/')).then(|| {
@@ -69,22 +74,35 @@ pub(super) fn lockfiles<S: Snapshot>(
 	snapshot: &S,
 	paths: &[RepoPath],
 	tracked: &BTreeSet<RepoPath>,
+	project: &RepoPath,
 	found: &mut Found,
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(), BackendError> {
 	for path in paths {
-		let Some(kind) = lockfile_kind(path) else {
+		let relative = path.strip_prefix(project).unwrap_or(path.as_str());
+		let Some(kind) =
+			lockfile_kind(&RepoPath::new(relative).map_err(|error| {
+				BackendError::new(crate::ports::BackendErrorKind::Io, error.to_string())
+			})?)
+			.map(|kind| match kind {
+				LockfileKind::Local { .. } => LockfileKind::Local {
+					directory: path.parent().unwrap_or(RepoPath::ROOT),
+				},
+				remote @ LockfileKind::Remote { .. } => remote,
+			})
+		else {
 			continue;
 		};
 		let bytes = snapshot.read(path)?;
 		let parsed = match &kind {
-			LockfileKind::Local { directory } => {
-				LocalLockfile::parse(directory, &bytes).map(|lockfile| {
-					add_local(path, lockfile, &lockfile_lines(&bytes), tracked, found);
-				})
-			}
+			LockfileKind::Local { directory } => LocalLockfile::parse_in_project(
+				project, directory, &bytes,
+			)
+			.map(|lockfile| {
+				add_local(path, lockfile, &lockfile_lines(&bytes), tracked, found);
+			}),
 			LockfileKind::Remote { owner } => {
-				RemoteLockfile::parse(&bytes).map(|lockfile| {
+				RemoteLockfile::parse_in_project(project, &bytes).map(|lockfile| {
 					add_remote(path, owner, lockfile, &lockfile_lines(&bytes), found);
 				})
 			}

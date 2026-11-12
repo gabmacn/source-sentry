@@ -26,6 +26,8 @@ mod documents;
 mod hashing;
 mod history;
 mod model;
+mod projects;
+pub use projects::check;
 mod scopes;
 mod series;
 
@@ -87,17 +89,20 @@ use crate::ports::{BackendError, History, Revision, Snapshot};
 /// Fails only when the backend itself fails, including when a required
 /// object is missing from the object database. That is an operational error
 /// (exit 4).
-pub fn check<S: Snapshot, H: History>(
+fn check_local<S: Snapshot, H: History>(
 	snapshot: &S,
 	history: &H,
 	configs: &ConfigSet,
 	inventory: &Inventory,
 	at: DateTime<Utc>,
 	context: Option<&str>,
+	apply_policy: bool,
 ) -> Result<Evaluation, BackendError> {
 	let revision = snapshot.revision();
 	let mut diagnostics = inventory.diagnostics.clone();
-	let applied = scopes::context(configs, context, &mut diagnostics);
+	let applied = apply_policy
+		.then(|| scopes::context(configs, context, &mut diagnostics))
+		.flatten();
 	let zone = scopes::time_zone(configs, &mut diagnostics);
 	let hashes = hashing::hash(snapshot, inventory, &mut diagnostics)?;
 
@@ -178,6 +183,8 @@ pub fn check<S: Snapshot, H: History>(
 	});
 	let summary = judge_all(&mut subjects, applied.as_ref(), &diagnostics);
 	Ok(Evaluation {
+		project: configs.project().clone(),
+		projects: configs.projects().clone(),
 		revision: revision.clone(),
 		at,
 		version: configs.version().clone(),
@@ -221,6 +228,8 @@ pub fn unloadable(
 	let summary = judge_all(&mut [], None, &diagnostics);
 	let built_in = Origin::built_in;
 	Evaluation {
+		project: RepoPath::ROOT,
+		projects: BTreeSet::from([RepoPath::ROOT]),
 		revision: revision.clone(),
 		at,
 		version: Resolved {

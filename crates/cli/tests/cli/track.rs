@@ -297,10 +297,7 @@ fn paths_are_relative_to_the_current_directory() {
 		repo.run(&["attest", absolute, "--dry-run"]).expect_code(0);
 	}
 	repo
-		.run_in(
-			"src",
-			&["--repo", "..", "attest", "../docs/guide.md", "--dry-run"],
-		)
+		.run_in("src", &["-C", "..", "attest", "docs/guide.md", "--dry-run"])
 		.expect_code(0);
 	repo
 		.run(&["attest", "docs/missing.md", "--yes"])
@@ -605,7 +602,7 @@ fn a_blank_owner_is_refused_on_file() {
 	assert!(run.stdout.contains("blank"), "{}", run.stdout);
 }
 
-/// With `--repo`, the suggested `git add` names the repository, so that it
+/// With `-C`, the suggested `git add` names the repository, so that it
 /// works from where the command was run.
 #[test]
 fn the_git_add_hint_follows_repo() {
@@ -613,10 +610,10 @@ fn the_git_add_hint_follows_repo() {
 	let run = repo.run_in(
 		"src",
 		&[
-			"--repo",
+			"-C",
 			"..",
 			"track",
-			"../docs/guide.md",
+			"docs/guide.md",
 			"--source",
 			"/src/a.rs",
 			"--yes",

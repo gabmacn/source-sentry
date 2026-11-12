@@ -41,6 +41,8 @@ use crate::ports::Revision;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct DiffReport {
+	/// The document project; `.` is the repository root.
+	pub project: String,
 	/// The arguments of the `attest` command that binds exactly what was
 	/// shown, expectations included, starting with the program's name.
 	pub attest: Vec<String>,
@@ -76,6 +78,7 @@ impl DiffReport {
 		unified: impl Fn(&str, &str) -> String,
 	) -> Self {
 		Self {
+			project: ".".to_owned(),
 			attest,
 			document: diff.document.to_string(),
 			expectations: diff.expectations.iter().map(ToString::to_string).collect(),

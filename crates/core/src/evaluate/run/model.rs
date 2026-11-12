@@ -36,6 +36,10 @@ use crate::ports::Revision;
 /// evaluation whose timing is unknown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Evaluation {
+	/// The project evaluated.
+	pub project: RepoPath,
+	/// Project markers from the evaluated snapshot.
+	pub projects: BTreeSet<RepoPath>,
 	/// The evaluated snapshot.
 	pub revision: Revision,
 	/// The evaluation instant, against which every deadline is measured.

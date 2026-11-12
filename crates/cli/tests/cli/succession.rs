@@ -213,16 +213,11 @@ fn check_and_explain_hint_at_registration() {
 fn inheritance_commands_preserve_repository_selection() {
 	let repo = series_repo(false, true);
 	for (directory, repository, document, predecessor) in [
-		("audits", "..", "new/deep/v10.md", "old/v2.md"),
-		(
-			"..",
-			"repo",
-			"repo/audits/new/deep/v10.md",
-			"repo/audits/old/v2.md",
-		),
+		("audits", "..", "audits/new/deep/v10.md", "audits/old/v2.md"),
+		("..", "repo", "audits/new/deep/v10.md", "audits/old/v2.md"),
 	] {
 		for command in ["check", "explain"] {
-			let mut args = vec!["--repo", repository, command];
+			let mut args = vec!["-C", repository, command];
 			if command == "explain" {
 				args.push(document);
 			}
@@ -232,7 +227,7 @@ fn inheritance_commands_preserve_repository_selection() {
 			let (line, detail) = hint.split_once("` to inherit").unwrap();
 			assert_eq!(
 				line,
-				format!("source-sentry --repo {repository} track {document}")
+				format!("source-sentry -C {repository} track {document}")
 			);
 			assert!(detail.contains(&format!("`{predecessor}`")), "{detail}");
 			let plan = repo.run_shell_in(directory, &format!("{line} --dry-run"));

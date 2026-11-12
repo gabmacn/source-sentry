@@ -47,6 +47,7 @@ mod error;
 mod load;
 mod parse;
 mod pattern;
+mod projects;
 mod resolve;
 
 use crate::adapters::Adapter;
@@ -55,6 +56,7 @@ pub use error::{ConfigError, ConfigErrorKind, LoadError, Position};
 pub use load::ConfigSet;
 pub use parse::{AdapterMapping, ConfigKind};
 pub use pattern::{PathPattern, SeriesPattern};
+pub use projects::{project_of, project_roots};
 pub use resolve::{
 	ClassDefinition, ContextDefinition, DirectorySettings, DocumentDefaults,
 	Eligibility, Origin, RemoteSettings, Resolved, RootStatus, Scope, Series,

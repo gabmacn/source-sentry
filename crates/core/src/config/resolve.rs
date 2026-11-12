@@ -15,9 +15,6 @@ use crate::model::{
 };
 use crate::ports::Revision;
 
-/// The repository root, as a directory that outlives every borrow.
-static ROOT: RepoPath = RepoPath::ROOT;
-
 /// The scope that consumes a setting.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
@@ -570,6 +567,24 @@ fn lineage(directory: &RepoPath) -> Vec<RepoPath> {
 }
 
 impl ConfigSet {
+	/// The repository path of this project root.
+	#[must_use]
+	pub fn project(&self) -> &RepoPath {
+		&self.project
+	}
+
+	/// All tracked project roots, including the repository root.
+	#[must_use]
+	pub fn projects(&self) -> &std::collections::BTreeSet<RepoPath> {
+		&self.projects
+	}
+
+	/// Whether this project owns `path`.
+	#[must_use]
+	pub fn owns(&self, path: &RepoPath) -> bool {
+		super::project_of(&self.projects, path) == self.project
+	}
+
 	/// The snapshot these configs were read from, which completes every
 	/// [`Origin`].
 	#[must_use]
@@ -673,14 +688,19 @@ impl ConfigSet {
 	pub fn remote_settings(&self, owner: &str) -> RemoteSettings {
 		let mut contributions = Vec::new();
 		if let Some(repository) = &self.repository {
-			contribute(&mut contributions, repository, &Scope::Repository, &ROOT);
+			contribute(
+				&mut contributions,
+				repository,
+				&Scope::Repository,
+				&self.project,
+			);
 		}
 		if let Some(paired) = self.remotes.get(owner) {
 			contribute(
 				&mut contributions,
 				paired,
 				&Scope::Remote(owner.to_owned()),
-				&ROOT,
+				&self.project,
 			);
 		}
 		let mut settings = RemoteSettings {
@@ -715,7 +735,12 @@ impl ConfigSet {
 		}
 		let mut contributions = Vec::new();
 		if let Some(repository) = &self.repository {
-			contribute(&mut contributions, repository, &Scope::Repository, &ROOT);
+			contribute(
+				&mut contributions,
+				repository,
+				&Scope::Repository,
+				&self.project,
+			);
 		}
 		for (directory, node) in chain {
 			contribute(
@@ -773,6 +798,9 @@ impl ConfigSet {
 	/// `None` when no root contains `path`.
 	#[must_use]
 	pub fn root_of(&self, path: &RepoPath) -> Option<RepoPath> {
+		if !self.owns(path) {
+			return None;
+		}
 		let mut directory = path.parent();
 		while let Some(current) = directory {
 			if self.is_root(&current) {

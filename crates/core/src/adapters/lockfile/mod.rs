@@ -204,6 +204,19 @@ impl LocalLockfile {
 		directory: &RepoPath,
 		bytes: &[u8],
 	) -> Result<Self, LockfileError> {
+		Self::parse_in_project(&RepoPath::ROOT, directory, bytes)
+	}
+
+	/// Parses a local lockfile using its owning project's source root.
+	///
+	/// # Errors
+	///
+	/// Fails under the same validation rules as [`Self::parse`].
+	pub fn parse_in_project(
+		project: &RepoPath,
+		directory: &RepoPath,
+		bytes: &[u8],
+	) -> Result<Self, LockfileError> {
 		let raw = parse_raw(bytes)?;
 		let mut lockfile = Self::new(directory.clone());
 		for (key, declaration) in raw.documents {
@@ -214,7 +227,7 @@ impl LocalLockfile {
 					error,
 				})?;
 			let declaration = Declaration::from(declaration);
-			validate(&declaration, Scope::Local(&path), &at)?;
+			validate(&declaration, Scope::Local(project, &path), &at)?;
 			lockfile.documents.insert(path, declaration);
 		}
 		for (key, retired) in raw.retired {
@@ -224,7 +237,7 @@ impl LocalLockfile {
 					at: at.to_string(),
 					error,
 				})?;
-			validate_tombstones(&retired.0, Scope::Local(&path), &at)?;
+			validate_tombstones(&retired.0, Scope::Local(project, &path), &at)?;
 			lockfile.retired.insert(path, retired.0);
 		}
 		Ok(lockfile)
@@ -239,16 +252,28 @@ impl LocalLockfile {
 	/// rule that [`Self::parse`] checks, so that every written lockfile
 	/// parses again.
 	pub fn to_bytes(&self) -> Result<Vec<u8>, LockfileError> {
+		self.to_bytes_in_project(&RepoPath::ROOT)
+	}
+
+	/// Writes this lockfile with project-aware source validation.
+	///
+	/// # Errors
+	///
+	/// Fails under the same validation rules as [`Self::to_bytes`].
+	pub fn to_bytes_in_project(
+		&self,
+		project: &RepoPath,
+	) -> Result<Vec<u8>, LockfileError> {
 		let mut documents = BTreeMap::new();
 		for (path, declaration) in &self.documents {
 			let (key, at) = self.key_for("documents", path)?;
-			validate(declaration, Scope::Local(path), &at)?;
+			validate(declaration, Scope::Local(project, path), &at)?;
 			documents.insert(key, canonical_order(declaration));
 		}
 		let mut retired = BTreeMap::new();
 		for (path, tombstone) in &self.retired {
 			let (key, at) = self.key_for("retired", path)?;
-			validate_tombstones(tombstone, Scope::Local(path), &at)?;
+			validate_tombstones(tombstone, Scope::Local(project, path), &at)?;
 			retired.insert(key, tombstone.clone());
 		}
 		Ok(serialize(&Lockfile {
@@ -293,19 +318,31 @@ impl RemoteLockfile {
 	/// nor part of a series; or when a source or pattern is not `/`-rooted, or
 	/// breaks the other source rules of [`LocalLockfile::parse`].
 	pub fn parse(bytes: &[u8]) -> Result<Self, LockfileError> {
+		Self::parse_in_project(&RepoPath::ROOT, bytes)
+	}
+
+	/// Parses a remote lockfile using the containing project's source root.
+	///
+	/// # Errors
+	///
+	/// Fails under the same validation rules as [`Self::parse`].
+	pub fn parse_in_project(
+		project: &RepoPath,
+		bytes: &[u8],
+	) -> Result<Self, LockfileError> {
 		let raw = parse_raw(bytes)?;
 		let mut lockfile = Self::default();
 		for (key, declaration) in raw.documents {
 			let at = FieldPath::root("documents").entry(&key);
 			let identity = remote_key(&key, &at)?;
 			let declaration = Declaration::from(declaration);
-			validate(&declaration, Scope::Remote, &at)?;
+			validate(&declaration, Scope::Remote(project), &at)?;
 			lockfile.documents.insert(identity, declaration);
 		}
 		for (key, retired) in raw.retired {
 			let at = FieldPath::root("retired").entry(&key);
 			let identity = remote_key(&key, &at)?;
-			validate_tombstones(&retired.0, Scope::Remote, &at)?;
+			validate_tombstones(&retired.0, Scope::Remote(project), &at)?;
 			lockfile.retired.insert(identity, retired.0);
 		}
 		Ok(lockfile)
@@ -318,12 +355,24 @@ impl RemoteLockfile {
 	/// Fails when a declaration or tombstone breaks a rule that
 	/// [`Self::parse`] checks, so that every written lockfile parses again.
 	pub fn to_bytes(&self) -> Result<Vec<u8>, LockfileError> {
+		self.to_bytes_in_project(&RepoPath::ROOT)
+	}
+
+	/// Writes this remote lockfile with project-aware source validation.
+	///
+	/// # Errors
+	///
+	/// Fails under the same validation rules as [`Self::to_bytes`].
+	pub fn to_bytes_in_project(
+		&self,
+		project: &RepoPath,
+	) -> Result<Vec<u8>, LockfileError> {
 		let mut documents = BTreeMap::new();
 		for (identity, declaration) in &self.documents {
 			let key = identity.to_string();
 			validate(
 				declaration,
-				Scope::Remote,
+				Scope::Remote(project),
 				&FieldPath::root("documents").entry(&key),
 			)?;
 			documents.insert(key, canonical_order(declaration));
@@ -333,7 +382,7 @@ impl RemoteLockfile {
 			let key = identity.to_string();
 			validate_tombstones(
 				tombstone,
-				Scope::Remote,
+				Scope::Remote(project),
 				&FieldPath::root("retired").entry(&key),
 			)?;
 			retired.insert(key, tombstone.clone());

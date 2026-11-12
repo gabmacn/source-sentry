@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use crate::model::{
 	ClassName, Declaration, Member, ObjectId, PathError, PathSource,
 	PatternSource, RepoPath, Retired, Review, Schedule, Seal, SourceDecl,
-	resolve_rooted, resolve_source,
+	resolve_project_source,
 };
 
 /// The kind of file a declaration was read from or is written to, which
@@ -269,29 +269,29 @@ impl<'de> Deserialize<'de> for Source {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Scope<'a> {
 	/// In the frontmatter of this document.
-	Frontmatter(&'a RepoPath),
+	Frontmatter(&'a RepoPath, &'a RepoPath),
 	/// In a local lockfile, for this document.
-	Local(&'a RepoPath),
+	Local(&'a RepoPath, &'a RepoPath),
 	/// In a remote lockfile, where the document has no path.
-	Remote,
+	Remote(&'a RepoPath),
 }
 
 impl Scope<'_> {
 	fn site(self) -> Site {
 		match self {
-			Self::Frontmatter(_) => Site::Frontmatter,
-			Self::Local(_) => Site::LocalLockfile,
-			Self::Remote => Site::RemoteLockfile,
+			Self::Frontmatter(..) => Site::Frontmatter,
+			Self::Local(..) => Site::LocalLockfile,
+			Self::Remote(_) => Site::RemoteLockfile,
 		}
 	}
 
 	/// Resolves a declared source or member path.
 	fn resolve(self, declared: &str) -> Result<RepoPath, PathError> {
 		match self {
-			Self::Frontmatter(document) | Self::Local(document) => {
-				resolve_source(document, declared)
+			Self::Frontmatter(project, document) | Self::Local(project, document) => {
+				resolve_project_source(project, Some(document), declared)
 			}
-			Self::Remote => resolve_rooted(declared),
+			Self::Remote(project) => resolve_project_source(project, None, declared),
 		}
 	}
 
@@ -300,7 +300,9 @@ impl Scope<'_> {
 	/// left to the code that compiles it.
 	fn check_pattern(self, pattern: &str) -> Result<(), PathError> {
 		match self {
-			Self::Remote if !pattern.starts_with('/') => {
+			Self::Remote(_)
+				if !pattern.starts_with('/') && !pattern.starts_with(":/") =>
+			{
 				Err(PathError::NotRooted(pattern.to_owned()))
 			}
 			_ => Ok(()),
@@ -332,21 +334,21 @@ pub(super) fn validate(
 		reason,
 	};
 	match (scope, &declaration.seal) {
-		(Scope::Frontmatter(_), Some(_)) => {
+		(Scope::Frontmatter(..), Some(_)) => {
 			return Err(not_allowed(
 				"seal",
 				"records are tracked through lockfiles only",
 			));
 		}
-		(Scope::Remote, Some(_)) => {
+		(Scope::Remote(_), Some(_)) => {
 			return Err(not_allowed("seal", "remote documents cannot be records"));
 		}
 		_ => {}
 	}
-	if declaration.url.is_some() && !matches!(scope, Scope::Remote) {
+	if declaration.url.is_some() && !matches!(scope, Scope::Remote(_)) {
 		return Err(not_allowed("url", "only remote documents carry a `url`"));
 	}
-	if declaration.completed.is_some() && matches!(scope, Scope::Remote) {
+	if declaration.completed.is_some() && matches!(scope, Scope::Remote(_)) {
 		return Err(not_allowed(
 			"completed",
 			"remote documents cannot belong to a series",
@@ -421,14 +423,14 @@ pub(super) fn validate_retired(
 	scope: Scope<'_>,
 	at: &FieldPath,
 ) -> Result<(), DeclarationError> {
-	if retired.seal.is_some() && matches!(scope, Scope::Remote) {
+	if retired.seal.is_some() && matches!(scope, Scope::Remote(_)) {
 		return Err(DeclarationError::NotAllowed {
 			at: at.key("seal").into_string(),
 			site: Site::RemoteLockfile,
 			reason: "remote documents cannot be records",
 		});
 	}
-	if retired.completed.is_some() && matches!(scope, Scope::Remote) {
+	if retired.completed.is_some() && matches!(scope, Scope::Remote(_)) {
 		return Err(DeclarationError::NotAllowed {
 			at: at.key("completed").into_string(),
 			site: Site::RemoteLockfile,

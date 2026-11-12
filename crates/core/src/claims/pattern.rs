@@ -115,13 +115,31 @@ impl SourceGlob {
 		document: Option<&RepoPath>,
 		declared: &str,
 	) -> Result<Self, PatternProblem> {
+		Self::compile_project(&RepoPath::ROOT, document, declared)
+	}
+
+	/// Compiles a source glob with project and repository root spellings.
+	///
+	/// # Errors
+	///
+	/// Fails for invalid globs or paths outside the repository.
+	pub fn compile_project(
+		project: &RepoPath,
+		document: Option<&RepoPath>,
+		declared: &str,
+	) -> Result<Self, PatternProblem> {
 		reject_forbidden(declared)?;
-		let (base, body) = match (declared.strip_prefix('/'), document) {
-			(Some(rooted), _) => (RepoPath::ROOT, rooted),
-			(None, Some(document)) => {
+		let (base, body) = match (
+			declared.strip_prefix(":/"),
+			declared.strip_prefix('/'),
+			document,
+		) {
+			(Some(rooted), _, _) => (RepoPath::ROOT, rooted),
+			(None, Some(rooted), _) => (project.clone(), rooted),
+			(None, None, Some(document)) => {
 				(document.parent().unwrap_or(RepoPath::ROOT), declared)
 			}
-			(None, None) => return Err(PatternProblem::NotRooted),
+			(None, None, None) => return Err(PatternProblem::NotRooted),
 		};
 		let mut components: Vec<&str> = base.components().collect();
 		for component in body.split('/') {

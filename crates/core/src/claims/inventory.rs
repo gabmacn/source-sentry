@@ -19,6 +19,10 @@ use crate::ports::Revision;
 /// the inventory holds whatever could still be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inventory {
+	/// The project whose declarations this inventory contains.
+	pub project: RepoPath,
+	/// All project roots in the snapshot, for former declaration sites.
+	pub projects: BTreeSet<RepoPath>,
 	/// The snapshot this inventory describes.
 	pub revision: Revision,
 	/// Every lockfile, local and remote, sorted by path, including those that

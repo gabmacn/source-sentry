@@ -3,6 +3,7 @@
 
 mod parsing;
 mod paths;
+mod projects;
 mod resolution;
 mod validation;
 

@@ -33,7 +33,26 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 	if matches!(&cli.command, Command::Review(_)) {
 		review::require_terminal()?;
 	}
-	let workspace = Workspace::open(cli.repo.as_deref())?;
+	let mut workspace = Workspace::open(cli.repo.as_deref())?;
+	let argument = match &cli.command {
+		Command::Diff(args) => Some(&args.document),
+		Command::Attest(args) => Some(&args.document),
+		Command::Seal(args) | Command::Retire(args) => Some(&args.document),
+		Command::Untrack(args) => Some(&args.document),
+		Command::Rename(args) => Some(&args.old),
+		Command::Track(args) => args.documents.first(),
+		_ => None,
+	};
+	if let Some(crate::cli::DocumentArg::Path(path)) = argument {
+		workspace.scope = workspace.repo_path(path)?;
+	}
+	if let Command::Explain(args) = &cli.command
+		&& let Ok(crate::cli::DocumentArg::Path(path)) =
+			crate::cli::parse_document(&args.subject)
+		&& let Ok(path) = workspace.repo_path(&path)
+	{
+		workspace.scope = path;
+	}
 	match &cli.command {
 		Command::Check(args) => check::run(&workspace, args, printer),
 		Command::Explain(args) => explain::run(&workspace, args, printer),

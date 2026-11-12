@@ -9,7 +9,7 @@ use source_sentry_core::mutate::{
 	Baseline, Current, DocumentDiff, EntryDiff, Selection, SourceSpec, diff,
 };
 use source_sentry_core::ports::Snapshot as _;
-use source_sentry_core::report::{DiffReport, to_json};
+use source_sentry_core::report::{DiffReport, to_project_json};
 
 use crate::cli::{DiffArgs, DocumentArg, Format, parse_document};
 use crate::describe;
@@ -51,12 +51,14 @@ pub(super) fn run(
 		Format::Json => {
 			let report =
 				DiffReport::new(&compared, snapshot.revision(), attest, plain_hunks);
-			let json = to_json(&report).map_err(|error| {
-				Failure::new(
-					exit::OPERATIONAL,
-					format!("cannot write the diff: {error}"),
-				)
-			})?;
+			let json =
+				to_project_json(&report, &inventory.project, &workspace.projects)
+					.map_err(|error| {
+						Failure::new(
+							exit::OPERATIONAL,
+							format!("cannot write the diff: {error}"),
+						)
+					})?;
 			output::data(&json);
 		}
 		Format::Human => printer.print(&render(workspace, &compared, &attest)),
@@ -77,13 +79,14 @@ fn attest_command(
 	let mut command = vec![source_sentry_core::SLUG.to_owned()];
 	if let (Format::Human, Some(repo)) = (args.format, workspace.repo_argument())
 	{
-		option(&mut command, "--repo", repo.display().to_string());
+		option(&mut command, "-C", repo.display().to_string());
 	}
 	command.push("attest".to_owned());
 	let document = match (args.format, &compared.document) {
-		(Format::Json, source_sentry_core::model::DocumentId::Local(path)) => {
-			path.as_str().to_owned()
-		}
+		(Format::Json, source_sentry_core::model::DocumentId::Local(path)) => path
+			.strip_prefix(&inventory.project)
+			.unwrap_or(path.as_str())
+			.to_owned(),
 		_ => workspace.display_document(&compared.document),
 	};
 	// Keep a local path from reading as an option or a remote identity.
@@ -110,7 +113,15 @@ fn attest_command(
 	for expectation in &compared.expectations {
 		let path = match args.format {
 			Format::Human => workspace.display_path(expectation.path()),
-			Format::Json => format!("/{}", expectation.path().as_str()),
+			Format::Json => format!(
+				"{}{}",
+				if inventory.project.is_root() {
+					"/"
+				} else {
+					":/"
+				},
+				expectation.path().as_str()
+			),
 		};
 		let state = expectation.to_string();
 		let state = state.rsplit_once('@').map_or("absent", |(_, state)| state);
@@ -143,7 +154,15 @@ fn command_selector(
 	let path = workspace.source_path(std::path::Path::new(selector))?;
 	let mut shown = match format {
 		Format::Human => workspace.display_path(&path),
-		Format::Json => format!("/{}", path.as_str()),
+		Format::Json => format!(
+			"{}{}",
+			if inventory.project.is_root() {
+				"/"
+			} else {
+				":/"
+			},
+			path.as_str()
+		),
 	};
 	let attempts = inventory
 		.claims

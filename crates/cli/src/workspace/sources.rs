@@ -5,7 +5,7 @@ use std::path::Path;
 use source_sentry_core::claims::{Claim, Inventory, SourceGlob};
 use source_sentry_core::model::{
 	DocumentId, RepoPath, SourceDecl, rebase_path, rebase_pattern,
-	resolve_rooted, resolve_source,
+	resolve_project_source,
 };
 use source_sentry_core::mutate::{
 	Expectation, MutateError, Selection, SourceSpec,
@@ -48,7 +48,7 @@ impl Workspace {
 			} else {
 				prefix
 			}))?;
-			if declared.starts_with('/') {
+			if declared.starts_with('/') || declared.starts_with(":/") {
 				return Ok(SourceSpec::Pattern(declared.clone()));
 			}
 			rebase_pattern(if suffix.is_empty() { "." } else { suffix }, &base, &to)
@@ -57,7 +57,7 @@ impl Workspace {
 			})?
 		} else {
 			let path = self.source_path(Path::new(declared))?;
-			if declared.starts_with('/') {
+			if declared.starts_with('/') || declared.starts_with(":/") {
 				declared.clone()
 			} else {
 				rebase_path(path.as_str(), &RepoPath::ROOT, &to)
@@ -67,8 +67,18 @@ impl Workspace {
 		// A remote identity has no document directory for a relative spelling.
 		let rebased = if matches!(document, DocumentId::Remote(_))
 			&& !rebased.starts_with('/')
+			&& !rebased.starts_with(":/")
 		{
-			format!("/{rebased}")
+			format!(
+				"{}{rebased}",
+				if source_sentry_core::config::project_of(&self.projects, &self.scope)
+					.is_root()
+				{
+					"/"
+				} else {
+					":/"
+				}
+			)
 		} else {
 			rebased
 		};
@@ -111,6 +121,8 @@ impl Workspace {
 		claim: &Claim,
 		name: &str,
 	) -> Result<SourceSpec, Failure> {
+		let project =
+			source_sentry_core::config::project_of(&self.projects, &self.scope);
 		let resolved = self.source_path(Path::new(name));
 		let path = claim
 			.declaration
@@ -118,7 +130,8 @@ impl Workspace {
 			.iter()
 			.find(|source| match source {
 				SourceDecl::Path(source) => resolved.as_ref().is_ok_and(|path| {
-					declared_path(&claim.document, &source.path).as_ref() == Some(path)
+					declared_path(&project, &claim.document, &source.path).as_ref()
+						== Some(path)
 				}),
 				SourceDecl::Pattern(_) => false,
 			});
@@ -129,7 +142,7 @@ impl Workspace {
 				.iter()
 				.find(|source| match source {
 					SourceDecl::Pattern(source) => {
-						pattern_matches(&claim.document, &source.pattern, name)
+						pattern_matches(&project, &claim.document, &source.pattern, name)
 					}
 					SourceDecl::Path(_) => false,
 				});
@@ -180,7 +193,7 @@ impl Workspace {
 			.map(|spec| match spec {
 				SourceSpec::Path(path) => self
 					.source_path(Path::new(path))
-					.map(|path| SourceSpec::Path(format!("/{}", path.as_str()))),
+					.map(|path| SourceSpec::Path(format!(":/{}", path.as_str()))),
 				SourceSpec::Pattern(pattern) => {
 					let declared = claim
 						.and_then(|claim| {
@@ -190,7 +203,15 @@ impl Workspace {
 								.iter()
 								.find_map(|source| match source {
 									SourceDecl::Pattern(source)
-										if pattern_matches(document, &source.pattern, pattern) =>
+										if pattern_matches(
+											&source_sentry_core::config::project_of(
+												&self.projects,
+												&self.scope,
+											),
+											document,
+											&source.pattern,
+											pattern,
+										) =>
 									{
 										Some(source.pattern.clone())
 									}
@@ -238,23 +259,49 @@ impl Workspace {
 }
 
 /// The file named by a declared path, including missing sources.
-fn declared_path(document: &DocumentId, declared: &str) -> Option<RepoPath> {
-	match document {
-		DocumentId::Local(path) => resolve_source(path, declared).ok(),
-		DocumentId::Remote(_) => resolve_rooted(declared).ok(),
-	}
+fn declared_path(
+	project: &RepoPath,
+	document: &DocumentId,
+	declared: &str,
+) -> Option<RepoPath> {
+	resolve_project_source(
+		project,
+		match document {
+			DocumentId::Local(path) => Some(path),
+			DocumentId::Remote(_) => None,
+		},
+		declared,
+	)
+	.ok()
 }
 
 /// A pattern's exact declaration or its normalized `/`-rooted form.
-fn pattern_matches(document: &DocumentId, declared: &str, name: &str) -> bool {
+fn pattern_matches(
+	project: &RepoPath,
+	document: &DocumentId,
+	declared: &str,
+	name: &str,
+) -> bool {
 	declared == name
-		|| (name.starts_with('/')
-			&& SourceGlob::compile(
+		|| ((name.starts_with('/') || name.starts_with(":/"))
+			&& SourceGlob::compile_project(
+				project,
 				match document {
 					DocumentId::Local(path) => Some(path),
 					DocumentId::Remote(_) => None,
 				},
 				declared,
 			)
-			.is_ok_and(|glob| glob.rooted() == name))
+			.is_ok_and(|glob| {
+				let rooted = glob.rooted();
+				let absolute = format!(":{rooted}");
+				let local = if project.is_root() {
+					Some(rooted.clone())
+				} else {
+					rooted
+						.strip_prefix(&format!("/{}/", project.as_str()))
+						.map(|relative| format!("/{relative}"))
+				};
+				name == absolute || local.as_deref() == Some(name)
+			}))
 }

@@ -23,7 +23,7 @@ struct Tracking {
 /// A sealed record's sources are frozen, so it contributes no edges and its
 /// sources are not checked. A document that is its own source has
 /// a self-dependency diagnostic already, so that edge is left out.
-pub(super) fn dependencies(
+pub(crate) fn dependencies(
 	claims: &[Claim],
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Dependency> {

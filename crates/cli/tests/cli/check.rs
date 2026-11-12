@@ -518,6 +518,7 @@ fn the_json_report_has_the_documented_keys() {
 			"kind",
 			"mode",
 			"outcome",
+			"project",
 			"settings",
 			"sources",
 		]

@@ -88,8 +88,12 @@ impl Edits {
 				let original = if repo.tracked.contains(&path) {
 					let bytes = repo.snapshot.read(&path)?;
 					Some(
-						LocalLockfile::parse(directory, &bytes)
-							.map_err(|error| MutateError::InvalidLockfile { path, error })?,
+						LocalLockfile::parse_in_project(
+							&repo.inventory.project,
+							directory,
+							&bytes,
+						)
+						.map_err(|error| MutateError::InvalidLockfile { path, error })?,
 					)
 				} else {
 					None
@@ -117,11 +121,11 @@ impl Edits {
 		match self.remotes.entry(owner.to_owned()) {
 			Entry::Occupied(entry) => Ok(&mut entry.into_mut().current),
 			Entry::Vacant(entry) => {
-				let path = remote_lockfile_path(owner)?;
+				let path = remote_lockfile_path(&repo.inventory.project, owner)?;
 				let original = if repo.tracked.contains(&path) {
 					let bytes = repo.snapshot.read(&path)?;
 					Some(
-						RemoteLockfile::parse(&bytes)
+						RemoteLockfile::parse_in_project(&repo.inventory.project, &bytes)
 							.map_err(|error| MutateError::InvalidLockfile { path, error })?,
 					)
 				} else {
@@ -255,20 +259,20 @@ impl Edits {
 			match loaded.fate(empty) {
 				Fate::Keep => {}
 				Fate::Write => {
-					let bytes = write_local(&path, lockfile)?;
+					let bytes = write_local(&repo.inventory.project, &path, lockfile)?;
 					files.insert(path, bytes);
 				}
 				Fate::Delete => deleted.push(path),
 			}
 		}
 		for (owner, loaded) in self.remotes {
-			let path = remote_lockfile_path(&owner)?;
+			let path = remote_lockfile_path(&repo.inventory.project, &owner)?;
 			let lockfile = &loaded.current;
 			let empty = lockfile.documents.is_empty() && lockfile.retired.is_empty();
 			match loaded.fate(empty) {
 				Fate::Keep => {}
 				Fate::Write => {
-					let bytes = write_remote(&path, lockfile)?;
+					let bytes = write_remote(&repo.inventory.project, &path, lockfile)?;
 					files.insert(path, bytes);
 				}
 				Fate::Delete => deleted.push(path),
@@ -278,6 +282,7 @@ impl Edits {
 			let original = repo.snapshot.read(&document)?;
 			let previous = self.former_documents.get(&document).unwrap_or(&document);
 			let bytes = write_frontmatter(
+				&repo.inventory.project,
 				previous,
 				&document,
 				&original,
@@ -318,6 +323,7 @@ impl Edits {
 
 /// The canonical bytes of a local lockfile, parsed back.
 fn write_local(
+	project: &RepoPath,
 	path: &RepoPath,
 	lockfile: &LocalLockfile,
 ) -> Result<Vec<u8>, MutateError> {
@@ -325,9 +331,10 @@ fn write_local(
 		path: path.clone(),
 		error,
 	};
-	let bytes = lockfile.to_bytes().map_err(invalid)?;
+	let bytes = lockfile.to_bytes_in_project(project).map_err(invalid)?;
 	let reread =
-		LocalLockfile::parse(&lockfile.directory, &bytes).map_err(invalid)?;
+		LocalLockfile::parse_in_project(project, &lockfile.directory, &bytes)
+			.map_err(invalid)?;
 	let same = reread.documents.keys().eq(lockfile.documents.keys())
 		&& reread.retired.keys().eq(lockfile.retired.keys());
 	if same {
@@ -339,6 +346,7 @@ fn write_local(
 
 /// The canonical bytes of a remote owner lockfile, parsed back.
 fn write_remote(
+	project: &RepoPath,
 	path: &RepoPath,
 	lockfile: &RemoteLockfile,
 ) -> Result<Vec<u8>, MutateError> {
@@ -346,8 +354,9 @@ fn write_remote(
 		path: path.clone(),
 		error,
 	};
-	let bytes = lockfile.to_bytes().map_err(invalid)?;
-	let reread = RemoteLockfile::parse(&bytes).map_err(invalid)?;
+	let bytes = lockfile.to_bytes_in_project(project).map_err(invalid)?;
+	let reread =
+		RemoteLockfile::parse_in_project(project, &bytes).map_err(invalid)?;
 	let same = reread.documents.keys().eq(lockfile.documents.keys())
 		&& reread.retired.keys().eq(lockfile.retired.keys());
 	if same {
@@ -360,6 +369,7 @@ fn write_remote(
 /// `original` with its declaration replaced by `declaration`, which must
 /// read back unchanged.
 fn write_frontmatter(
+	project: &RepoPath,
 	previous: &RepoPath,
 	document: &RepoPath,
 	original: &[u8],
@@ -371,12 +381,27 @@ fn write_frontmatter(
 	};
 	let bytes = match declaration {
 		Some(declaration) if previous != document => {
-			frontmatter::write_renamed(previous, document, original, declaration)
+			frontmatter::write_in_projects(
+				project,
+				project,
+				previous,
+				document,
+				original,
+				Some(declaration),
+			)
 		}
-		_ => frontmatter::write(document, original, declaration),
+		_ => frontmatter::write_in_projects(
+			project,
+			project,
+			document,
+			document,
+			original,
+			declaration,
+		),
 	}
 	.map_err(invalid)?;
-	let reread = frontmatter::read(document, &bytes).map_err(invalid)?;
+	let reread =
+		frontmatter::read_in_project(project, document, &bytes).map_err(invalid)?;
 	if reread.as_ref() == declaration {
 		Ok(bytes)
 	} else {

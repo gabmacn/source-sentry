@@ -24,8 +24,8 @@ fn paths_and_the_closing_command_use_the_current_directory() {
 	for (directory, repository, document, source) in [
 		(".", None, "docs/a.md", "src/a.rs"),
 		("docs", None, "a.md", "../src/a.rs"),
-		("src", Some(".."), "../docs/a.md", "a.rs"),
-		("docs", Some("../."), "a.md", "../src/a.rs"),
+		("src", Some(".."), "docs/a.md", "src/a.rs"),
+		("docs", Some("../."), "docs/a.md", "src/a.rs"),
 		("..", Some(""), "", ""),
 	] {
 		let repo = Repo::new(json!({
@@ -38,12 +38,12 @@ fn paths_and_the_closing_command_use_the_current_directory() {
 			"root": repo.directory.path(),
 			"repo": if outside { Some(name) } else { repository },
 			"document": if outside {
-				format!("{name}/docs/a.md")
+				"docs/a.md".to_owned()
 			} else {
 				document.to_owned()
 			},
 			"source": if outside {
-				format!("{name}/src/a.rs")
+				"src/a.rs".to_owned()
 			} else {
 				source.to_owned()
 			}
@@ -103,7 +103,7 @@ fn check_paths(case: &Value) {
 	assert!(remaining.ends_with("; outside the selected documents"));
 	let prefix = repository.map_or_else(
 		|| "source-sentry".to_owned(),
-		|path| format!("source-sentry --repo {}", path.display()),
+		|path| format!("source-sentry -C {}", path.display()),
 	);
 	assert!(
 		script

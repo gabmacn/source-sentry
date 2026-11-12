@@ -193,6 +193,7 @@ impl SubjectReport {
 				DocumentReport::new(subject, document, facts, judgement),
 			)),
 			SubjectKind::Unclaimed(file) => Self::Unclaimed(UnclaimedReport {
+				project: ".".to_owned(),
 				inherit_from: file.inherit_from.as_ref().map(ToString::to_string),
 				facts,
 				judgement,
@@ -269,6 +270,8 @@ pub struct RuleReport {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct DocumentReport {
+	/// The repository path of the project root; `.` is the repository.
+	pub project: String,
 	/// The series whose successor makes this document `awaiting-seal`.
 	/// Present only then.
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -318,6 +321,7 @@ impl DocumentReport {
 		judgement: Option<Vec<JudgementReport>>,
 	) -> Self {
 		let mut report = Self {
+			project: ".".to_owned(),
 			awaiting_seal: document.awaiting_seal.as_ref().map(SeriesRef::from),
 			deadline: subject.deadline.as_ref().map(DeadlineReport::from),
 			declared_in: document.declared_in.to_string(),
@@ -524,6 +528,8 @@ impl From<&evaluate::SourceReport> for SourceReport {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct UnclaimedReport {
+	/// The repository path of the project root; `.` is the repository.
+	pub project: String,
 	/// The predecessor registration would inherit, omitted when absent.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub inherit_from: Option<String>,
@@ -543,6 +549,8 @@ pub struct UnclaimedReport {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SeriesReport {
+	/// The repository path of the project root; `.` is the repository.
+	pub project: String,
 	/// Its facts.
 	pub facts: Vec<Fact>,
 	/// Each fact's judgement, or `null` when it was not judged.
@@ -582,6 +590,7 @@ impl SeriesReport {
 			})
 			.unwrap_or_default();
 		Self {
+			project: ".".to_owned(),
 			facts,
 			judgement,
 			missed,

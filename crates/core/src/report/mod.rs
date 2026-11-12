@@ -55,6 +55,8 @@
 mod check;
 mod common;
 mod diff;
+mod projects;
+pub use projects::to_project_json;
 
 #[cfg(test)]
 mod tests;

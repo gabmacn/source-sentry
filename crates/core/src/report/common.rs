@@ -134,6 +134,8 @@ pub(super) fn instant(at: DateTime<Utc>) -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct LocationReport {
+	/// The project containing the diagnostic file; `.` is the repository.
+	pub project: String,
 	/// The field, such as `documents["a.md"].sources[0]`, when it is known.
 	pub field: Option<String>,
 	/// The file.
@@ -145,6 +147,7 @@ pub struct LocationReport {
 impl From<&Location> for LocationReport {
 	fn from(location: &Location) -> Self {
 		Self {
+			project: ".".to_owned(),
 			field: location.field.clone(),
 			file: location.file.to_string(),
 			line: location.line,

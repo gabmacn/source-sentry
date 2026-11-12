@@ -9,7 +9,7 @@ use super::{
 };
 use crate::model::{
 	DocumentId, PathError, PathSource, PatternSource, RepoPath, SourceDecl,
-	resolve_rooted, resolve_source,
+	resolve_project_source,
 };
 
 /// Resolves the sources of every claim, and reports what is wrong with them.
@@ -27,11 +27,13 @@ use crate::model::{
 pub(super) fn resolve(
 	claims: &mut [Claim],
 	tracked: &BTreeSet<RepoPath>,
+	project: &RepoPath,
 	diagnostics: &mut Vec<Diagnostic>,
 ) {
 	for claim in claims {
 		let sources = Resolver {
 			claim,
+			project,
 			tracked,
 			diagnostics: &mut *diagnostics,
 		}
@@ -42,6 +44,7 @@ pub(super) fn resolve(
 
 /// Resolves one claim's sources.
 struct Resolver<'a> {
+	project: &'a RepoPath,
 	claim: &'a Claim,
 	tracked: &'a BTreeSet<RepoPath>,
 	diagnostics: &'a mut Vec<Diagnostic>,
@@ -76,10 +79,7 @@ impl Resolver<'_> {
 
 	/// Resolves a declared path.
 	fn resolve(&self, declared: &str) -> Result<RepoPath, PathError> {
-		match self.document() {
-			Some(document) => resolve_source(document, declared),
-			None => resolve_rooted(declared),
-		}
+		resolve_project_source(self.project, self.document(), declared)
 	}
 
 	/// Resolves a path source.
@@ -150,7 +150,11 @@ impl Resolver<'_> {
 		source: &PatternSource,
 	) -> Option<ResolvedSource> {
 		let field = format!("{}.pattern", self.field(index));
-		let glob = match SourceGlob::compile(self.document(), &source.pattern) {
+		let glob = match SourceGlob::compile_project(
+			self.project,
+			self.document(),
+			&source.pattern,
+		) {
 			Ok(glob) => glob,
 			Err(problem) => {
 				self.report(

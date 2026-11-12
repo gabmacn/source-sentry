@@ -213,7 +213,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 				placement: actual,
 			});
 		}
-		let to = location(document, &target)?;
+		let to = location(&self.repo.inventory.project, document, &target)?;
 		self.edits.set(self.repo, claim, None)?;
 		self.carry_own_tombstones(document, &actual, &target)?;
 		self.edits.place(
@@ -269,7 +269,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 				Ok((Placement::Lockfile { directory }, created))
 			}
 			(DocumentId::Remote(_), Target::Remote { owner }) => {
-				let path = remote_lockfile_path(owner)?;
+				let path = remote_lockfile_path(&self.repo.inventory.project, owner)?;
 				Ok((
 					Placement::Remote {
 						owner: owner.clone(),
@@ -295,8 +295,8 @@ impl<S: Snapshot> Step<'_, '_, S> {
 	) -> Result<(), MutateError> {
 		let carried = CarriedTombstone {
 			document: document.clone(),
-			from: location(document, from)?.file,
-			to: location(document, to)?.file,
+			from: location(&self.repo.inventory.project, document, from)?.file,
+			to: location(&self.repo.inventory.project, document, to)?.file,
 		};
 		let conflict = |carried: CarriedTombstone| MutateError::TombstoneConflict {
 			document: carried.document,

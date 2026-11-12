@@ -40,8 +40,8 @@ use crate::evaluate::clock::{
 	ClockError, ObligationStart, RunPredicate, introduced_at,
 };
 use crate::model::{
-	Declaration, DocumentId, Retired, Review, Seal, SourceDecl, resolve_rooted,
-	resolve_source,
+	Declaration, DocumentId, Retired, Review, Seal, SourceDecl,
+	resolve_project_source,
 };
 use crate::ports::{
 	BackendError, BackendErrorKind, Commit, History, ObjectId, RepoPath, Revision,
@@ -51,6 +51,8 @@ use crate::{DIR_NAME, REMOTES_DIR_NAME};
 /// A file that may hold a document's declaration.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Site {
+	/// The project that owns the declaring file.
+	pub(super) project: RepoPath,
 	/// The file.
 	pub(super) path: RepoPath,
 	/// How to read it.
@@ -189,23 +191,38 @@ fn with_deleted_owners<H: History>(
 	let Some(head) = head.filter(|_| queries.iter().any(remote)) else {
 		return Ok(queries);
 	};
-	let directory = RepoPath::new(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}"))
-		.map_err(|error| {
-			BackendError::new(BackendErrorKind::Io, format!("{error}"))
-		})?;
-	let lockfiles: Vec<RepoPath> = history
-		.files_ever_in(head, &directory)?
-		.into_iter()
-		.filter(|path| {
-			path
-				.file_name()
-				.is_some_and(|name| name.ends_with(LOCKFILE_EXTENSION))
-		})
+	let projects: std::collections::BTreeSet<_> = queries
+		.iter()
+		.filter(|query| remote(query))
+		.flat_map(|query| query.sites.iter().map(|site| &site.project))
 		.collect();
+	let mut lockfiles = std::collections::BTreeSet::new();
+	for project in projects {
+		let directory = project
+			.join(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}"))
+			.map_err(|error| {
+				BackendError::new(BackendErrorKind::Io, error.to_string())
+			})?;
+		lockfiles.extend(
+			history
+				.files_ever_in(head, &directory)?
+				.into_iter()
+				.filter(|path| {
+					path
+						.file_name()
+						.is_some_and(|name| name.ends_with(LOCKFILE_EXTENSION))
+				}),
+		);
+	}
 	for query in queries.iter_mut().filter(|query| remote(query)) {
 		for lockfile in &lockfiles {
 			if !query.sites.iter().any(|site| &site.path == lockfile) {
 				query.sites.push(Site {
+					project: lockfile
+						.parent()
+						.and_then(|path| path.parent())
+						.and_then(|path| path.parent())
+						.unwrap_or(RepoPath::ROOT),
 					path: lockfile.clone(),
 					kind: SiteKind::RemoteLockfile,
 					former: true,
@@ -304,16 +321,19 @@ impl<H: History> Reader<'_, H> {
 			)
 		})?;
 		let parsed = Rc::new(match &site.kind {
-			SiteKind::Frontmatter => frontmatter::read(&site.path, &bytes)
-				.map_or(Parsed::Unreadable, |declaration| {
-					Parsed::Frontmatter(declaration.map(Box::new))
-				}),
+			SiteKind::Frontmatter => {
+				frontmatter::read_in_project(&site.project, &site.path, &bytes)
+					.map_or(Parsed::Unreadable, |declaration| {
+						Parsed::Frontmatter(declaration.map(Box::new))
+					})
+			}
 			SiteKind::LocalLockfile { directory } => {
-				LocalLockfile::parse(directory, &bytes)
+				LocalLockfile::parse_in_project(&site.project, directory, &bytes)
 					.map_or(Parsed::Unreadable, Parsed::Local)
 			}
 			SiteKind::RemoteLockfile => {
-				RemoteLockfile::parse(&bytes).map_or(Parsed::Unreadable, Parsed::Remote)
+				RemoteLockfile::parse_in_project(&site.project, &bytes)
+					.map_or(Parsed::Unreadable, Parsed::Remote)
 			}
 		});
 		self.cache.borrow_mut().insert(key, Rc::clone(&parsed));
@@ -352,6 +372,7 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 	/// whether the condition's own path exists.
 	fn occurrences(
 		&self,
+		project: &RepoPath,
 		declaration: Option<&Declaration>,
 		retired: &[Retired],
 		own_path_exists: bool,
@@ -362,7 +383,7 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 				usize::from(declaration.is_some_and(|declaration| {
 					declaration.sources.iter().any(|source| match source {
 						SourceDecl::Path(source) => {
-							self.resolve(&source.path).as_ref() == Some(path)
+							self.resolve(project, &source.path).as_ref() == Some(path)
 						}
 						SourceDecl::Pattern(_) => false,
 					})
@@ -399,11 +420,16 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 
 	/// A declared source path, resolved as discovery resolves it, or
 	/// `None` when it does not resolve.
-	fn resolve(&self, declared: &str) -> Option<RepoPath> {
-		match &self.query.document {
-			DocumentId::Local(document) => resolve_source(document, declared).ok(),
-			DocumentId::Remote(_) => resolve_rooted(declared).ok(),
-		}
+	fn resolve(&self, project: &RepoPath, declared: &str) -> Option<RepoPath> {
+		resolve_project_source(
+			project,
+			match &self.query.document {
+				DocumentId::Local(document) => Some(document),
+				DocumentId::Remote(_) => None,
+			},
+			declared,
+		)
+		.ok()
 	}
 }
 
@@ -434,8 +460,12 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 				} => {
 					// A live on-file incarnation and earlier tombstones can be
 					// in different files, so count matching markers across sites.
-					occurrences +=
-						self.occurrences(declaration, retired, own_path_exists);
+					occurrences += self.occurrences(
+						&site.project,
+						declaration,
+						retired,
+						own_path_exists,
+					);
 					if occurrences >= self.query.condition.required_occurrences() {
 						return Ok(true);
 					}

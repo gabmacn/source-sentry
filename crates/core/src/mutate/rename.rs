@@ -148,7 +148,7 @@ pub fn rename<S: Snapshot, H: History>(
 			));
 		}
 	};
-	let to = location(&request.new, &destination)?;
+	let to = location(&repo.inventory.project, &request.new, &destination)?;
 	let mut changes = Vec::new();
 	sources::rebase(&mut declaration, old, new, &mut changes)?;
 	let mut edits = Edits::default();

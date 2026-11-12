@@ -194,7 +194,10 @@ fn completion_queries(
 			tombstone.retired.completed.as_ref(),
 			&queries,
 		) {
-			let mut sites = vec![local_lockfile_site(tombstone.lockfile.clone())];
+			let mut sites = vec![local_lockfile_site(
+				crate::config::project_of(&inventory.projects, &tombstone.lockfile),
+				tombstone.lockfile.clone(),
+			)];
 			add_former_sites(&document, inventory, &mut sites);
 			queries.push((
 				Query {

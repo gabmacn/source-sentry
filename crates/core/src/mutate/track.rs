@@ -21,8 +21,7 @@ use crate::config::ConfigSet;
 use crate::evaluate::schedule::EffectiveSchedule;
 use crate::model::{
 	CadenceSetting, ClassName, Declaration, DocumentId, PathError, PathSource,
-	PatternSource, RepoPath, Schedule, SourceDecl, resolve_rooted,
-	resolve_source,
+	PatternSource, RepoPath, Schedule, SourceDecl, resolve_project_source,
 };
 use crate::ports::{Canonical, Snapshot};
 
@@ -284,7 +283,7 @@ pub(super) fn register<S: Snapshot>(
 		}
 		(DocumentId::Remote(_), Target::Remote { owner }) => {
 			unclaimed(repo, document)?;
-			let path = remote_lockfile_path(owner)?;
+			let path = remote_lockfile_path(&repo.inventory.project, owner)?;
 			let created = !repo.tracked.contains(&path);
 			(
 				Placement::Remote {
@@ -304,12 +303,17 @@ pub(super) fn register<S: Snapshot>(
 	let inherited = super::succession::inherit(repo, document)?;
 	let declaration = if let Some(inherited) = &inherited {
 		let mut declaration = inherited.declaration.clone();
-		add(document, &mut declaration, addition)?;
+		add(
+			&repo.inventory.project,
+			document,
+			&mut declaration,
+			addition,
+		)?;
 		declaration
 	} else {
 		addition
 	};
-	let declared_in = location(document, &placement)?;
+	let declared_in = location(&repo.inventory.project, document, &placement)?;
 	let new_patterns = patterns_of(&declaration.sources);
 	edits.place(repo, document, &placement, Some(declaration))?;
 	Ok(Pending {
@@ -383,7 +387,12 @@ fn extend<S: Snapshot>(
 	let addition = declaration(repo, configs, request)?;
 	let new_patterns = patterns_of(&addition.sources);
 	let mut declaration = claim.declaration.clone();
-	add(document, &mut declaration, addition)?;
+	add(
+		&repo.inventory.project,
+		document,
+		&mut declaration,
+		addition,
+	)?;
 	let declared_in = claim.location();
 	edits.place(repo, document, &placement, Some(declaration))?;
 	Ok(Pending {
@@ -401,6 +410,7 @@ fn extend<S: Snapshot>(
 /// Duplicate sources are refused; classes and owners are added once, and
 /// grace and cadence replace only the fields supplied.
 fn add(
+	project: &RepoPath,
 	document: &DocumentId,
 	declaration: &mut Declaration,
 	addition: Declaration,
@@ -409,7 +419,7 @@ fn add(
 		if let Some(first) = declaration
 			.sources
 			.iter()
-			.find(|existing| same_source(document, existing, &source))
+			.find(|existing| same_source(project, document, existing, &source))
 		{
 			let (first, pattern) = match first {
 				SourceDecl::Path(path) => (path.path.clone(), false),
@@ -458,13 +468,21 @@ fn add(
 /// Whether `existing` and `added` declare the same source of `document`:
 /// paths that resolve to the same file, or patterns written alike.
 fn same_source(
+	project: &RepoPath,
 	document: &DocumentId,
 	existing: &SourceDecl,
 	added: &SourceDecl,
 ) -> bool {
-	let resolve = |declared: &str| match document {
-		DocumentId::Local(path) => resolve_source(path, declared).ok(),
-		DocumentId::Remote(_) => resolve_rooted(declared).ok(),
+	let resolve = |declared: &str| {
+		resolve_project_source(
+			project,
+			match document {
+				DocumentId::Local(path) => Some(path),
+				DocumentId::Remote(_) => None,
+			},
+			declared,
+		)
+		.ok()
 	};
 	match (existing, added) {
 		(SourceDecl::Path(existing), SourceDecl::Path(added)) => {
@@ -809,6 +827,7 @@ fn carry_tombstones<S: Snapshot>(
 /// Fails with [`MutateError::TargetMismatch`] when the placement does not
 /// fit the document's kind, and with [`MutateError::InvalidOwnerName`].
 pub(super) fn location(
+	project: &RepoPath,
 	document: &DocumentId,
 	placement: &Placement,
 ) -> Result<Location, MutateError> {
@@ -825,7 +844,7 @@ pub(super) fn location(
 		}
 		(DocumentId::Remote(identity), Placement::Remote { owner }) => {
 			Ok(Location::field(
-				remote_lockfile_path(owner)?,
+				remote_lockfile_path(project, owner)?,
 				entry_field("documents", &identity.to_string()),
 			))
 		}
@@ -915,11 +934,9 @@ pub(super) fn sources<S: Snapshot>(
 	for spec in specs {
 		match spec {
 			SourceSpec::Path(source) => {
-				let path = match local {
-					Some(document) => resolve_source(document, source),
-					None => resolve_rooted(source),
-				}
-				.map_err(|error| invalid(source, error))?;
+				let path =
+					resolve_project_source(&repo.inventory.project, local, source)
+						.map_err(|error| invalid(source, error))?;
 				check_path(repo, document, source, &path)?;
 				named.push((path.clone(), source));
 				if let Some(first) = paths.insert(path, source) {
@@ -940,7 +957,10 @@ pub(super) fn sources<S: Snapshot>(
 				if pattern.is_empty() {
 					return Err(invalid(pattern, PathError::Empty));
 				}
-				if local.is_none() && !pattern.starts_with('/') {
+				if local.is_none()
+					&& !pattern.starts_with('/')
+					&& !pattern.starts_with(":/")
+				{
 					return Err(invalid(pattern, PathError::NotRooted(pattern.clone())));
 				}
 				if !patterns.insert(pattern) {
@@ -951,7 +971,9 @@ pub(super) fn sources<S: Snapshot>(
 						pattern: true,
 					});
 				}
-				if let Ok(glob) = SourceGlob::compile(local, pattern) {
+				if let Ok(glob) =
+					SourceGlob::compile_project(&repo.inventory.project, local, pattern)
+				{
 					let matches = glob.expand(&repo.tracked);
 					if matches.is_empty() {
 						return Err(MutateError::EmptyPattern {

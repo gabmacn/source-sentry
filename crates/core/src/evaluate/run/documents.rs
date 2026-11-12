@@ -314,6 +314,7 @@ pub(super) fn sites(
 		DocumentId::Local(path) => path,
 		DocumentId::Remote(_) => {
 			let mut sites = vec![Site {
+				project: inventory.project.clone(),
 				path: claim.declared_in.clone(),
 				kind: SiteKind::RemoteLockfile,
 				former: false,
@@ -330,6 +331,7 @@ pub(super) fn sites(
 			.is_some_and(|mapping| mapping.value.adapter.carries_declaration());
 	if carries {
 		sites.push(Site {
+			project: inventory.project.clone(),
 			path: path.clone(),
 			kind: SiteKind::Frontmatter,
 			former: false,
@@ -342,16 +344,20 @@ pub(super) fn sites(
 			.map(|lockfile| lockfile.path.clone()),
 	};
 	if let Some(lockfile) = lockfile {
-		sites.push(local_lockfile_site(lockfile));
+		sites.push(local_lockfile_site(
+			crate::config::project_of(&inventory.projects, &lockfile),
+			lockfile,
+		));
 	}
 	add_former_sites(&claim.document, inventory, &mut sites);
 	sites
 }
 
 /// The site of the local lockfile at `path`.
-pub(super) fn local_lockfile_site(path: RepoPath) -> Site {
+pub(super) fn local_lockfile_site(project: RepoPath, path: RepoPath) -> Site {
 	let directory = path.parent().unwrap_or(RepoPath::ROOT);
 	Site {
+		project,
 		path,
 		kind: SiteKind::LocalLockfile { directory },
 		former: false,
@@ -378,6 +384,7 @@ pub(super) fn add_former_sites(
 			// Its own frontmatter, whatever adapter reads it now: an on-file
 			// declaration may have moved out when the adapter changed.
 			add(Site {
+				project: inventory.project.clone(),
 				path: path.clone(),
 				kind: SiteKind::Frontmatter,
 				former: true,
@@ -387,7 +394,10 @@ pub(super) fn add_former_sites(
 				if let Ok(lockfile) = current.join(LOCKFILE_NAME) {
 					add(Site {
 						former: true,
-						..local_lockfile_site(lockfile)
+						..local_lockfile_site(
+							crate::config::project_of(&inventory.projects, &lockfile),
+							lockfile,
+						)
 					});
 				}
 				directory = current.parent();
@@ -397,6 +407,7 @@ pub(super) fn add_former_sites(
 			for lockfile in &inventory.lockfiles {
 				if matches!(lockfile.kind, LockfileKind::Remote { .. }) {
 					add(Site {
+						project: inventory.project.clone(),
 						path: lockfile.path.clone(),
 						kind: SiteKind::RemoteLockfile,
 						former: true,
@@ -642,6 +653,7 @@ pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
 			}) = &mut subject.kind
 			{
 				live.stale_upstreams.push(dependency.upstream.clone());
+				subject.facts.remove(&Fact::Fresh);
 				subject.facts.insert(Fact::UpstreamStale);
 			}
 		}

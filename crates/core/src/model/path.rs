@@ -113,7 +113,7 @@ impl RepoPath {
 	pub fn is_lockfile(&self) -> bool {
 		self.file_name() == Some(crate::LOCKFILE_NAME)
 			|| self.parent().is_some_and(|parent| {
-				parent.as_str() == ".source-sentry/remotes"
+				parent.as_str().ends_with(".source-sentry/remotes")
 					&& self
 						.file_name()
 						.is_some_and(|name| name.strip_suffix(".lock").is_some())
@@ -206,16 +206,35 @@ pub fn resolve_source(
 	document: &RepoPath,
 	declared: &str,
 ) -> Result<RepoPath, PathError> {
+	resolve_project_source(&RepoPath::ROOT, Some(document), declared)
+}
+
+/// Resolves a source in `project`; `/` starts there and `:/` at the repository.
+/// Relative sources require a local document and may leave its project.
+///
+/// # Errors
+///
+/// Rejects invalid spellings and paths outside the repository.
+pub fn resolve_project_source(
+	project: &RepoPath,
+	document: Option<&RepoPath>,
+	declared: &str,
+) -> Result<RepoPath, PathError> {
 	reject_forbidden(declared)?;
 	if declared.is_empty() {
 		return Err(PathError::Empty);
+	}
+	if let Some(rooted) = declared.strip_prefix(":/") {
+		return normalize(&RepoPath::ROOT, rooted, declared);
 	}
 	if let Some(rooted) = declared.strip_prefix('/') {
 		if rooted.starts_with('/') {
 			return Err(PathError::FilesystemAbsolute(declared.to_owned()));
 		}
-		return normalize(&RepoPath::ROOT, rooted, declared);
+		return normalize(project, rooted, declared);
 	}
+	let document =
+		document.ok_or_else(|| PathError::NotRooted(declared.to_owned()))?;
 	let directory = document.parent().unwrap_or(RepoPath::ROOT);
 	normalize(&directory, declared, declared)
 }
@@ -228,7 +247,7 @@ pub fn resolve_source(
 /// Fails like [`resolve_source`], and with [`PathError::NotRooted`] when the
 /// path does not start with `/`.
 pub fn resolve_rooted(declared: &str) -> Result<RepoPath, PathError> {
-	if !declared.starts_with('/') {
+	if !declared.starts_with('/') && !declared.starts_with(":/") {
 		return Err(PathError::NotRooted(declared.to_owned()));
 	}
 	resolve_source(&RepoPath::ROOT, declared)

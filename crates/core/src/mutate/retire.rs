@@ -116,7 +116,7 @@ pub fn retire<S: Snapshot>(
 				lockfile.retired.entry(identity.clone()).or_default(),
 				tombstone.clone(),
 			);
-			remote_lockfile_path(owner)?
+			remote_lockfile_path(&repo.inventory.project, owner)?
 		}
 		(document, placement) => {
 			return Err(MutateError::TargetMismatch {

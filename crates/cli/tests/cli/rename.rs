@@ -237,18 +237,18 @@ fn rename_updates_dependents_and_previews_unmatched_patterns() {
 }
 
 /// The general missing-document hint uses the caller's directory and
-/// preserves `--repo` when it was supplied.
+/// preserves `-C` when it was supplied.
 #[test]
 fn missing_document_hints_use_current_directory_and_command_prefix() {
 	let repo = TestRepo::init();
 	repo.reviewed_guide();
 	repo.git(&["mv", "docs/guide.md", "docs/new.md"]);
-	let check = repo.run_in("docs", &["--repo", "..", "check", "--at", AT]);
+	let check = repo.run_in("docs", &["-C", "..", "check", "--at", AT]);
 	check.expect_code(3);
 	assert!(
 		check
 			.stdout
-			.contains("source-sentry --repo .. rename guide.md <new>"),
+			.contains("source-sentry -C .. rename docs/guide.md <new>"),
 		"{}",
 		check.stdout
 	);

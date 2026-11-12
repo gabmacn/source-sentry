@@ -576,7 +576,12 @@ fn a_source_path_that_does_not_resolve_is_a_configuration_error() {
 	}];
 	let mut diagnostics = Vec::new();
 	let tracked = BTreeSet::from([path("a.md"), path("b.rs")]);
-	resolve(&mut claims, &tracked, &mut diagnostics);
+	resolve(
+		&mut claims,
+		&tracked,
+		&crate::model::RepoPath::ROOT,
+		&mut diagnostics,
+	);
 	let found: Vec<_> = diagnostics
 		.iter()
 		.map(|diagnostic| (diagnostic.kind, diagnostic.location.field.clone()))

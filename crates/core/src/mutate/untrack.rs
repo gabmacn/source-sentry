@@ -7,7 +7,7 @@ use super::verify::verify;
 use super::{MutateError, Planned};
 use crate::claims::{DiagnosticKind, Inventory, Location};
 use crate::model::{
-	Declaration, DocumentId, SourceDecl, resolve_rooted, resolve_source,
+	Declaration, DocumentId, RepoPath, SourceDecl, resolve_project_source,
 };
 use crate::ports::Snapshot;
 
@@ -86,7 +86,9 @@ pub fn untrack<S: Snapshot>(
 		let position = declaration
 			.sources
 			.iter()
-			.position(|source| names(&claim.document, source, spec))
+			.position(|source| {
+				names(&inventory.project, &claim.document, source, spec)
+			})
 			.ok_or_else(|| MutateError::SourceNotDeclared {
 				document: claim.document.clone(),
 				declared: match spec {
@@ -119,13 +121,21 @@ pub fn untrack<S: Snapshot>(
 
 /// Whether `spec` names the declared `source` of `document`.
 fn names(
+	project: &RepoPath,
 	document: &DocumentId,
 	source: &SourceDecl,
 	spec: &SourceSpec,
 ) -> bool {
-	let resolve = |declared: &str| match document {
-		DocumentId::Local(path) => resolve_source(path, declared).ok(),
-		DocumentId::Remote(_) => resolve_rooted(declared).ok(),
+	let resolve = |declared: &str| {
+		resolve_project_source(
+			project,
+			match document {
+				DocumentId::Local(path) => Some(path),
+				DocumentId::Remote(_) => None,
+			},
+			declared,
+		)
+		.ok()
 	};
 	match (source, spec) {
 		(SourceDecl::Path(source), SourceSpec::Path(spec)) => {

@@ -173,9 +173,22 @@ pub fn read(
 	document: &RepoPath,
 	bytes: &[u8],
 ) -> Result<Option<Declaration>, FrontmatterError> {
+	read_in_project(&RepoPath::ROOT, document, bytes)
+}
+
+/// Reads frontmatter using the document's project root for source validation.
+///
+/// # Errors
+///
+/// Fails under the same validation rules as [`read`].
+pub fn read_in_project(
+	project: &RepoPath,
+	document: &RepoPath,
+	bytes: &[u8],
+) -> Result<Option<Declaration>, FrontmatterError> {
 	match locate(bytes)?.0 {
 		Located::Present { block, line, .. } => {
-			parse(document, bytes, block, line).map(Some)
+			parse(project, document, bytes, block, line).map(Some)
 		}
 		Located::NoFrontmatter { .. }
 		| Located::NotAMapping { .. }
@@ -231,7 +244,14 @@ pub fn write(
 	bytes: &[u8],
 	declaration: Option<&Declaration>,
 ) -> Result<Vec<u8>, FrontmatterError> {
-	write_at(document, document, bytes, declaration)
+	write_in_projects(
+		&RepoPath::ROOT,
+		&RepoPath::ROOT,
+		document,
+		document,
+		bytes,
+		declaration,
+	)
 }
 
 /// Rewrites a carried declaration after its document was renamed.
@@ -249,12 +269,25 @@ pub fn write_renamed(
 	bytes: &[u8],
 	declaration: &Declaration,
 ) -> Result<Vec<u8>, FrontmatterError> {
-	write_at(old, new, bytes, Some(declaration))
+	write_in_projects(
+		&RepoPath::ROOT,
+		&RepoPath::ROOT,
+		old,
+		new,
+		bytes,
+		Some(declaration),
+	)
 }
 
 /// Validates old and new spellings in their respective directories while
 /// preserving other frontmatter keys and document bytes.
-fn write_at(
+///
+/// # Errors
+///
+/// Fails as [`write()`] does, validating both declarations in their projects.
+pub fn write_in_projects(
+	previous_project: &RepoPath,
+	project: &RepoPath,
 	previous: &RepoPath,
 	document: &RepoPath,
 	bytes: &[u8],
@@ -263,7 +296,7 @@ fn write_at(
 	if let Some(declaration) = declaration {
 		validate(
 			declaration,
-			Scope::Frontmatter(document),
+			Scope::Frontmatter(project, document),
 			&FieldPath::root(KEY),
 		)?;
 	}
@@ -301,7 +334,8 @@ fn write_at(
 			(insert_at..insert_at, emit::block(declaration, eol))
 		}
 		(Located::Present { block, line, eol }, declaration) => {
-			let existing = parse(previous, bytes, block.clone(), line)?;
+			let existing =
+				parse(previous_project, previous, bytes, block.clone(), line)?;
 			match declaration {
 				Some(declaration) if *declaration == existing => {
 					return Ok(bytes.to_vec());
@@ -355,6 +389,7 @@ fn locate(
 
 /// Parses and validates the block at `range`, whose key is on `line`.
 fn parse(
+	project: &RepoPath,
 	document: &RepoPath,
 	bytes: &[u8],
 	range: Range<usize>,
@@ -394,7 +429,7 @@ fn parse(
 	);
 	validate(
 		&declaration,
-		Scope::Frontmatter(document),
+		Scope::Frontmatter(project, document),
 		&FieldPath::root(KEY),
 	)?;
 	Ok(declaration)

@@ -16,7 +16,8 @@
       "location": {
         "field": "documents[\"privacy.md\"].sources[1]",
         "file": "docs/source-sentry.lock",
-        "line": 31
+        "line": 31,
+        "project": "."
       },
       "message": "`/db/legacy/*.sql` matches no tracked file.",
       "related": [],
@@ -99,6 +100,7 @@
       "kind": "document",
       "mode": "lockfile",
       "outcome": "fail",
+      "project": ".",
       "settings": {
         "cadence": {
           "origin": {
@@ -164,6 +166,7 @@
       "kind": "unclaimed",
       "outcome": "warn",
       "path": "docs/new-page.md",
+      "project": ".",
       "root": "docs"
     },
     {
@@ -200,6 +203,7 @@
       ],
       "name": "security-audits",
       "outcome": "notice",
+      "project": ".",
       "scope": "directory:audits"
     }
   ],

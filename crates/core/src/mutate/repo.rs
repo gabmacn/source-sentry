@@ -84,6 +84,7 @@ pub(super) fn lockfile_path(directory: &RepoPath) -> RepoPath {
 /// ASCII letters, digits, `-`, `_` and `.`, is not empty, and does not start
 /// with `.`.
 pub(super) fn remote_lockfile_path(
+	project: &RepoPath,
 	owner: &str,
 ) -> Result<RepoPath, MutateError> {
 	let valid = !owner.is_empty()
@@ -97,14 +98,15 @@ pub(super) fn remote_lockfile_path(
 	if !valid {
 		return Err(invalid());
 	}
-	RepoPath::new(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}/{owner}.lock"))
+	project
+		.join(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}/{owner}.lock"))
 		.map_err(|_| invalid())
 }
 
 /// Whether `path` is one of Source Sentry's own files: anything under
 /// `.source-sentry/`, a lockfile or a directory config.
 pub(super) fn is_own_file(path: &RepoPath) -> bool {
-	path.components().next() == Some(DIR_NAME)
+	path.components().any(|part| part == DIR_NAME)
 		|| matches!(
 			path.file_name(),
 			Some(name) if name == LOCKFILE_NAME || name == crate::CONFIG_NAME

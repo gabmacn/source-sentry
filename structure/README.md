@@ -128,6 +128,10 @@ format for tools that read it, such as CI jobs.
 - **`at`, `revision`, `context` and `threshold`** say what was evaluated, and
   how. `exit-code` and `gates` give both gates' answers; the continue gate
   fails only on a failure.
+- Each subject and diagnostic location includes **`project`**, the repository
+  path of its project root (`.` for the repository root). Paths in that
+  subject or location are relative to its project, with `../` for sources
+  outside it.
 - **`subjects`** are the things judged: `document`, `unclaimed` and `series`.
   Each subject has:
   - its `facts`;

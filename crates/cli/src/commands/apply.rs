@@ -113,7 +113,7 @@ fn applied(workspace: &Workspace, plan: &WritePlan) -> String {
 		"Applied: {} changed.",
 		crate::describe::count(count, "file", "files")
 	);
-	// With `--repo`, the command names the repository and its paths, so that
+	// With `-C`, the command names the repository and its paths, so that
 	// it works from wherever it is run; otherwise paths are relative to the
 	// current directory, as git expects.
 	let repo = workspace.repo_argument();
@@ -122,23 +122,17 @@ fn applied(workspace: &Workspace, plan: &WritePlan) -> String {
 		.iter()
 		.filter(|write| write.expected.is_none())
 		.map(|write| {
-			let path = if repo.is_some() {
-				write.path.to_string()
-			} else {
-				workspace.display_path(&write.path)
-			};
+			let path = workspace.display_path(&write.path);
 			super::diff::shell_word(&path)
 		})
 		.collect();
 	if !created.is_empty() {
 		let git = repo.map_or_else(
 			|| "git".to_owned(),
-			|_repo| {
+			|repo| {
 				format!(
 					"git -C {}",
-					super::diff::shell_word(
-						&workspace.display_path(&source_sentry_core::model::RepoPath::ROOT)
-					)
+					super::diff::shell_word(&repo.display().to_string())
 				)
 			},
 		);

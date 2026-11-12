@@ -160,7 +160,13 @@ pub fn attest<S: Snapshot>(
 
 	let review = Review::new(request.at, reviewer);
 	let mut declaration = claim.declaration.clone();
-	let sources = record(claim, &observed, &review, &mut declaration);
+	let sources = record(
+		&inventory.project,
+		claim,
+		&observed,
+		&review,
+		&mut declaration,
+	);
 	if request.reread {
 		declaration.reviewed = Some(review.clone());
 	}
@@ -213,6 +219,7 @@ fn refuse_new_empty_patterns(
 /// Records the observed state of each selected source in `declaration`, and
 /// describes what changed.
 fn record(
+	project: &RepoPath,
 	claim: &Claim,
 	observed: &Observed,
 	review: &Review,
@@ -253,7 +260,12 @@ fn record(
 							.iter()
 							.map(|(path, oid)| Member {
 								oid: oid.clone(),
-								path: member_spelling(document, &declared.pattern, path),
+								path: member_spelling(
+									project,
+									document,
+									&declared.pattern,
+									path,
+								),
 								reviewed: review.clone(),
 							})
 							.collect();
@@ -297,15 +309,22 @@ fn pattern_entries(
 /// relative pattern is written relative to the document, climbing with `../`
 /// where needed, so that it reads like the pattern it belongs to.
 fn member_spelling(
+	project: &RepoPath,
 	document: Option<&RepoPath>,
 	pattern: &str,
 	member: &RepoPath,
 ) -> String {
-	let rooted = format!("/{}", member.as_str());
+	let rooted = if pattern.starts_with(":/") {
+		format!(":/{}", member.as_str())
+	} else if let Some(relative) = member.strip_prefix(project) {
+		format!("/{relative}")
+	} else {
+		format!(":/{}", member.as_str())
+	};
 	let Some(document) = document else {
 		return rooted;
 	};
-	if pattern.starts_with('/') {
+	if pattern.starts_with('/') || pattern.starts_with(":/") {
 		return rooted;
 	}
 	let directory = document.parent().unwrap_or(RepoPath::ROOT);

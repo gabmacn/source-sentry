@@ -59,7 +59,7 @@
 
 mod case;
 mod diagnostic;
-mod graph;
+pub(crate) mod graph;
 mod inventory;
 mod pattern;
 mod read;
@@ -104,12 +104,24 @@ pub fn discover<S: Snapshot>(
 	configs: &ConfigSet,
 ) -> Result<Inventory, BackendError> {
 	let tracked: BTreeSet<RepoPath> = snapshot.paths()?.into_iter().collect();
-	let paths: Vec<RepoPath> = tracked.iter().cloned().collect();
+	let owned: BTreeSet<RepoPath> = tracked
+		.iter()
+		.filter(|path| configs.owns(path))
+		.cloned()
+		.collect();
+	let paths: Vec<RepoPath> = owned.iter().cloned().collect();
 	let mut directories = Directories::new(configs);
 	let mut diagnostics = Vec::new();
 
 	let mut found = read::Found::default();
-	read::lockfiles(snapshot, &paths, &tracked, &mut found, &mut diagnostics)?;
+	read::lockfiles(
+		snapshot,
+		&paths,
+		&tracked,
+		configs.project(),
+		&mut found,
+		&mut diagnostics,
+	)?;
 	read::on_file(
 		snapshot,
 		&paths,
@@ -140,22 +152,24 @@ pub fn discover<S: Snapshot>(
 		configs,
 		&mut diagnostics,
 	);
-	sources::resolve(&mut claims, &tracked, &mut diagnostics);
+	sources::resolve(&mut claims, &tracked, configs.project(), &mut diagnostics);
 	let dependencies = graph::dependencies(&claims, &mut diagnostics);
-	let unclaimed = unclaimed::scan(&tracked, &claims, configs, &mut directories);
+	let unclaimed = unclaimed::scan(&owned, &claims, configs, &mut directories);
 	let series = series::membership(
-		&tracked,
+		&owned,
 		&claims,
 		&tombstones,
 		configs,
 		&mut directories,
 		&mut diagnostics,
 	);
-	case::collisions(&tracked, &mut diagnostics);
+	case::collisions(&owned, &mut diagnostics);
 
 	diagnostics.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
 	diagnostics.dedup();
 	let mut inventory = Inventory {
+		project: configs.project().clone(),
+		projects: configs.projects().clone(),
 		revision: snapshot.revision().clone(),
 		lockfiles,
 		claims,
@@ -227,6 +241,7 @@ pub fn outside_the_index(
 	let mut directories = Directories::new(configs);
 	paths
 		.iter()
+		.filter(|path| configs.owns(path))
 		.filter_map(|path| {
 			let outside = if in_tool_directory(path) || is_own_file(path) {
 				Outside::Own
@@ -245,7 +260,7 @@ pub fn outside_the_index(
 /// Whether `path` lies under `.source-sentry/`, which holds Source
 /// Sentry's own files rather than documents.
 fn in_tool_directory(path: &RepoPath) -> bool {
-	path.components().next() == Some(DIR_NAME)
+	path.components().any(|part| part == DIR_NAME)
 }
 
 /// Whether `path` is a lockfile or a directory config, which are never

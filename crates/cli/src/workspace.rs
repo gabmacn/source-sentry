@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use source_sentry_core::claims::{Inventory, discover};
-use source_sentry_core::config::ConfigSet;
+use source_sentry_core::config::{ConfigSet, project_of, project_roots};
 use source_sentry_core::model::{DocumentId, RepoPath};
 use source_sentry_core::ports::Snapshot;
 use source_sentry_git::GitRepository;
@@ -18,6 +18,10 @@ mod sources;
 /// An open repository, with the directories that command-line paths are
 /// resolved against.
 pub(crate) struct Workspace {
+	/// The path selecting the command project.
+	pub(crate) scope: RepoPath,
+	/// Tracked working-tree project markers.
+	pub(crate) projects: std::collections::BTreeSet<RepoPath>,
 	/// The repository.
 	pub(crate) repository: GitRepository,
 	/// The working tree, canonicalized.
@@ -26,12 +30,12 @@ pub(crate) struct Workspace {
 	/// without the `\\?\` prefix that canonicalizing adds.
 	root_shown: PathBuf,
 	/// The current directory as the process received it. Command-line paths
-	/// are relative to it, as in git, even when `--repo` names another
+	/// are relative to it, as in git, even when `-C` names another
 	/// repository.
 	working: PathBuf,
 	/// The current directory, canonicalized, for comparing with `root`.
 	current: PathBuf,
-	/// `--repo` as given, which commands printed for copying repeat.
+	/// `-C` as given, which commands printed for copying repeat.
 	repo_argument: Option<PathBuf>,
 }
 
@@ -50,13 +54,11 @@ impl Workspace {
 		let working = std::env::current_dir().map_err(|error| {
 			io_failure("cannot read the current directory", &error)
 		})?;
+		let working = repo.map_or(working.clone(), |path| working.join(path));
 		let current = working.canonicalize().map_err(|error| {
 			io_failure("cannot resolve the current directory", &error)
 		})?;
-		let start = match repo {
-			Some(repo) => working.join(repo),
-			None => working.clone(),
-		};
+		let start = working.clone();
 		let repository =
 			GitRepository::open(&start).map_err(|error| Failure::backend(&error))?;
 		let root_shown = repository
@@ -74,7 +76,18 @@ impl Workspace {
 		let root = root_shown
 			.canonicalize()
 			.map_err(|error| io_failure("cannot resolve the working tree", &error))?;
+		let snapshot = repository
+			.working_tree_snapshot()
+			.map_err(|error| Failure::backend(&error))?;
+		let projects = project_roots(
+			&snapshot.paths().map_err(|error| Failure::backend(&error))?,
+		);
+		let relative = current.strip_prefix(&root).unwrap_or(Path::new(""));
+		let scope = RepoPath::new(&relative.to_string_lossy().replace('\\', "/"))
+			.map_err(|error| Failure::usage(error.to_string()))?;
 		Ok(Self {
+			scope,
+			projects,
 			repository,
 			root,
 			root_shown,
@@ -130,8 +143,17 @@ impl Workspace {
 		&self,
 		argument: &Path,
 	) -> Result<RepoPath, Failure> {
-		let absolute =
-			source_argument_path(&self.root_shown, &self.working, argument)?;
+		let written = argument.to_string_lossy();
+		let absolute = if written.starts_with('/') || written.starts_with(":/") {
+			let project = project_of(&self.projects, &self.scope);
+			let path = source_sentry_core::model::resolve_project_source(
+				&project, None, &written,
+			)
+			.map_err(|error| Failure::usage(error.to_string()))?;
+			self.root_shown.join(path.as_str())
+		} else {
+			source_argument_path(&self.root_shown, &self.working, argument)?
+		};
 		self.repo_path(&absolute)
 	}
 
@@ -171,6 +193,9 @@ impl Workspace {
 
 	/// `path` relative to the current directory, with `/` separators.
 	pub(crate) fn display_path(&self, path: &RepoPath) -> String {
+		if !self.current.starts_with(&self.root) {
+			return self.root_shown.join(path.as_str()).display().to_string();
+		}
 		let target: Vec<String> = self
 			.root
 			.components()
@@ -199,7 +224,7 @@ impl Workspace {
 		}
 	}
 
-	/// `--repo` as given, if it was.
+	/// `-C` as given, if it was.
 	pub(crate) fn repo_argument(&self) -> Option<&Path> {
 		self.repo_argument.as_deref()
 	}
@@ -212,7 +237,7 @@ impl Workspace {
 				let argument = repo.display().to_string();
 				let separator = if argument.starts_with('-') { "=" } else { " " };
 				format!(
-					"{} --repo{separator}{}",
+					"{} -C{separator}{}",
 					source_sentry_core::SLUG,
 					crate::commands::shell_word(&argument)
 				)
@@ -253,7 +278,7 @@ pub(crate) fn load<S: Snapshot>(
 	workspace: &Workspace,
 	snapshot: &S,
 ) -> Result<(ConfigSet, Inventory), Failure> {
-	let configs = ConfigSet::load(snapshot)
+	let configs = ConfigSet::load_project(snapshot, &workspace.scope)
 		.map_err(|error| Failure::load(workspace, &error))?;
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;
