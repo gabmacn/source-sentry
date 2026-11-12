@@ -34,8 +34,8 @@ workspace:
   path: src
 
 # Source Sentry reads history to date changes. The default clone is shallow
-# and partial, and either makes it stop with exit 4, because `check` never
-# fetches missing history or objects. This clone fetches everything and checks
+# and partial, and whenever `check` needs history or objects that it lacks,
+# it stops with exit 4, because `check` never fetches them. This clone fetches everything and checks
 # out CI_COMMIT_SHA, the same commit in every workflow of the pipeline.
 clone:
   - name: clone

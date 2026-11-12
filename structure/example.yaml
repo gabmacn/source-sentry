@@ -5,30 +5,52 @@ source-sentry:
   reviewed:
     at: 2026-11-07T15:02:44Z # Always in UTC.
     by: 'Ana Ribeiro (Legal)' # Given with `attest --reviewer`.
+  # For a living-series entry, `attest` adds `completed` (also `at` and `by`)
+  # on its first complete source review. It may appear in frontmatter or a
+  # local lockfile; re-attesting does not create another completion.
   # Classes decide which context rules apply to this document. Declare them in
   # .source-sentry/source-sentry.yaml.
   classes: ['privacy']
   owners: ['legal']
-  # Replaces the schedule this document would otherwise inherit.
+  # Overrides grace and cadence separately; omitted fields stay inherited.
+  # Set `cadence: null` to remove an inherited cadence.
   schedule:
-    grace: 14 # Days the document may lag behind a changed source.
+    # Grace counts calendar days from the local date when drift started.
+    # Without cadence, positive grace sets the due date to that date plus
+    # grace; zero grace makes the document due at once. With cadence, the
+    # due date is the first recurrence on or after that date plus grace.
+    # A dated deadline becomes overdue at the start of the next local day.
+    grace: 14
     cadence:
-      dtstart: 2026-12-01 # The first due date.
-      rrule: 'FREQ=MONTHLY;INTERVAL=2' # An iCalendar recurrence rule, without times of day.
+      dtstart: 2026-12-01 # The first due date; it must satisfy the rule.
+      # An RFC 5545 rule value, without `RRULE:` or other properties, that
+      # never ends: no COUNT or UNTIL. Frequencies must be DAILY or coarser,
+      # with no BYHOUR, BYMINUTE or BYSECOND. RFC combinations are checked;
+      # a BYDAY list cannot mix plain (MO) and numbered (1MO) weekdays.
+      # Each next-date search is limited to 400 years; leaving the supported
+      # calendar produces a date-out-of-range operational error.
+      rrule: 'FREQ=MONTHLY;INTERVAL=2'
   sources:
     # A leading `/` starts at the repository root. Any other path is relative
     # to this document.
     - path: '/src/models/user.rs'
       # Written by `attest`: the version of the source that was reviewed, and
-      # who reviewed it, and when.
+      # who reviewed it, and when. `oid` and `reviewed` must appear together,
+      # or both be absent. Each source has exactly one of `path` and `pattern`.
       oid: 'sha1:1234567890abcdef1234567890abcdef12345678'
       reviewed:
         at: 2026-11-07T14:32:05Z
         by: 'Bruno Costa' # Taken from git's user.name.
-    # Not reviewed yet, so the document stays unattested until someone does.
+    # Not reviewed yet, so this reviewed document is stale. `unattested`
+    # means it has neither a document review nor any source attestation.
     - path: '../diagrams/user-flow.svg'
-    # Every file matching the pattern is a source with its own review. Quote
-    # patterns, because YAML misreads an unquoted `*` or `!`.
+    # Every tracked match has its own member attestation; the pattern itself
+    # has no oid or review. Quote patterns: YAML misreads a leading `*` or `!`.
+    # Source globs match whole document-relative or `/`-rooted paths: `*`
+    # never crosses `/`; a whole-component `**` spans directories. Matching
+    # is case-sensitive, including on Windows. Unlike config patterns,
+    # slashless source globs are not implicitly recursive; `!` is literal.
+    # Backslashes are refused; use `[*]` for a literal wildcard.
     - pattern: '/db/migrations/*.sql'
       members:
         - path: '/db/migrations/0001-init.sql'

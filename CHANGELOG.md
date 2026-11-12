@@ -23,7 +23,9 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-11-12
+
 ### Added
 
-- The first release of Source Sentry: the `source-sentry` command and the
-  `source-sentry-core` and `source-sentry-git` libraries.
+- The first release candidate of Source Sentry: the `source-sentry` command
+  and the `source-sentry-core` and `source-sentry-git` libraries.

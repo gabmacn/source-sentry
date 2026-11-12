@@ -1,0 +1,630 @@
+{
+  "documents": {
+    "CONTRIBUTING.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:12Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "oid": "sha1:e807766eb962ff7505bc39f9d22938f36cee1600",
+          "path": "Cargo.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:12Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:278c186b507ed80342e4aff134bebae530f31085",
+          "path": "README.md",
+          "reviewed": {
+            "at": "2026-11-12T08:36:12Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
+          "path": "clippy.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:12Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
+          "path": "crates/core/src/testing.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:12Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
+          "path": "rustfmt.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:12Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "README.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:11Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "oid": "sha1:4320bd8685c253e8b20ee57b47079482804b031f",
+          "path": ".cargo/config.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:11Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:e807766eb962ff7505bc39f9d22938f36cee1600",
+          "path": "Cargo.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:11Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "members": [
+            {
+              "oid": "sha1:1d04c7a1b1029e29b28a8d29831a8d1abfcc13d7",
+              "path": "crates/cli/Cargo.toml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:11Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:2fbbc1c7c50cd3d9f3c795e84e638f247137a17c",
+              "path": "crates/core/Cargo.toml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:11Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:14c001e458e630536df99cf6f7abcad69c2fbb5d",
+              "path": "crates/git/Cargo.toml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:11Z",
+                "by": "Claude"
+              }
+            }
+          ],
+          "pattern": "crates/*/Cargo.toml"
+        },
+        {
+          "oid": "sha1:a89ae7291fd280c67934f4bc23f248fdccafaba3",
+          "path": "crates/cli/src/cli.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:11Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:74bfa792fecd5f524c6e54f100f45945a16163c9",
+          "path": "crates/git/src/lib.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:11Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:35440c48c9e69d34a72a2882f2cdd7bf9ba631f3",
+          "path": "rust-toolchain.toml",
+          "reviewed": {
+            "at": "2026-11-12T08:36:11Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "docs/cli.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:13Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "members": [
+            {
+              "oid": "sha1:a89ae7291fd280c67934f4bc23f248fdccafaba3",
+              "path": "../crates/cli/src/cli.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:833e37debada72595ea9e103f861766c48870406",
+              "path": "../crates/cli/src/commands.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:ef3de8e5061b58e4ae893c31217f6baae9f5f609",
+              "path": "../crates/cli/src/commands/apply.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:89c2ef000f0d541fcc060df7c35156271eff119c",
+              "path": "../crates/cli/src/commands/attest.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:6d6ce28e738e7edf1785417457b23436f9557b20",
+              "path": "../crates/cli/src/commands/check.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:af6a85b1a1af2eaab7149a7c67d8fa992fdde916",
+              "path": "../crates/cli/src/commands/diff.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:111490d46300962874b76339ba10ae2911f6962c",
+              "path": "../crates/cli/src/commands/explain.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:ee74e08e6b22d25c195fd09889955600d331915d",
+              "path": "../crates/cli/src/commands/init.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:e850569b34b863f6d7550db4c7d87ef8b3f4d954",
+              "path": "../crates/cli/src/commands/migrate.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:1ff2fe57a8fa42d9d56a8c5975e9f20051e99842",
+              "path": "../crates/cli/src/commands/records.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:4ed4ff581e2c1feede59f2e66cd5b36e3e734e16",
+              "path": "../crates/cli/src/commands/track.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:158619a8831731f2ecc9d28cf814466a2420e9fd",
+              "path": "../crates/cli/src/commands/untrack.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:bfc6aaecac2c395ede1469e167cd8340aa97816d",
+              "path": "../crates/cli/src/describe.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:e3143a9b7db89c120b5b25e7e913800b64a28852",
+              "path": "../crates/cli/src/exit.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:4b009b41349fb7ba5c04e330b8dc0de2a9772ee5",
+              "path": "../crates/cli/src/main.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:ac73d7e24e640874fc5af5e31a8f947cb0a31b07",
+              "path": "../crates/cli/src/output.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:148a0d0911f6aacf785091457768e712bd6f3493",
+              "path": "../crates/cli/src/workspace.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            }
+          ],
+          "pattern": "../crates/cli/src/**/*.rs"
+        },
+        {
+          "oid": "sha1:a8f25d4fb4c5cc56a1d6262d99153a666937875a",
+          "path": "../crates/core/src/evaluate/clock.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "members": [
+            {
+              "oid": "sha1:d381a7c55e59a2279f4052dd08eb2d1105bd06dd",
+              "path": "../crates/core/src/mutate/attest.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:95b7269771052c24a654ced30c7fa7b5bfc2ff64",
+              "path": "../crates/core/src/mutate/diff.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:ee3d6459e92c2b08bad8ff68b783c7981e3c852c",
+              "path": "../crates/core/src/mutate/edits.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:d14c5abdc30c98342f8f52992f34bf80d85bf057",
+              "path": "../crates/core/src/mutate/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:0ea1d21b0915bcb2f449e960400138617ef41d64",
+              "path": "../crates/core/src/mutate/expectation.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:ef21a09512ca2de92ed41f5979d75ffd8e44d790",
+              "path": "../crates/core/src/mutate/init.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:983f4331f23150c1cdddaaa4792f3c3f9581cc8f",
+              "path": "../crates/core/src/mutate/migrate.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:c5239eb4f3136d6c75fc573ad3fd17aaa1fd2478",
+              "path": "../crates/core/src/mutate/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:94a63558a4372c4f838ceca4bfb7744b9ca78f4a",
+              "path": "../crates/core/src/mutate/relocate.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:8284bad0c884d98df24be8552ee24e7081816955",
+              "path": "../crates/core/src/mutate/repo.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:bd3bd20a14a3490f221cad7dc68bf1dcabc567e8",
+              "path": "../crates/core/src/mutate/retire.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:a053a7d0a04ea08daab1f796a0b542e54fb73ebf",
+              "path": "../crates/core/src/mutate/seal.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:5d3d40aaf17bb8a986fc5f642cfc07592f0daac7",
+              "path": "../crates/core/src/mutate/select.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:a0a429ebc5b09f2d05d74eefc85da0658c7883b9",
+              "path": "../crates/core/src/mutate/track.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:657860d3456e4b2715c69f05e5e66f244355b26a",
+              "path": "../crates/core/src/mutate/untrack.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:92cabc3a55c48849150dec10ae47d4a7e1d0e980",
+              "path": "../crates/core/src/mutate/verify.rs",
+              "reviewed": {
+                "at": "2026-11-12T08:36:13Z",
+                "by": "Claude"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/mutate/*.rs"
+        },
+        {
+          "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
+          "path": "../crates/core/src/policy/gate.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:37513b942948a98305b83f2ceae000782f62cb52",
+          "path": "../crates/git/src/write.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "docs/example.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:13Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "oid": "sha1:8700352850ef9734165adc6ee859bcfd59772dd6",
+          "path": "../crates/core/src/adapters/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:0ddc9bd0174efaee7eeb7612e31e16fe5766fdd5",
+          "path": "../crates/core/src/adapters/frontmatter/emit.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:f5ae6b7ae3226ac8d6748cdf2aea716157439488",
+          "path": "../crates/core/src/adapters/frontmatter/mod.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:3cb73f0fb6382aa382c69a6f849f25dcd5c1987c",
+          "path": "../crates/core/src/model/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:13Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "recipes/README.md": {
+      "sources": [
+        {
+          "members": [
+            {
+              "oid": "sha1:8e00b2dddc7e141926bc8d70b8dbd97367e32846",
+              "path": "forgejo-actions.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:dc2af330a9032425182ec191eaae8c3fbeb44e01",
+              "path": "github-actions.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:cb87af1889b4d9861fd13425ab18b8de6d41c2cf",
+              "path": "gitlab-ci.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:db34a641b7d49918ae5dbafbbd308fb07e163dca",
+              "path": "woodpecker/source-sentry-continue.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:fc53594bc4727044fa80fdca5bf3c654593e6500",
+              "path": "woodpecker/source-sentry-deploy.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            },
+            {
+              "oid": "sha1:165ecaca74e714a3a37abcf9d1ecedb060afca37",
+              "path": "woodpecker/source-sentry-report.yml",
+              "reviewed": {
+                "at": "2026-11-12T08:36:14Z",
+                "by": "Claude"
+              }
+            }
+          ],
+          "pattern": "**/*.yml"
+        },
+        {
+          "oid": "sha1:a89ae7291fd280c67934f4bc23f248fdccafaba3",
+          "path": "../crates/cli/src/cli.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:6d6ce28e738e7edf1785417457b23436f9557b20",
+          "path": "../crates/cli/src/commands/check.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:e3143a9b7db89c120b5b25e7e913800b64a28852",
+          "path": "../crates/cli/src/exit.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:f4f223dfbdac87a62c34d96199cdc91d792b6e3b",
+          "path": "../crates/core/src/config/parse.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    },
+    "structure/README.md": {
+      "reviewed": {
+        "at": "2026-11-12T08:36:14Z",
+        "by": "Claude"
+      },
+      "sources": [
+        {
+          "oid": "sha1:8700352850ef9734165adc6ee859bcfd59772dd6",
+          "path": "../crates/core/src/adapters/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ace6061eafbd4c863e2ae9e38fe6289b036dbb7d",
+          "path": "../crates/core/src/adapters/lockfile/mod.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:beb1d1195f401c8d8edbc9805f6ce490a91cf7f9",
+          "path": "../crates/core/src/adapters/lockfile/shape.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ecf0a9d434e4bfbb2a27a441fec85033065ec297",
+          "path": "../crates/core/src/claims/diagnostic.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:573ccbc7fa9b5f7015a7c96d06f581faa7464162",
+          "path": "../crates/core/src/model/identity.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:ad09b8cfbd60faff9fc96c18290bfdb9f0b57e90",
+          "path": "../crates/core/src/report/check.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        },
+        {
+          "oid": "sha1:d0504fe186999edb5c167c2201bac160a0e84547",
+          "path": "../crates/core/src/report/common.rs",
+          "reviewed": {
+            "at": "2026-11-12T08:36:14Z",
+            "by": "Claude"
+          }
+        }
+      ]
+    }
+  },
+  "retired": {},
+  "schema": 1
+}

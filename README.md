@@ -70,6 +70,13 @@ source-sentry attest docs/privacy.md    # Record a review.
 source-sentry explain docs/privacy.md   # Why a document is judged as it is.
 ```
 
+A source counts as changed when its content does, as git would store it:
+git's own conversions, such as line endings, apply. Files in Git LFS are
+compared by their pointers, which Source Sentry computes without running
+LFS. A file behind any other clean filter, and a submodule, cannot be
+compared, and is reported as an error. Repositories with SHA-1 and SHA-256
+object names are both supported.
+
 [`docs/cli.md`](docs/cli.md) describes every command, and
 [`structure/`](structure/README.md) shows every file format with examples.
 [`recipes/`](recipes/README.md) holds CI recipes for GitHub Actions, GitLab
@@ -78,12 +85,12 @@ CI, Forgejo Actions and Woodpecker.
 ## Workspace
 
 `Cargo.toml` is the workspace manifest. It centralizes package metadata,
-dependency versions and lint policy for its three members:
+dependency versions and lint policy for its three members, in `crates/`:
 
-- `core/` (`source-sentry-core`): the library. It performs no I/O.
-- `git/` (`source-sentry-git`): the git backend, which implements the core's
-  traits.
-- `cli/` (`source-sentry`): the executable.
+- `crates/core/` (`source-sentry-core`): the library. It performs no I/O.
+- `crates/git/` (`source-sentry-git`): the git backend, which implements the
+  core's traits.
+- `crates/cli/` (`source-sentry`): the executable.
 
 The members share one `Cargo.lock` and `target/` directory.
 

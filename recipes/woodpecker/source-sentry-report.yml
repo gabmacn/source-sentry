@@ -14,7 +14,9 @@
 # The report gate asks "Is anything wrong?" It fails on a warning or a
 # failure, and so does this workflow's status,
 # ci/woodpecker/<event>/source-sentry-report. That status prompts a fix; do
-# not require it.
+# not require it. On a cron run it fails on a failure only, so that a
+# notification step added for failures fires when something fails, not every
+# day while anything warns; it still lists the warnings.
 #
 # Woodpecker substitutes its own variables throughout this file, comments
 # included, before running it, so variables meant for the shell are written
@@ -33,8 +35,8 @@ workspace:
   path: src
 
 # Source Sentry reads history to date changes. The default clone is shallow
-# and partial, and either makes it stop with exit 4, because `check` never
-# fetches missing history or objects. This clone fetches everything and checks
+# and partial, and whenever `check` needs history or objects that it lacks,
+# it stops with exit 4, because `check` never fetches them. This clone fetches everything and checks
 # out CI_COMMIT_SHA, the same commit in every workflow of the pipeline. For a
 # pull request, that commit is the pull request's head.
 clone:
@@ -113,6 +115,7 @@ steps:
     commands:
       - '[ "$(git rev-parse HEAD)" = "$${CI_COMMIT_SHA}" ] || { echo "Checked out $(git rev-parse HEAD), but this pipeline is for $${CI_COMMIT_SHA}." >&2; exit 1; }'
       - AT="$(date -u -d "@$${CI_PIPELINE_CREATED}" +%Y-%m-%dT%H:%M:%SZ)"
+      - FAIL_ON=warn; [ "$${CI_PIPELINE_EVENT}" != cron ] || FAIL_ON=fail
       - >-
         /woodpecker/source-sentry/bin/source-sentry check
-        --context default --fail-on warn --at "$${AT}"
+        --context default --fail-on "$${FAIL_ON}" --at "$${AT}"

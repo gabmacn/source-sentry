@@ -2,8 +2,8 @@
 # 'logs'. It can hold any setting a directory config can, except `root` and
 # `inherit`. Its patterns apply relative to the config that imports it.
 
-# Presets can import other presets.
-imports: ['common']
+# Presets can import other presets; this one needs none.
+imports: []
 
 classes: ['internal-docs']
 schedule:
@@ -15,6 +15,12 @@ series:
     version-kind: integer
     lifecycle: records-only
     # A new sealed log is due every Monday, with three days of grace.
+    # Each window runs after the previous due date through this due date plus
+    # grace, inclusive; the first has no lower bound. An entry credits at most
+    # one window. records-only uses the introduction of `seal`; living uses
+    # `completed`. Uncommitted markers do not count, and their stored `at`
+    # values do not date the credit: it uses the minimum committer date from
+    # the introducing first-parent commit through the evaluated revision.
     schedule:
       grace: 3
       cadence:

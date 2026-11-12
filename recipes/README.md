@@ -40,6 +40,7 @@ runs on Linux.
 | Full history | `fetch-depth: 0` | `GIT_DEPTH: 0`, `GIT_STRATEGY: clone` | `fetch-depth: 0` | `depth: 0`, `partial: false` |
 | Schedule | `on.schedule` in the file | A pipeline schedule, set in the UI | `on.schedule` in the file | A cron job, set in the settings |
 | Who is notified | The user who last changed the cron line | The pipeline's creator, presumably the schedule's owner | The repository's owner | Nobody, unless a step is added |
+| Scheduled runs notify on | A failure | A failure | A failure | A failure, through a step you add |
 | Binary | Downloaded once, shared as an artifact | Downloaded once, shared as an artifact | Downloaded once, shared as an artifact | Downloaded in each workflow, against the same pins |
 
 ## The two gates
@@ -48,7 +49,8 @@ The two gates ask two questions of the same result:
 
 - **The report gate**: "Is anything wrong?" It runs `check --fail-on warn`
   and fails on a warning or a failure. Its failing mark prompts a fix, so it
-  is **not required**.
+  is **not required**. On a scheduled run it uses `--fail-on fail` instead
+  (see [Scheduled runs](#scheduled-runs)).
 - **The continue gate**: "May the build continue?" It runs
   `check --fail-on fail` and fails only on a failure, or on an error. It **is
   required** before merging.
@@ -109,8 +111,8 @@ The trade-off, against two jobs that each run one gate:
   required checks, so a separate report job would need `allow_failure` too,
   and would show the same orange warning.
 - **Against one job:** the report gate's mark is an orange warning, not a
-  red one. The pipeline succeeds, so no failure email is sent, and a
-  scheduled pipeline notifies nobody of warnings.
+  red one, and the pipeline succeeds, so no failure email is sent. For a
+  scheduled pipeline, this is the behaviour every recipe has.
 - **Against one job:** the job tolerates exactly exit 1. If the exit codes
   ever changed, this list would have to change with them.
 
@@ -252,6 +254,23 @@ one, because the merge commit is what will land.
     locally. That makes a commit whose first parent is the head, and whose ID
     differs from one clone to the next.
 
+Where the head is checked, a pull request that has fallen behind its base is
+judged without the base's newer changes. The run on the base branch after the
+merge still reports what it missed, but only once the change has landed.
+**Require pull requests to be up to date with their base before merging**:
+the checked head then contains the base, and its contents are those that
+land.
+
+| Engine | Setting |
+|---|---|
+| Forgejo | **Block merge if pull request is outdated**, in the branch protection rule |
+| GitLab, every tier | The merge method **Merge commit with semi-linear history** or **Fast-forward merge**, under **Settings > Merge requests** |
+| Woodpecker | The forge's setting, such as GitHub's **Require branches to be up to date before merging**, under the required status checks |
+
+The cost is that a pull request must be rebased onto, or merged with, its
+base each time the base moves, and checked again. GitHub Actions, which checks
+the merge commit, does not need it.
+
 ## The evaluation instant
 
 Every check in a pipeline is measured at one instant, so that the gates
@@ -326,15 +345,43 @@ does.
 
 Any daily time reports a deadline within a day of its passing. Deadlines fall
 at the end of a day in the configured time zone, so a run shortly
-after that midnight reports them soonest.
+after that midnight reports them soonest. The exception is a document with
+no cadence and a grace period of 0 days, the default: a change to its
+sources is due at once, so the next run of any kind reports it.
 
-How warnings show on a scheduled run differs by engine:
+A scheduled run notifies on a failure only, on every engine. Its report gate
+uses `--fail-on fail` rather than `--fail-on warn`, so warnings are listed in
+the run's log but never fail it. On GitLab nothing changes, since a warning
+already lets the pipeline succeed. A daily notification for a warning would
+say nothing new after the first. Under the built-in default context, every
+finding warns except a missed series entry, including a document that is
+stale but still within its grace period.
 
-- **GitHub and Forgejo:** the report gate fails on every warning, so a
-  scheduled run fails, and notifies, every day while anything warns.
-- **Woodpecker:** the report workflow fails the same way, but notifies only
-  through a step you add.
-- **GitLab:** warnings never notify.
+With the built-in default context, no document fails, so a scheduled run
+notifies only on a configuration, integrity or operational error. To be
+notified when a deadline passes, make `overdue` a failure in the
+repository's `default` context:
+
+```yaml
+# In .source-sentry/source-sentry.yaml.
+define:
+  contexts:
+    # Defining `default` replaces the built-in default context, so this
+    # repeats its rule for missed series entries.
+    default:
+      fallback: warn
+      rules:
+        - facts: ['missed']
+          outcome: notice
+        - facts: ['overdue']
+          outcome: fail
+```
+
+The scheduled run then fails, and notifies, from the first run after a
+deadline passes until the document is reviewed. The same rule also fails the
+continue gate of every pull request and push while the document is overdue.
+Add `classes` to the rule to limit it to the documents whose deadlines should
+block work.
 
 ## Deploying
 
@@ -510,12 +557,6 @@ review.
 - **On GitLab**, use `.gitlab/CODEOWNERS`, name `/.gitlab-ci.yml` instead of
   the workflow line, and enable "Required approval from code owners" on the
   protected branch. Both need Premium or Ultimate.
-- **Stronger options:**
-  - GitHub organisation rulesets can require a workflow kept in another
-    repository, which a pull request cannot edit. Which plans offer this was
-    not verified.
-  - GitLab Ultimate's pipeline execution policies run jobs that the project's
-    own CI configuration cannot override.
 
 **Forgejo** reads CODEOWNERS from the repository's root, `docs/` or
 `.forgejo/`, and its patterns are Go regular expressions, not globs:
@@ -538,6 +579,56 @@ three files. Woodpecker's "Require approval for" setting holds pull request
 pipelines until someone approves them, by default for forks only. It does not
 stop a trusted author's edited workflow; review does.
 
+### Running the gate where a pull request cannot change it
+
+Review is the baseline on every engine. Where your plan offers it, also run
+the continue gate from a definition that pull requests cannot edit, so that
+lowering the context or the threshold needs a change outside the repository:
+
+- **GitHub Enterprise Cloud.** An organisation ruleset with **Require
+  workflows to pass before merging** runs a workflow kept in another
+  repository of the organisation. GitHub documents this rule for Enterprise
+  Cloud; on other plans, review remains the protection.
+  - Move the continue gate's job into that repository, and select the
+    workflow at a commit rather than a branch, so that it changes only when
+    you choose.
+  - The workflow must run on `pull_request` or `merge_group`. Its `branches`,
+    `paths` and `types` filters are ignored.
+  - The rule also blocks direct pushes, so target only the deploying branch.
+  - The workflow repository's visibility must allow the target: a public
+    workflow runs for any repository of the organisation, a private one only
+    for private repositories.
+- **GitLab Ultimate.** A pipeline execution policy in `inject_policy` mode
+  adds the gate's jobs to every pipeline of the projects it applies to, and
+  GitLab documents that "a project CI/CD configuration cannot override any
+  behavior defined in the policy pipelines". Prefer it to compliance
+  pipelines, which GitLab deprecated in 17.3.
+- **GitLab, every tier.** Under **Settings > CI/CD > General pipelines**, set
+  the **CI/CD configuration file** to a file in another project, such as
+  `.gitlab-ci.yml@example-org/ci-policy`, and give write access to that
+  project only to the policy owners. Merge requests then cannot change the
+  pipeline.
+  - If that file includes the project's own configuration, keep the gate
+    from inheriting from it. The included file's jobs and defaults are merged
+    into the main file's, so a job of the same name, or a `default`
+    `before_script`, could change the gate.
+  - On the Source Sentry jobs, set `inherit: default: false`, and set
+    `script`, `rules` and `allow_failure` explicitly.
+- **Woodpecker.** A configuration extension is an HTTP service that
+  Woodpecker asks for each pipeline's workflows. It can return the Source
+  Sentry workflows itself, rather than the repository's files.
+  - It is configured per repository, in the settings' **Extensions** tab, or
+    for the whole server.
+  - With `WOODPECKER_CONFIG_EXTENSION_EXCLUSIVE`, every repository takes its
+    workflows from the server's service only.
+  - Secure the service: it decides what every pipeline runs.
+- **Forgejo** documents no way to run a workflow kept outside the
+  repository, so review remains the protection.
+
+Whichever you choose, check it once with a pull request that edits the
+workflow file to lower the threshold: the check must still apply the original
+one.
+
 ## Testing before release
 
 The recipes have not run on real CI. The four recipes are part of the
@@ -558,9 +649,9 @@ the push to the default branch:
 | The privacy policy stale | fails (1) | passes | fails (2) | allowed | blocked |
 | A rule maps a fact to `fail` in `default` only | fails (2) | fails (2) | passes | blocked | runs |
 | A malformed lockfile or unknown context | fails (3) | fails (3) | fails (3) | blocked | blocked |
-| A shallow clone, forced for the test | fails (4) | fails (4) | fails (4) | blocked | blocked |
+| A shallow clone, forced for the test, with a stale document whose change it cannot date | fails (4) | fails (4) | fails (4) | blocked | blocked |
 | The install step fails | skipped or failed | fails, never skipped | does not run | blocked | blocked |
-| A deadline passes with no commit | the scheduled run reports it | | | | |
+| A deadline passes with no commit | the scheduled run lists it, and fails (2) only if `overdue` maps to `fail` | | | | |
 
 Each test should also confirm:
 
@@ -627,9 +718,12 @@ Each test should also confirm:
 - Woodpecker's report gate has its own workflow file, so the forge shows its
   status.
 - Scheduled runs use the default context only.
+- Scheduled runs notify on failures only, on every engine.
 - Deployment needs production's continue gate only.
 - Pull requests are checked at their merge commit, where the engine provides
   one.
+- Where a pull request is checked at its head, it should be up to date with
+  its base before it merges.
 - No Windows variants of the recipes are made.
 
 ## Interpretations
@@ -653,8 +747,8 @@ most conservative reading.
    is confirmed to be the pipeline's commit.
 6. **The continue gate is never skippable** on GitHub and Forgejo, because
    a skipped check can count as passing.
-7. **No `--no-cache`.** Fresh checkouts have no cache, and the
-   cache holds only immutable facts.
+7. **No `--no-cache`.** The option is reserved for a cache, which does not
+   exist yet.
 8. **Notifications come from the host.** The Forgejo recipe opts
    into failure emails, which Forgejo leaves off by default.
 9. **Full history and full objects.** GitLab also clones afresh
@@ -665,7 +759,9 @@ most conservative reading.
 
 ## Sources
 
-Each engine's syntax and behaviour was checked on 2026-11-07 against:
+Each engine's syntax and behaviour was checked on 2026-11-07, and the options
+for running the gate where a pull request cannot change it, and for keeping
+pull requests up to date, on 2026-11-12, against:
 
 - **GitHub Actions:**
   - [contexts](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts)
@@ -680,6 +776,7 @@ Each engine's syntax and behaviour was checked on 2026-11-07 against:
   - [code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)
   - [`pull_request_target`](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
   - [ruleset rules](https://docs.github.com/en/enterprise-cloud@latest/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+  - [about rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets), and the [changelog](https://github.blog/changelog/2023-10-11-requiring-workflows-with-repository-rules-is-generally-available/) that made required workflows generally available
   - the [checkout](https://github.com/actions/checkout), [upload-artifact](https://github.com/actions/upload-artifact) and [download-artifact](https://github.com/actions/download-artifact) actions
   - the [Ubuntu 24.04 runner image](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)
 - **GitLab CI:**
@@ -695,6 +792,10 @@ Each engine's syntax and behaviour was checked on 2026-11-07 against:
   - [merged results pipelines](https://docs.gitlab.com/ci/pipelines/merged_results_pipelines/)
   - [code owners](https://docs.gitlab.com/user/project/codeowners/)
   - [pipeline execution policies](https://docs.gitlab.com/user/application_security/policies/pipeline_execution_policies/)
+  - [compliance pipelines](https://docs.gitlab.com/user/compliance/compliance_pipelines/)
+  - [pipeline settings](https://docs.gitlab.com/ci/pipelines/settings/), for a configuration file in another project
+  - [`include`](https://docs.gitlab.com/ci/yaml/includes/), for how included configuration is merged
+  - [merge methods](https://docs.gitlab.com/user/project/merge_requests/methods/)
   - [environments](https://docs.gitlab.com/ci/environments/)
   - the [pipeline processing source](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/services/ci/pipeline_processing/atomic_processing_service.rb), for jobs with `needs`
 - **Forgejo Actions** (documentation for Forgejo 17.0):
@@ -708,12 +809,14 @@ Each engine's syntax and behaviour was checked on 2026-11-07 against:
   - [runner configuration](https://forgejo.org/docs/latest/admin/actions/configuration/)
   - [the Cargo registry](https://forgejo.org/docs/latest/user/packages/cargo/)
   - the source of [commit statuses](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/services/actions/commit_status.go) and of [pull request runs](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/services/actions/notifier_helper.go)
+  - the [English interface strings](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/options/locale/locale_en-US.ini), for the name of the outdated-branch setting
 - **Woodpecker** (documentation for Woodpecker 3.20):
   - [workflow syntax](https://woodpecker-ci.org/docs/usage/workflow-syntax)
   - [workflows](https://woodpecker-ci.org/docs/usage/workflows)
   - [environment](https://woodpecker-ci.org/docs/usage/environment)
   - [cron](https://woodpecker-ci.org/docs/usage/cron)
   - [project settings](https://woodpecker-ci.org/docs/usage/project-settings)
+  - [configuration extensions](https://woodpecker-ci.org/docs/usage/extensions/configuration-extension)
   - [plugin-git](https://github.com/woodpecker-ci/plugin-git/blob/main/docs.md)
   - [server configuration](https://github.com/woodpecker-ci/woodpecker/blob/main/docs/docs/30-administration/10-configuration/10-server.md)
   - the source of the [`when` filter](https://github.com/woodpecker-ci/woodpecker/blob/main/pipeline/frontend/yaml/constraint/constraint.go), [workflow names](https://github.com/woodpecker-ci/woodpecker/blob/main/pipeline/frontend/builder/utils.go), [status names](https://github.com/woodpecker-ci/woodpecker/blob/main/server/forge/common/status.go), [step skipping](https://github.com/woodpecker-ci/woodpecker/blob/main/pipeline/runtime/step.go) and [GitHub pull requests](https://github.com/woodpecker-ci/woodpecker/blob/main/server/forge/github/parse.go)

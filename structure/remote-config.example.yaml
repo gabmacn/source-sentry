@@ -1,6 +1,8 @@
 # Defaults for the documents in .source-sentry/remotes/legal.lock, which each
 # document there can still override. Only imports, classes, owners and
-# schedule are allowed here.
+# schedule are allowed here, including through every imported preset.
+# Importing documents, rules or series settings is an error. All discovered
+# presets are parsed, even those that no config imports.
 
 classes: ['privacy']
 owners: ['legal']

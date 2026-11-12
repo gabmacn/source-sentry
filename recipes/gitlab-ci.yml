@@ -18,7 +18,8 @@
 #
 # Scheduled runs: create a daily schedule for the default branch under
 # Build > Pipeline schedules. Deadlines pass without anyone committing, so the
-# schedule is what reports them.
+# schedule is what reports them. A warning lets the pipeline succeed, so a
+# scheduled pipeline notifies on a failure only, as in the other recipes.
 #
 # Merge requests: on Premium and Ultimate, enable merged results pipelines
 # (Settings > Merge requests > Merge options), so that a merge request is
@@ -39,10 +40,10 @@ stages:
   - deploy
 
 variables:
-  # Source Sentry reads history to date changes, and a shallow clone makes it
-  # stop with exit 4. A depth of 0 fetches the full history. A fresh clone
-  # per job keeps a shallow working copy from an earlier job from being
-  # reused.
+  # Source Sentry reads history to date changes, and in a shallow clone it
+  # stops with exit 4 whenever that history is missing. A depth of 0 fetches
+  # the full history. A fresh clone per job keeps a shallow working copy from
+  # an earlier job from being reused.
   GIT_DEPTH: '0'
   GIT_STRATEGY: clone
 

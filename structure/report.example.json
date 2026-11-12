@@ -14,7 +14,7 @@
     {
       "code": "empty-pattern",
       "location": {
-        "field": "documents[\"onboarding.md\"].sources[2]",
+        "field": "documents[\"privacy.md\"].sources[1]",
         "file": "docs/source-sentry.lock",
         "line": 31
       },
@@ -212,7 +212,7 @@
     "outcomes": {
       "fail": 1,
       "notice": 1,
-      "pass": 9,
+      "pass": 0,
       "warn": 1
     }
   },

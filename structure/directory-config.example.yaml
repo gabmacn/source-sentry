@@ -34,9 +34,19 @@ rules:
 
 # Files whose names carry a version. The pattern is a regular expression that
 # must match a whole path relative to this directory; the `version` group
-# captures the part used for ordering.
+# captures the part used for ordering. Overlapping series and duplicate parsed
+# versions are errors.
 series:
   daily-logs:
     pattern: '(?P<version>\d{4}-\d{2}-\d{2})\.md'
+    # Versions order by value: integer uses ASCII digits (01 equals 1);
+    # dotted compares numeric components (0.3 equals 0.3.0); date requires a
+    # valid calendar date written exactly YYYY-MM-DD.
     version-kind: date # integer, dotted or date.
-    lifecycle: records-only # Every entry is a record. `living` keeps the newest entry editable.
+    # records-only requires every entry to be sealed; living keeps the newest
+    # editable and requires its predecessors to be sealed. Run `seal` explicitly
+    # for claimed entries awaiting their seal; the lifecycle never seals them.
+    # `awaiting-seal` warns under the built-in default context. The newest
+    # living entry cannot be sealed or retired, and removing it does not make
+    # a sealed predecessor living again.
+    lifecycle: records-only

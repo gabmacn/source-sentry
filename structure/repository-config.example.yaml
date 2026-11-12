@@ -1,12 +1,21 @@
 # The repository config, at .source-sentry/source-sentry.yaml.
 
-# The format version for the whole repository. Only this file sets it.
+# Config, preset and frontmatter YAML must each contain one document. Use
+# true/false for booleans; duplicate keys, merge keys and unsupported tags are
+# rejected. Unknown declaration and config fields are errors.
+
+# This file is optional. Without it: version 1, UTC, no declared classes and
+# only the built-in default context. If present, it must set integer version 1.
+# Only this file sets the format version for the whole repository.
 version: 1
 # Due dates end at midnight in this time zone. Use an IANA name, such as
 # 'Europe/Madrid'.
 time-zone: 'UTC'
 
 # Every class and context used anywhere in the repository is declared here.
+# Class, context and series names use lowercase ASCII letters and digits,
+# separated by single hyphens, with none at either end. Owner identifiers
+# need only be nonblank.
 define:
   classes:
     internal-docs:
@@ -18,6 +27,14 @@ define:
     security: {}
   # A context decides what each finding means for a build. You choose one when
   # running a check; `default` applies when you choose none.
+  # Outcomes increase in severity: pass < notice < warn < fail. A rule matches
+  # any listed fact and any shared class; omitted or empty classes match all.
+  # The most severe matching outcome wins; fallback applies only if none match.
+  # `fresh` always passes and cannot be targeted by a rule. Other facts are
+  # stale, overdue, unattested, unclaimed, upstream-stale, timing-unknown,
+  # missed and awaiting-seal. Upstream staleness propagates transitively from
+  # stale, overdue, unattested or timing-unknown documents, even when the
+  # immediate source file has not changed.
   contexts:
     # Defining `default` replaces the built-in default context.
     default:
@@ -35,17 +52,28 @@ define:
       rules:
         - facts: ['missed']
           outcome: notice
-        # Blocks a production deploy until the privacy policy is updated. When
-        # several rules match, the most severe outcome wins.
+        # Blocks a production deploy until the privacy policy is updated.
         - classes: ['privacy']
-          facts: ['stale', 'overdue', 'unattested', 'timing-unknown', 'upstream-stale']
+          facts: ['stale', 'overdue', 'unattested', 'timing-unknown',
+                  'upstream-stale']
           outcome: fail
 
 # Settings that every directory inherits, unless it overrides them.
-imports: ['engineering'] # Presets from .source-sentry/presets/.
+# Presets come from .source-sentry/presets/; this config needs none.
+imports: []
 documents:
-  # Which files count as documents, and how each one is read. `include` and
-  # `adapters` match the built-in defaults; nothing is ignored by default.
+  # include/ignore select unclaimed scan candidates. Existing on-file claims
+  # are still read when their adapter permits it; configs and lockfiles are
+  # read independently of ignores.
+  # Config patterns use gitignore syntax: slashless patterns match at any
+  # depth; a leading or internal `/` anchors at this config's directory (the
+  # repository root here), and a trailing `/` matches directories. Only ignore
+  # patterns allow `!` exceptions; the last match wins. Source globs use a
+  # different language, described in example.yaml.
+  # include replaces the inherited list; adapters appends, and the last
+  # matching mapping wins. `adapters: []` leaves the built-ins in place.
+  # These include and adapter values match the built-in defaults; nothing is
+  # ignored by default.
   include: ['*.md', '*.txt', '*.pdf']
   adapters:
     - match: '*.md'
@@ -56,4 +84,7 @@ documents:
       adapter: opaque # Tracked through lockfiles only.
   ignore: ['node_modules/', 'target/']
 schedule:
-  grace: 0 # Documents must follow their sources at once.
+  # Built-in document defaults: empty classes and owners, zero grace and no
+  # cadence. With no cadence, zero grace makes changed sources due at once;
+  # example.yaml explains positive grace and its interaction with cadence.
+  grace: 0

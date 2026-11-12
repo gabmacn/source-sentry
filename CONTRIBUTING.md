@@ -51,7 +51,7 @@ import them as well.
 - **Documentation.** Public items are documented, with `# Errors` and
   `# Panics` sections where they apply.
 - **Tests.** Each change comes with tests that would fail without it. The core
-  has in-memory fakes of the repository in `core/src/testing.rs`; the git
+  has in-memory fakes of the repository in `crates/core/src/testing.rs`; the git
   backend and the CLI test against real temporary repositories.
 - **Dependencies.** A new dependency needs a comment in `Cargo.toml` naming the
   job it serves.

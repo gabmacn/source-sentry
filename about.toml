@@ -2,7 +2,8 @@
 # every release archive as `THIRD-PARTY-LICENSES.txt`.
 # The release workflow runs, from this directory:
 #
-#     cargo about generate --locked --fail --manifest-path cli/Cargo.toml \
+#     cargo about generate --locked --fail \
+#         --manifest-path crates/cli/Cargo.toml \
 #         --output-file THIRD-PARTY-LICENSES.txt about.hbs
 #
 # `accepted` lists only the licences that the release's dependencies use, so a

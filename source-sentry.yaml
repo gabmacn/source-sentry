@@ -1,0 +1,37 @@
+# Source Sentry tracks its own documentation with this directory config and
+# the lockfile beside it. Every setting is written out, including those that
+# repeat the built-in defaults, so the file can also be copied as a starting
+# point. structure/directory-config.example.yaml explains each key.
+
+# Scans this directory for documents. The lockfile beside this file already
+# makes it a root; this line says so explicitly.
+root: true
+# Ignores the settings of parent directories, so Source Sentry is checked the
+# same way wherever its folder lives.
+inherit: false
+
+documents:
+  # The built-in defaults.
+  include: ['*.md', '*.txt', '*.pdf']
+  # The last matching line wins.
+  adapters:
+    - match: '*.md'
+      adapter: md-utf8
+    - match: '*.txt'
+      adapter: md-utf8
+    - match: '*.pdf'
+      adapter: opaque
+    # The example's frontmatter shows a declaration; it is not this
+    # repository's own. Read as opaque, it is tracked through the lockfile.
+    - match: 'docs/example.md'
+      adapter: opaque
+  ignore:
+    # Release notes are written once per release, not kept in step with the
+    # code.
+    - 'CHANGELOG.md'
+    # Issue and pull request templates are forms, not documentation.
+    - '.forgejo/'
+
+schedule:
+  # The built-in default: documents must follow their sources at once.
+  grace: 0

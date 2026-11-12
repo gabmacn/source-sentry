@@ -120,7 +120,9 @@ jobs:
 
   # The report gate asks "Is anything wrong?" It fails on a warning or a
   # failure, to show a failing mark that prompts a fix. Do not make it a
-  # required check.
+  # required check. On a scheduled run it fails on a failure only, so that
+  # the daily run emails when something fails, not every day while anything
+  # warns; it still lists the warnings.
   report-gate:
     name: Source Sentry report gate
     needs: prepare
@@ -134,8 +136,8 @@ jobs:
       - name: Check out the commit with its full history
         uses: https://data.forgejo.org/actions/checkout@v4
         with:
-          # Source Sentry reads history to date changes. A shallow clone makes
-          # it stop with exit 4.
+          # Source Sentry reads history to date changes. In a shallow clone,
+          # it stops with exit 4 whenever that history is missing.
           fetch-depth: 0
           persist-credentials: false
 
@@ -155,10 +157,11 @@ jobs:
       - name: Check (report gate)
         env:
           AT: ${{ needs.prepare.outputs.at }}
+          FAIL_ON: ${{ github.event_name == 'schedule' && 'fail' || 'warn' }}
         run: |
           tar -xf /tmp/source-sentry/source-sentry.tar -C /tmp/source-sentry
           /tmp/source-sentry/source-sentry check \
-            --context default --fail-on warn \
+            --context default --fail-on "$FAIL_ON" \
             --at "${AT:?The prepare job provided no evaluation instant.}"
 
   # The continue gate asks "May the build continue?" It fails only on a
