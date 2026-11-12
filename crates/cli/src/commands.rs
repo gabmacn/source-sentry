@@ -10,6 +10,7 @@ mod explain;
 mod init;
 mod migrate;
 mod records;
+mod review;
 mod track;
 mod untrack;
 
@@ -28,12 +29,16 @@ use crate::workspace::Workspace;
 ///
 /// Returns the failure that ended the command, with its exit code.
 pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
+	if matches!(&cli.command, Command::Review(_)) {
+		review::require_terminal()?;
+	}
 	let workspace = Workspace::open(cli.repo.as_deref())?;
 	match &cli.command {
 		Command::Check(args) => check::run(&workspace, args, printer),
 		Command::Explain(args) => explain::run(&workspace, args, printer),
 		Command::Diff(args) => diff::run(&workspace, args, printer),
 		Command::Attest(args) => attest::run(&workspace, args, printer),
+		Command::Review(args) => review::run(&workspace, args),
 		Command::Seal(args) => records::seal(&workspace, args, printer),
 		Command::Retire(args) => records::retire(&workspace, args, printer),
 		Command::Track(args) => track::run(&workspace, args, printer),

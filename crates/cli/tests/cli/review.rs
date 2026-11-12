@@ -6,6 +6,24 @@ use serde_json::json;
 
 use crate::support::{AT, TestRepo, document};
 
+/// Interactive review refuses redirected input or output and offers the
+/// noninteractive review commands without changing anything.
+#[test]
+fn interactive_review_requires_terminal_input_and_output() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	let before = repo.read("docs/source-sentry.lock");
+	let run = repo.run(&["review"]);
+	run.expect_code(1);
+	assert!(run.stderr.contains("terminal input and output"));
+	assert!(run.stderr.contains("diff"));
+	assert!(run.stderr.contains("attest"));
+	assert_eq!(repo.read("docs/source-sentry.lock"), before);
+	repo.run_in("..", &["review"]).expect_code(1);
+	let rejected = repo.run(&["review", "--yes"]);
+	rejected.expect_code(64);
+}
+
 /// The `attest` command that `diff` ends with, as arguments.
 fn printed_attest(stdout: &str) -> Vec<String> {
 	let line = stdout.lines().last().expect("diff prints something").trim();

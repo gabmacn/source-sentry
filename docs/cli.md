@@ -11,7 +11,8 @@ source-sentry help [<command>]
 - `--color` defaults to `auto`, which respects `NO_COLOR` and redirected
   output.
 - `--quiet` prints only errors and what was asked for: the JSON of
-  `--format json` and, on a terminal, a change's plan with its question.
+  `--format json` and, on a terminal, the review session or a change's plan
+  with its question.
 - `-h` or `--help` describes a command; `-V` or `--version` prints the
   version.
 
@@ -136,6 +137,7 @@ dated. A name that matches nothing exits 2.
 
 ```
 source-sentry diff <document> [--source <path-or-pattern>]... [--format <human|json>]
+source-sentry review [<document>...] [--context <name>] [--reviewer <name>]
 source-sentry attest <document> [--source <path-or-pattern>]...
                      [--expect <path@oid|path@absent>]... [--reviewer <name>]
                      [--reread] [--dry-run] [--yes]
@@ -175,6 +177,64 @@ whether or not anything changed.
 
 `--reviewer` defaults to git's `user.name`. `--reread` also records that the
 whole document was reread.
+
+`review` walks the live documents whose facts include `stale`, `overdue`,
+`unattested` or `upstream-stale`. `--context` defaults to `default` and
+decides their order: worst outcome first, then upstream documents before
+their dependents within an outcome, then path. Named documents limit the
+queue to those that need review. Sealed records are never queued. A
+configuration or integrity error refuses the session before its first
+question.
+
+Each document shows its place in the queue, the pending sources' old and new
+oids, line counts and up to 40 diff lines. Changes carry `path:line`
+locations relative to the current directory. Type a one-letter answer and
+submit it with Enter:
+
+| Answer | Action |
+|---|---|
+| `n`, or Enter alone | Leave the document as it is |
+| `y` | Record the review, bound to the source oids shown |
+| `r` | Record the same review and a whole-document reread |
+| `a` | Record all remaining documents after a second confirmation states how many current comparisons have not been shown |
+| `d` | Open the complete diff, then return to the prompt |
+| `e` | Open the document in an editor, wait for it to close, then evaluate and show it again if it still needs review |
+| `q` | Quit, preserving earlier reviews |
+
+For a document without sources, `y` and `r` both record a reread. A source
+changed after display refuses that answer and shows the document again with
+its current changes. Each accepted review is written immediately through
+the same planner and atomic write path as `attest`. The answer confirms
+that write; there is no further plan question.
+
+After every write and editor visit, the working tree is evaluated again.
+Documents that become fresh leave the queue, and documents that become stale
+join it with an explanation of what changed during the session. A skipped
+document returns only if one of its sources changes. A reviewed document
+returns if a later change requires another review. If recording a review
+itself changes a source, that document is reported at the end instead of
+being repeatedly queued by attestation writes; an edit to its sources can
+queue it again.
+
+Bulk confirmation covers the current remaining queue and its source
+versions. Every write still rebuilds the queue: newly stale documents
+outside the confirmed batch receive individual prompts, documents that no
+longer need review drop out, and changed expectations require another
+review. When documents were named, newly stale documents outside that
+selection appear in the closing summary.
+
+`d` uses `VISUAL`, then `EDITOR`, then git's `core.editor`; without an editor
+it tries `GIT_PAGER`, `PAGER` and git's `core.pager`, then plain output. `e`
+uses the editor chain alone and supports local documents. Commands may
+include arguments. A remote document must be edited in its source
+application.
+
+`review` requires both standard input and standard output to be terminals.
+Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.
+End of input or cancellation quits. A completed or quit session exits 0;
+the closing summary uses a final evaluation to list what was recorded and
+what still needs review. Use `check` as the gate. Review comparisons and
+questions remain visible under `--quiet`.
 
 ## Records
 
@@ -280,10 +340,10 @@ source-sentry migrate [--dry-run] [--yes]
 
 ## Confirmation
 
-A command that changes files prints its plan first. On a terminal it then
-asks for confirmation; `--yes` skips the question, and `--dry-run` prints the
-plan only. Without a terminal and without `--yes`, it refuses, so CI never
-changes files silently.
+A command that changes files, except `review`, prints its plan first. On a
+terminal it then asks for confirmation; `--yes` skips the question, and
+`--dry-run` prints the plan only. Without a terminal and without `--yes`, it
+refuses, so CI never changes files silently.
 
 New files are marked intent-to-add in git's index, so the next `check` reads
 them; stage their contents with the rest of your change. A change that git

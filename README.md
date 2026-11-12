@@ -66,6 +66,7 @@ Source Sentry runs `git` for some operations, so git must be on the `PATH`.
 source-sentry check                     # Evaluate the working tree.
 source-sentry check --context production --fail-on fail
 source-sentry diff docs/privacy.md      # What changed since the last review.
+source-sentry review                    # Review pending documents on a terminal.
 source-sentry attest docs/privacy.md    # Record a review.
 source-sentry explain docs/privacy.md   # Why a document is judged as it is.
 ```

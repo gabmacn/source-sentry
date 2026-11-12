@@ -107,6 +107,9 @@ pub(crate) enum Command {
 	/// Record that a document was reviewed against its sources.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
 	Attest(AttestArgs),
+	/// Review pending documents interactively on a terminal.
+	#[command(after_long_help = REVIEW_EXIT_CODES)]
+	Review(ReviewArgs),
 	/// Seal a lockfile-tracked document as a record, which must never change.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
 	Seal(RecordArgs),
@@ -147,6 +150,16 @@ const MUTATION_EXIT_CODES: &str = "\
 Exit codes:
   0   Applied, nothing to change, or --dry-run
   1   Not confirmed: declined, or no terminal and no --yes
+  2   Refused: the request does not fit the repository
+  3   Refused because of a configuration or integrity error
+  4   An operational error: the repository could not be read or written
+  64  Invalid command-line usage";
+
+/// The exit codes of an interactive review session.
+const REVIEW_EXIT_CODES: &str = "\
+Exit codes:
+  0   Completed or quit; use check as the gate
+  1   Standard input or output is not a terminal; use diff and attest
   2   Refused: the request does not fit the repository
   3   Refused because of a configuration or integrity error
   4   An operational error: the repository could not be read or written
@@ -236,6 +249,21 @@ pub(crate) struct DiffArgs {
 	/// The output format. The JSON `attest` array runs from the repository root.
 	#[arg(long, value_enum, default_value_t = Format::Human, value_name = "FORMAT")]
 	pub(crate) format: Format,
+}
+
+/// The arguments of `review`.
+#[derive(Debug, Args)]
+pub(crate) struct ReviewArgs {
+	/// Limit the session to these documents, relative to the current directory,
+	/// or remote identities. By default, every document needing review.
+	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
+	pub(crate) documents: Vec<DocumentArg>,
+	/// The context that decides the order of outcomes.
+	#[arg(long, value_name = "NAME", default_value = "default")]
+	pub(crate) context: String,
+	/// Who reviewed. By default, git's `user.name`.
+	#[arg(long, value_name = "NAME")]
+	pub(crate) reviewer: Option<String>,
 }
 
 /// The arguments of `attest`.
