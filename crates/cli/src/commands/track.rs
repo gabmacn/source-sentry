@@ -297,7 +297,7 @@ pub(super) fn carried(text: &mut String, carried: &[CarriedTombstone]) {
 	for tombstone in carried {
 		let _ = writeln!(
 			text,
-			"  the tombstone of {} moves from {} to {}",
+			"  the tombstones of {} move from {} to {}",
 			tombstone.document, tombstone.from, tombstone.to
 		);
 	}

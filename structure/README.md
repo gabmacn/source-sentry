@@ -35,16 +35,20 @@ A lockfile has three keys:
 - **`documents`**: the documents tracked here. In a lockfile beside your
   files, each document is keyed by its path relative to the lockfile's
   directory.
-- **`retired`**: documents that were deliberately removed. A record keeps its
+- **`retired`**: documents that were deliberately removed. Each key holds a
+  non-empty list of tombstones, oldest first by `retired.at`, even when there
+  is only one. Equal instants retain their written order. A record keeps its
   seal here, so its removal stays visible, and an entry of a `living` series
-  keeps its `completed`, so the window it credited stays credited.
+  keeps its `completed`, so each window it credited stays credited.
 - **`schema`**: the version of the lockfile format.
 
 Unknown fields and duplicate object keys are errors. Local document keys
 must already be canonical: no leading or trailing `/`, `.`, `..` or empty
 components, and no file named `source-sentry.lock`. Only the nearest ancestor
 lockfile may list or retire a document. A retired path may be reused, so a key
-may appear in both `documents` and `retired`.
+may appear in both `documents` and `retired`. Retiring it again adds another
+tombstone, keeping every earlier seal and completion. Empty lists and lists
+that are not in chronological order are errors. The schema remains 1.
 
 Each document has the same fields as a declaration in frontmatter
 (`example.yaml`), plus **`seal`**: `at`, `by` and `oid`. A sealed document is
@@ -91,7 +95,8 @@ differences:
   name you choose.
 - **`url`** may be added to any document, for convenience. It never changes
   the document's identity.
-- **`seal` and `completed` are forbidden**, including in `retired` entries:
+- **`retired` keys hold the same non-empty, ordered lists of tombstones.**
+- **`seal` and `completed` are forbidden**, including in every tombstone:
   remote documents cannot be records or series members.
 
 Sources of remote documents must start with `/`, because a remote document

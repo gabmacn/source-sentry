@@ -52,7 +52,8 @@ pub(super) fn lockfile_kind(path: &RepoPath) -> Option<LockfileKind> {
 ///
 /// `section` is `documents` or `retired`, and `key` is the entry's key as
 /// written: a path relative to the lockfile's directory, or a remote
-/// identity. [`Claim::field`] and [`Tombstone::field`] use this spelling.
+/// identity. [`Claim::field`] uses this spelling; [`Tombstone::field`]
+/// appends the tombstone's list index.
 #[must_use]
 pub fn entry_field(section: &str, key: &str) -> String {
 	format!("{section}[{key:?}]")
@@ -175,17 +176,20 @@ fn add_local(
 			presence,
 		});
 	}
-	for (document, retired) in retired {
-		let field = entry_field("retired", &key(&document));
+	for (document, tombstones) in retired {
 		let presence = presence(&document);
-		found.tombstones.push(Tombstone {
-			document: DocumentId::Local(document),
-			lockfile: path.clone(),
-			lines: entry_lines(lines, &field),
-			field,
-			retired,
-			presence,
-		});
+		for (index, retired) in tombstones.into_iter().enumerate() {
+			let field =
+				format!("{}[{index}]", entry_field("retired", &key(&document)));
+			found.tombstones.push(Tombstone {
+				document: DocumentId::Local(document.clone()),
+				lockfile: path.clone(),
+				lines: entry_lines(lines, &field),
+				field,
+				retired,
+				presence,
+			});
+		}
 	}
 }
 
@@ -212,16 +216,19 @@ fn add_remote(
 			presence: Presence::Unknown,
 		});
 	}
-	for (identity, retired) in lockfile.retired {
-		let field = entry_field("retired", &identity.to_string());
-		found.tombstones.push(Tombstone {
-			document: DocumentId::Remote(identity),
-			lockfile: path.clone(),
-			lines: entry_lines(lines, &field),
-			field,
-			retired,
-			presence: Presence::Unknown,
-		});
+	for (identity, tombstones) in lockfile.retired {
+		for (index, retired) in tombstones.into_iter().enumerate() {
+			let field =
+				format!("{}[{index}]", entry_field("retired", &identity.to_string()));
+			found.tombstones.push(Tombstone {
+				document: DocumentId::Remote(identity.clone()),
+				lockfile: path.clone(),
+				lines: entry_lines(lines, &field),
+				field,
+				retired,
+				presence: Presence::Unknown,
+			});
+		}
 	}
 }
 
@@ -283,7 +290,8 @@ fn invalid_lockfile(path: &RepoPath, error: &LockfileError) -> Diagnostic {
 		LockfileError::UnsupportedSchema { .. } => {
 			(None, Some("schema".to_owned()))
 		}
-		LockfileError::Key { at, .. } => (None, Some(at.clone())),
+		LockfileError::Key { at, .. }
+		| LockfileError::InvalidTombstones { at, .. } => (None, Some(at.clone())),
 		LockfileError::Declaration(error) => {
 			(None, Some(declaration_field(error).to_owned()))
 		}

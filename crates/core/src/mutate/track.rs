@@ -148,7 +148,7 @@ pub struct PatternMatches {
 	pub matches: Vec<RepoPath>,
 }
 
-/// A tombstone that moves with a lockfile change.
+/// A document whose whole tombstone list moves with a lockfile change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CarriedTombstone {
 	/// The retired document.
@@ -748,7 +748,7 @@ pub(super) fn prepare_lockfile<S: Snapshot>(
 	Ok(true)
 }
 
-/// Moves every tombstone below `below` from the lockfile of `from` to the
+/// Moves every tombstone list below `below` from the lockfile of `from` to the
 /// lockfile of `to`, recording each in `carried`. A tombstone that this
 /// change has moved already is skipped.
 ///
@@ -767,7 +767,7 @@ fn carry_tombstones<S: Snapshot>(
 ) -> Result<(), MutateError> {
 	let from_path = lockfile_path(from);
 	let to_path = lockfile_path(to);
-	let retired: Vec<RepoPath> = repo
+	let retired: BTreeSet<RepoPath> = repo
 		.inventory
 		.tombstones
 		.iter()
@@ -780,7 +780,7 @@ fn carry_tombstones<S: Snapshot>(
 		})
 		.collect();
 	for document in retired {
-		let Some(tombstone) = edits.local(repo, from)?.retired.remove(&document)
+		let Some(tombstones) = edits.local(repo, from)?.retired.remove(&document)
 		else {
 			continue;
 		};
@@ -792,7 +792,7 @@ fn carry_tombstones<S: Snapshot>(
 				to: to_path,
 			});
 		}
-		target.retired.insert(document.clone(), tombstone);
+		target.retired.insert(document.clone(), tombstones);
 		carried.push(CarriedTombstone {
 			document: DocumentId::Local(document),
 			from: from_path.clone(),

@@ -404,8 +404,8 @@ fn members(text: &mut String, series: &SeriesSubject) {
 	for member in &series.members {
 		let completion = completions
 			.iter()
-			.find(|completion| completion.member == member.path)
-			.map_or_else(String::new, |completion| match &completion.state {
+			.filter(|completion| completion.member == member.path)
+			.map(|completion| match &completion.state {
 				CompletionState::Completed(start) => format!(
 					", completed in {}, counted from {}",
 					describe::short_commit(&start.commit),
@@ -418,7 +418,8 @@ fn members(text: &mut String, series: &SeriesSubject) {
 				CompletionState::Failed => {
 					", completed at a time that could not be dated".to_owned()
 				}
-			});
+			})
+			.collect::<String>();
 		let _ = writeln!(
 			text,
 			"  {}  version {}{completion}",

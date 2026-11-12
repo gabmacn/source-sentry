@@ -132,7 +132,7 @@ fn shared_remote_identities(
 				format!(
 					"`{document}` appears in {} owner lockfiles ({}), but a remote \
 					 identity may appear in only one. Keep its entry and its \
-					 tombstone in a single owner lockfile",
+					 tombstones in a single owner lockfile",
 					names.len(),
 					names.join(", ")
 				),

@@ -164,7 +164,11 @@ source-sentry retire <document> [--by <name>] [--dry-run] [--yes]
   be sealed.
 - **`retire`** stops tracking a lockfile entry and leaves a tombstone, which
   keeps a record's seal and a series entry's completion. The file itself is
-  not touched. The living head of a series is retired only with its series.
+  not touched. A reused path or remote identity may be tracked and retired
+  again: each retirement adds a tombstone to its list, keeping every earlier
+  seal and completion. Lists are ordered by retirement instant, oldest
+  first; equal instants retain their order. The living head of a series is
+  retired only with its series.
 
 `--by` defaults to git's `user.name`.
 
@@ -208,11 +212,11 @@ source-sentry migrate [--dry-run] [--yes]
   predecessor and shows the copied declaration before the options apply.
   A source that cannot be re-expressed or registered refuses the whole plan.
 - **`--from` and `--to`** move declarations with their reviews and
-  tombstones. A move between lockfiles must include every entry whose
-  nearest lockfile changes, and a lockfile left empty is deleted. Only a
-  document read as `md-utf8` moves on-file, and never a record or a source
-  of another document. The plan shows any settings that change with the
-  move, such as an owner's defaults.
+  every tombstone of each moved key. A move between lockfiles must include
+  every entry whose nearest lockfile changes, and a lockfile left empty is
+  deleted. Only a document read as `md-utf8` moves on-file, and never a record
+  or a source of another document. The plan shows any settings that change
+  with the move, such as an owner's defaults.
 - **`untrack`** removes the declared sources it names. A path is matched by
   the file it resolves to, and a pattern by its spelling. The other sources
   keep their reviews. To stop tracking a document altogether, `retire` it;

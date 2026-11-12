@@ -182,19 +182,25 @@ fn markdown(declaration: &str) -> String {
 const PLAIN: &str = "---\ntitle: 'Guide'\n---\n# Guide\n\nBody.\n";
 
 /// A lockfile holding `documents` and `retired`, each given as
-/// `(key, JSON value)`.
+/// `(key, JSON declaration)` or `(key, comma-separated JSON tombstones)`.
 fn lockfile(documents: &[(&str, &str)], retired: &[(&str, &str)]) -> String {
-	let section = |entries: &[(&str, &str)]| {
+	let section = |entries: &[(&str, &str)], retired: bool| {
 		entries
 			.iter()
-			.map(|(key, value)| format!("{key:?}: {value}"))
+			.map(|(key, value)| {
+				if retired {
+					format!("{key:?}: [{value}]")
+				} else {
+					format!("{key:?}: {value}")
+				}
+			})
 			.collect::<Vec<_>>()
 			.join(", ")
 	};
 	format!(
 		"{{\"documents\": {{{}}}, \"retired\": {{{}}}, \"schema\": 1}}",
-		section(documents),
-		section(retired)
+		section(documents, false),
+		section(retired, true)
 	)
 }
 

@@ -89,8 +89,11 @@ fn retire_leaves_a_tombstone_with_the_seal() {
 	assert!(run.stdout.contains("becomes a tombstone"), "{}", run.stdout);
 	let after = lockfile(&repo);
 	assert_eq!(after["documents"], json!({}));
-	assert_eq!(after["retired"]["audit.md"]["seal"], sealed);
-	assert_eq!(after["retired"]["audit.md"]["retired"]["by"], "Bruno Costa");
+	assert_eq!(after["retired"]["audit.md"][0]["seal"], sealed);
+	assert_eq!(
+		after["retired"]["audit.md"][0]["retired"]["by"],
+		"Bruno Costa"
+	);
 	assert!(
 		repo.exists("records/audit.md"),
 		"the document is not touched"

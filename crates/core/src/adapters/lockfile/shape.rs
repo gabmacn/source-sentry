@@ -5,7 +5,7 @@
 //!   keeping the last value, and which a careless merge can produce;
 //! - an array where the format has an object, which serde's derived structs
 //!   would read positionally. Arrays belong only under `classes`, `owners`,
-//!   `sources` and `members`.
+//!   `sources`, `members` and each key of `retired`.
 
 use std::{collections::BTreeSet, fmt};
 
@@ -68,8 +68,8 @@ enum Problem {
 enum Role {
 	/// The whole lockfile.
 	Root,
-	/// `documents` or `retired`, whose keys are documents.
-	Section,
+	/// A section whose keys are documents; `retired` holds lists.
+	Section { retired: bool },
 	/// A field that holds an array.
 	ArrayField,
 	/// Anything else.
@@ -87,13 +87,16 @@ impl Walk<'_> {
 	/// The role of this object's field `key`.
 	fn child_role(&self, key: &str) -> Role {
 		match self.role {
-			Role::Root if SECTIONS.contains(&key) => Role::Section,
+			Role::Root if SECTIONS.contains(&key) => Role::Section {
+				retired: key == "retired",
+			},
+			Role::Section { retired: true } => Role::ArrayField,
 			// A section's keys are documents, whatever their names, and the
 			// top level has no array fields.
 			Role::ArrayField | Role::Other if ARRAY_FIELDS.contains(&key) => {
 				Role::ArrayField
 			}
-			Role::Root | Role::Section | Role::ArrayField | Role::Other => {
+			Role::Root | Role::Section { .. } | Role::ArrayField | Role::Other => {
 				Role::Other
 			}
 		}
@@ -174,7 +177,7 @@ impl<'de> Visitor<'de> for Walk<'_> {
 				});
 				return Err(A::Error::custom(message));
 			}
-			let at = if self.role == Role::Section {
+			let at = if matches!(self.role, Role::Section { .. }) {
 				self.at.entry(&key)
 			} else {
 				self.at.key(&key)

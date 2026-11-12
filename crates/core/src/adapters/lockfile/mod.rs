@@ -9,7 +9,10 @@
 //! written as arrays, which `serde_json` does not check on its own (see
 //! `shape`); `schema` must be [`SCHEMA`]; and every key and declaration is
 //! validated for its kind of lockfile. A path may appear in both `documents`
-//! and `retired`, because a new document may reuse a retired path.
+//! and `retired`, because a new document may reuse a retired path. Every
+//! retired key holds a non-empty list, oldest retirement first, with equal
+//! instants kept in written order. Schema 1 uses lists even for a single
+//! tombstone.
 //!
 //! Writing is deterministic: keys are sorted at every level, sources by
 //! their declared path or pattern, and members by path; the output is
@@ -18,9 +21,12 @@
 
 mod shape;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
-use serde::Deserialize;
+use serde::{
+	Deserialize,
+	de::{Error as _, SeqAccess, Visitor},
+};
 
 use super::{
 	DeclarationError, Position,
@@ -43,8 +49,9 @@ pub struct LocalLockfile {
 	pub directory: RepoPath,
 	/// The tracked documents, by repository path.
 	pub documents: BTreeMap<RepoPath, Declaration>,
-	/// The tombstones, by repository path.
-	pub retired: BTreeMap<RepoPath, Retired>,
+	/// Non-empty lists of tombstones by repository path, oldest retirement
+	/// first; equal instants retain their written order.
+	pub retired: BTreeMap<RepoPath, Vec<Retired>>,
 }
 
 /// A parsed remote owner lockfile.
@@ -52,8 +59,9 @@ pub struct LocalLockfile {
 pub struct RemoteLockfile {
 	/// The tracked documents, by identity.
 	pub documents: BTreeMap<RemoteIdentity, Declaration>,
-	/// The tombstones, by identity.
-	pub retired: BTreeMap<RemoteIdentity, Retired>,
+	/// Non-empty lists of tombstones by identity, oldest retirement first;
+	/// equal instants retain their written order.
+	pub retired: BTreeMap<RemoteIdentity, Vec<Retired>>,
 }
 
 /// Why a lockfile could not be read or written. Every case is a configuration
@@ -109,6 +117,14 @@ pub enum LockfileError {
 	/// A declaration breaks a rule of the record.
 	#[error(transparent)]
 	Declaration(#[from] DeclarationError),
+	/// Writing: a tombstone list is empty or not in retirement order.
+	#[error("`{at}`: {message}")]
+	InvalidTombstones {
+		/// The tombstone list.
+		at: String,
+		/// What is wrong with it.
+		message: &'static str,
+	},
 	/// Writing: a document of a [`LocalLockfile`] is not strictly inside its
 	/// directory.
 	#[error("`{path}` is not inside the lockfile's directory `{directory}`")]
@@ -180,6 +196,7 @@ impl LocalLockfile {
 	/// when `schema` is not [`SCHEMA`]; when a field is unknown, missing or
 	/// malformed; when a key is not a canonical path strictly inside `directory`
 	/// (no leading `/`, `./`, `..` or empty component) or names a lockfile; and
+	/// when a tombstone list is empty or not in chronological retirement order;
 	/// when a declaration carries `url`, has a path source with only one of `oid`
 	/// and `reviewed`, repeats a source, or has a source path that does not
 	/// resolve from its document.
@@ -207,8 +224,8 @@ impl LocalLockfile {
 					at: at.to_string(),
 					error,
 				})?;
-			validate_retired(&retired, Scope::Local(&path), &at)?;
-			lockfile.retired.insert(path, retired);
+			validate_tombstones(&retired.0, Scope::Local(&path), &at)?;
+			lockfile.retired.insert(path, retired.0);
 		}
 		Ok(lockfile)
 	}
@@ -231,7 +248,7 @@ impl LocalLockfile {
 		let mut retired = BTreeMap::new();
 		for (path, tombstone) in &self.retired {
 			let (key, at) = self.key_for("retired", path)?;
-			validate_retired(tombstone, Scope::Local(path), &at)?;
+			validate_tombstones(tombstone, Scope::Local(path), &at)?;
 			retired.insert(key, tombstone.clone());
 		}
 		Ok(serialize(&Lockfile {
@@ -272,9 +289,9 @@ impl RemoteLockfile {
 	/// Fails as [`LocalLockfile::parse`] does for syntax, duplicate keys,
 	/// `schema` and malformed fields; when a key is not a [`RemoteIdentity`]; and
 	/// when a declaration carries `seal` or `completed`, or a tombstone carries
-	/// `seal`, because a remote document can be neither a record nor part of a
-	/// series; or when a source or pattern is not `/`-rooted, or breaks the other
-	/// source rules of [`LocalLockfile::parse`].
+	/// `seal` or `completed`, because a remote document can be neither a record
+	/// nor part of a series; or when a source or pattern is not `/`-rooted, or
+	/// breaks the other source rules of [`LocalLockfile::parse`].
 	pub fn parse(bytes: &[u8]) -> Result<Self, LockfileError> {
 		let raw = parse_raw(bytes)?;
 		let mut lockfile = Self::default();
@@ -288,8 +305,8 @@ impl RemoteLockfile {
 		for (key, retired) in raw.retired {
 			let at = FieldPath::root("retired").entry(&key);
 			let identity = remote_key(&key, &at)?;
-			validate_retired(&retired, Scope::Remote, &at)?;
-			lockfile.retired.insert(identity, retired);
+			validate_tombstones(&retired.0, Scope::Remote, &at)?;
+			lockfile.retired.insert(identity, retired.0);
 		}
 		Ok(lockfile)
 	}
@@ -314,7 +331,7 @@ impl RemoteLockfile {
 		let mut retired = BTreeMap::new();
 		for (identity, tombstone) in &self.retired {
 			let key = identity.to_string();
-			validate_retired(
+			validate_tombstones(
 				tombstone,
 				Scope::Remote,
 				&FieldPath::root("retired").entry(&key),
@@ -334,8 +351,85 @@ impl RemoteLockfile {
 #[serde(deny_unknown_fields, expecting = "a lockfile object")]
 struct RawLockfile {
 	documents: BTreeMap<String, RawDeclaration>,
-	retired: BTreeMap<String, Retired>,
+	retired: BTreeMap<String, RawTombstones>,
 	schema: u32,
+}
+
+/// A tombstone list whose non-emptiness and order are checked during
+/// deserialization, so errors carry the JSON parser's line and column.
+struct RawTombstones(Vec<Retired>);
+
+impl<'de> Deserialize<'de> for RawTombstones {
+	/// Validates within the sequence visitor so the JSON parser attaches the
+	/// list's own position to invariant errors.
+	fn deserialize<D: serde::Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Self, D::Error> {
+		deserializer.deserialize_seq(TombstonesVisitor)
+	}
+}
+
+/// Reads tombstone lists without changing their written order.
+struct TombstonesVisitor;
+
+impl<'de> Visitor<'de> for TombstonesVisitor {
+	type Value = RawTombstones;
+
+	/// Describes the required list when JSON holds another kind of value.
+	fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		formatter.write_str("a non-empty list of tombstones in retirement order")
+	}
+
+	/// Reads and validates every tombstone before accepting the list.
+	fn visit_seq<A: SeqAccess<'de>>(
+		self,
+		mut seq: A,
+	) -> Result<Self::Value, A::Error> {
+		let mut tombstones = Vec::new();
+		while let Some(tombstone) = seq.next_element()? {
+			tombstones.push(tombstone);
+		}
+		if let Some(message) = tombstone_list_error(&tombstones) {
+			return Err(A::Error::custom(message));
+		}
+		Ok(RawTombstones(tombstones))
+	}
+}
+
+/// Why `tombstones` breaks a list invariant, if it does. Equal instants
+/// need no tie-breaker: their written order is preserved.
+fn tombstone_list_error(tombstones: &[Retired]) -> Option<&'static str> {
+	if tombstones.is_empty() {
+		Some("a retired entry must hold at least one tombstone")
+	} else if tombstones
+		.windows(2)
+		.any(|pair| pair[0].retired.at > pair[1].retired.at)
+	{
+		Some(
+			"tombstones must be in chronological order by `retired.at`, oldest first",
+		)
+	} else {
+		None
+	}
+}
+
+/// Checks list invariants and every tombstone's fields for reading and
+/// writing. Each field path includes its tombstone's index.
+fn validate_tombstones(
+	tombstones: &[Retired],
+	scope: Scope<'_>,
+	at: &FieldPath,
+) -> Result<(), LockfileError> {
+	if let Some(message) = tombstone_list_error(tombstones) {
+		return Err(LockfileError::InvalidTombstones {
+			at: at.to_string(),
+			message,
+		});
+	}
+	for (index, tombstone) in tombstones.iter().enumerate() {
+		validate_retired(tombstone, scope, &at.index(index))?;
+	}
+	Ok(())
 }
 
 /// Parses `bytes` up to the point where keys need interpreting.

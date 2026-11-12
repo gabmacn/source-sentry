@@ -40,7 +40,8 @@ use crate::evaluate::clock::{
 	ClockError, ObligationStart, RunPredicate, introduced_at,
 };
 use crate::model::{
-	Declaration, DocumentId, Retired, SourceDecl, resolve_rooted, resolve_source,
+	Declaration, DocumentId, Retired, Review, Seal, SourceDecl, resolve_rooted,
+	resolve_source,
 };
 use crate::ports::{
 	BackendError, BackendErrorKind, Commit, History, ObjectId, RepoPath, Revision,
@@ -94,10 +95,20 @@ pub(super) enum Condition {
 		member: RepoPath,
 	},
 	/// A seal is recorded for the document, in its lockfile entry or its
-	/// tombstone.
-	Sealed,
-	/// The declaration has `completed`.
-	Completed,
+	/// tombstones, matching this seal exactly.
+	Sealed {
+		/// The marker to match, including its oid and author.
+		seal: Seal,
+		/// The number of identical markers that must have been recorded.
+		occurrence: usize,
+	},
+	/// This completion is recorded in the declaration or a tombstone.
+	Completed {
+		/// The marker to match, including its author.
+		completed: Review,
+		/// The number of identical markers that must have been recorded.
+		occurrence: usize,
+	},
 }
 
 impl Condition {
@@ -107,7 +118,17 @@ impl Condition {
 	fn is_obligation(&self) -> bool {
 		match self {
 			Self::Declared | Self::PathSource(_) | Self::Pattern { .. } => true,
-			Self::Sealed | Self::Completed => false,
+			Self::Sealed { .. } | Self::Completed { .. } => false,
+		}
+	}
+
+	/// How many matching markers must exist across all declaring sites.
+	fn required_occurrences(&self) -> usize {
+		match self {
+			Self::Sealed { occurrence, .. } | Self::Completed { occurrence, .. } => {
+				*occurrence
+			}
+			Self::Declared | Self::PathSource(_) | Self::Pattern { .. } => 1,
 		}
 	}
 }
@@ -215,11 +236,10 @@ enum Parsed {
 enum Entry<'p> {
 	/// The file does not parse.
 	Unreadable,
-	/// The document's declaration and tombstone, either of which may be
-	/// absent.
+	/// The document's declaration and tombstones, which may be absent.
 	Found {
 		declaration: Option<&'p Declaration>,
-		retired: Option<&'p Retired>,
+		retired: &'p [Retired],
 	},
 }
 
@@ -230,20 +250,20 @@ impl Parsed {
 			(Self::Unreadable, _) => Entry::Unreadable,
 			(Self::Frontmatter(declaration), _) => Entry::Found {
 				declaration: declaration.as_deref(),
-				retired: None,
+				retired: &[],
 			},
 			(Self::Local(lockfile), DocumentId::Local(path)) => Entry::Found {
 				declaration: lockfile.documents.get(path),
-				retired: lockfile.retired.get(path),
+				retired: lockfile.retired.get(path).map_or(&[], Vec::as_slice),
 			},
 			(Self::Remote(lockfile), DocumentId::Remote(identity)) => Entry::Found {
 				declaration: lockfile.documents.get(identity),
-				retired: lockfile.retired.get(identity),
+				retired: lockfile.retired.get(identity).map_or(&[], Vec::as_slice),
 			},
 			(Self::Local(_), DocumentId::Remote(_))
 			| (Self::Remote(_), DocumentId::Local(_)) => Entry::Found {
 				declaration: None,
-				retired: None,
+				retired: &[],
 			},
 		}
 	}
@@ -318,8 +338,8 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 			Condition::Pattern { member, .. } => paths.push(member.clone()),
 			Condition::Declared
 			| Condition::PathSource(_)
-			| Condition::Sealed
-			| Condition::Completed => {}
+			| Condition::Sealed { .. }
+			| Condition::Completed { .. } => {}
 		}
 		Self {
 			query,
@@ -328,40 +348,51 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 		}
 	}
 
-	/// Whether `declaration` and `retired` satisfy the condition, given
+	/// How many times `declaration` and `retired` match the condition, given
 	/// whether the condition's own path exists.
-	fn satisfied(
+	fn occurrences(
 		&self,
 		declaration: Option<&Declaration>,
-		retired: Option<&Retired>,
+		retired: &[Retired],
 		own_path_exists: bool,
-	) -> bool {
+	) -> usize {
 		match &self.query.condition {
-			Condition::Declared => declaration.is_some(),
-			Condition::PathSource(path) => declaration.is_some_and(|declaration| {
-				declaration.sources.iter().any(|source| match source {
-					SourceDecl::Path(source) => {
-						self.resolve(&source.path).as_ref() == Some(path)
-					}
-					SourceDecl::Pattern(_) => false,
-				})
-			}),
-			Condition::Pattern { pattern, .. } => {
+			Condition::Declared => usize::from(declaration.is_some()),
+			Condition::PathSource(path) => {
+				usize::from(declaration.is_some_and(|declaration| {
+					declaration.sources.iter().any(|source| match source {
+						SourceDecl::Path(source) => {
+							self.resolve(&source.path).as_ref() == Some(path)
+						}
+						SourceDecl::Pattern(_) => false,
+					})
+				}))
+			}
+			Condition::Pattern { pattern, .. } => usize::from(
 				own_path_exists
 					&& declaration.is_some_and(|declaration| {
 						declaration.sources.iter().any(|source| match source {
 							SourceDecl::Pattern(source) => &source.pattern == pattern,
 							SourceDecl::Path(_) => false,
 						})
-					})
+					}),
+			),
+			Condition::Sealed { seal, .. } => {
+				usize::from(
+					declaration
+						.is_some_and(|declaration| declaration.seal.as_ref() == Some(seal)),
+				) + retired
+					.iter()
+					.filter(|retired| retired.seal.as_ref() == Some(seal))
+					.count()
 			}
-			Condition::Sealed => {
-				declaration.is_some_and(|declaration| declaration.seal.is_some())
-					|| retired.is_some_and(|retired| retired.seal.is_some())
-			}
-			Condition::Completed => {
-				declaration.is_some_and(|declaration| declaration.completed.is_some())
-					|| retired.is_some_and(|retired| retired.completed.is_some())
+			Condition::Completed { completed, .. } => {
+				usize::from(declaration.is_some_and(|declaration| {
+					declaration.completed.as_ref() == Some(completed)
+				})) + retired
+					.iter()
+					.filter(|retired| retired.completed.as_ref() == Some(completed))
+					.count()
 			}
 		}
 	}
@@ -389,6 +420,7 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 		let sites = self.query.sites.len();
 		let own_path_exists = blobs.get(sites).is_some_and(Option::is_some);
 		let mut unreadable = false;
+		let mut occurrences = 0;
 		for (site, blob) in self.query.sites.iter().zip(blobs) {
 			let Some(oid) = blob else {
 				continue;
@@ -400,7 +432,11 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 					declaration,
 					retired,
 				} => {
-					if self.satisfied(declaration, retired, own_path_exists) {
+					// A live on-file incarnation and earlier tombstones can be
+					// in different files, so count matching markers across sites.
+					occurrences +=
+						self.occurrences(declaration, retired, own_path_exists);
+					if occurrences >= self.query.condition.required_occurrences() {
 						return Ok(true);
 					}
 				}

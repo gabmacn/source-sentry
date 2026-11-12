@@ -49,7 +49,7 @@ const TOLERATED: &[DiagnosticKind] = &[
 ];
 
 /// Plans retiring a document: its lockfile entry moves from `documents` to
-/// `retired` as `{retired: {at, by}, seal}`, keeping the seal of a record.
+/// `retired`, keeping its seal and completion alongside earlier tombstones.
 /// Local and remote lockfiles work alike. The document itself is not touched;
 /// deleting it is a separate change.
 ///
@@ -65,8 +65,6 @@ const TOLERATED: &[DiagnosticKind] = &[
 ///   classes;
 /// - the living head of a `living` series ([`MutateError::RetireLivingHead`]),
 ///   naming the config that defines the series;
-/// - a key that already has a tombstone ([`MutateError::AlreadyRetired`]),
-///   since a tombstone is never replaced;
 /// - an invalid name for who retires it.
 ///
 /// Fails when the backend fails.
@@ -99,29 +97,25 @@ pub fn retire<S: Snapshot>(
 		seal: claim.declaration.seal.clone(),
 		completed: claim.declaration.completed.clone(),
 	};
-	let already = || MutateError::AlreadyRetired {
-		document: claim.document.clone(),
-		lockfile: claim.declared_in.clone(),
-	};
 
 	let mut edits = Edits::default();
 	let lockfile = match (&claim.document, &placement) {
 		(DocumentId::Local(path), Placement::Lockfile { directory }) => {
 			let lockfile = edits.local(&repo, directory)?;
-			if lockfile.retired.contains_key(path) {
-				return Err(already());
-			}
 			lockfile.documents.remove(path);
-			lockfile.retired.insert(path.clone(), tombstone.clone());
+			insert_tombstone(
+				lockfile.retired.entry(path.clone()).or_default(),
+				tombstone.clone(),
+			);
 			lockfile_path(directory)
 		}
 		(DocumentId::Remote(identity), Placement::Remote { owner }) => {
 			let lockfile = edits.remote(&repo, owner)?;
-			if lockfile.retired.contains_key(identity) {
-				return Err(already());
-			}
 			lockfile.documents.remove(identity);
-			lockfile.retired.insert(identity.clone(), tombstone.clone());
+			insert_tombstone(
+				lockfile.retired.entry(identity.clone()).or_default(),
+				tombstone.clone(),
+			);
 			remote_lockfile_path(owner)?
 		}
 		(document, placement) => {
@@ -141,4 +135,12 @@ pub fn retire<S: Snapshot>(
 			tombstone,
 		},
 	})
+}
+
+/// Adds a tombstone in retirement order, after existing equal instants.
+/// A clock that moves backwards cannot make the written list invalid.
+fn insert_tombstone(tombstones: &mut Vec<Retired>, tombstone: Retired) {
+	let index = tombstones
+		.partition_point(|previous| previous.retired.at <= tombstone.retired.at);
+	tombstones.insert(index, tombstone);
 }

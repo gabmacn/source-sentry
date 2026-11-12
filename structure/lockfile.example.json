@@ -92,17 +92,30 @@
     }
   },
   "retired": {
-    "audits/audit-0001.md": {
-      "retired": {
-        "at": "2026-11-07T16:30:00Z",
-        "by": "Carla Mendes"
+    "audits/audit-0001.md": [
+      {
+        "retired": {
+          "at": "2026-09-02T10:00:00Z",
+          "by": "Carla Mendes"
+        },
+        "seal": {
+          "at": "2026-09-01T10:00:00Z",
+          "by": "Carla Mendes",
+          "oid": "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        }
       },
-      "seal": {
-        "at": "2026-09-01T10:00:00Z",
-        "by": "Carla Mendes",
-        "oid": "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709"
+      {
+        "retired": {
+          "at": "2026-11-07T16:30:00Z",
+          "by": "Carla Mendes"
+        },
+        "seal": {
+          "at": "2026-11-01T10:00:00Z",
+          "by": "Carla Mendes",
+          "oid": "sha1:7c4a8d09ca3762af61e59520943dc26494f8941b"
+        }
       }
-    }
+    ]
   },
   "schema": 1
 }

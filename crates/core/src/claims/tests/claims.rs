@@ -223,9 +223,32 @@ fn a_remote_identity_retired_in_another_owner_lockfile_is_an_error() {
 	);
 	assert_eq!(
 		diagnostic.related[0].field.as_deref(),
-		Some(r#"retired["abstract:video"]"#)
+		Some(r#"retired["abstract:video"][0]"#)
 	);
 	assert_eq!(inventory.tombstones.len(), 2);
+}
+
+/// Several tombstones alongside a live identity are valid in one owner,
+/// but every location is retained when another owner conflicts.
+#[test]
+fn repeated_remote_tombstones_share_one_owner() {
+	let tombstones = format!("{}, {}", tombstone(), tombstone());
+	let lock = lockfile(
+		&[("abstract:video", "{}")],
+		&[("abstract:video", &tombstones)],
+	);
+	let inventory = inventory(&[(".source-sentry/remotes/legal.lock", &lock)]);
+	assert_eq!(inventory.diagnostics, []);
+	assert_eq!(inventory.tombstones.len(), 2);
+	let conflicting = super::inventory(&[
+		(".source-sentry/remotes/legal.lock", &lock),
+		(
+			".source-sentry/remotes/marketing.lock",
+			&lockfile(&[], &[("abstract:video", &tombstone())]),
+		),
+	]);
+	let diagnostic = only(&conflicting, DiagnosticKind::RetiredInAnotherLockfile);
+	assert_eq!(diagnostic.related.len(), 3);
 }
 
 #[test]
@@ -269,7 +292,7 @@ fn only_the_nearest_lockfile_may_list_a_document() {
 		fields,
 		[
 			r#"documents["api/endpoints.md"]"#,
-			r#"retired["api/old.md"]"#
+			r#"retired["api/old.md"][0]"#
 		]
 	);
 	assert_eq!(
@@ -380,19 +403,19 @@ fn tombstones_are_carried_and_a_reused_path_is_unclaimed_again() {
 		[
 			(
 				local("docs/audit-0001.md"),
-				r#"retired["audit-0001.md"]"#.to_owned(),
+				r#"retired["audit-0001.md"][0]"#.to_owned(),
 				Presence::Missing,
 				true
 			),
 			(
 				local("docs/relisted.md"),
-				r#"retired["relisted.md"]"#.to_owned(),
+				r#"retired["relisted.md"][0]"#.to_owned(),
 				Presence::Missing,
 				false
 			),
 			(
 				local("docs/reused.md"),
-				r#"retired["reused.md"]"#.to_owned(),
+				r#"retired["reused.md"][0]"#.to_owned(),
 				Presence::Present,
 				false
 			),

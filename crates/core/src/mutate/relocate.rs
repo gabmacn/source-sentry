@@ -215,7 +215,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 		}
 		let to = location(document, &target)?;
 		self.edits.set(self.repo, claim, None)?;
-		self.carry_own_tombstone(document, &actual, &target)?;
+		self.carry_own_tombstones(document, &actual, &target)?;
 		self.edits.place(
 			self.repo,
 			document,
@@ -284,10 +284,10 @@ impl<S: Snapshot> Step<'_, '_, S> {
 		}
 	}
 
-	/// Moves the tombstone that the old lockfile holds for the same key, if
+	/// Moves every tombstone the old lockfile holds for the same key, if
 	/// any, along with the entry. An entry that moves on-file, or
 	/// from on-file, leaves tombstones where they are.
-	fn carry_own_tombstone(
+	fn carry_own_tombstones(
 		&mut self,
 		document: &DocumentId,
 		from: &Placement,
@@ -309,7 +309,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 				Placement::Lockfile { directory: old },
 				Placement::Lockfile { directory: new },
 			) => {
-				let Some(tombstone) =
+				let Some(tombstones) =
 					self.edits.local(self.repo, old)?.retired.remove(path)
 				else {
 					return Ok(());
@@ -318,14 +318,14 @@ impl<S: Snapshot> Step<'_, '_, S> {
 				if target.retired.contains_key(path) {
 					return Err(conflict(carried));
 				}
-				target.retired.insert(path.clone(), tombstone);
+				target.retired.insert(path.clone(), tombstones);
 			}
 			(
 				DocumentId::Remote(identity),
 				Placement::Remote { owner: old },
 				Placement::Remote { owner: new },
 			) => {
-				let Some(tombstone) =
+				let Some(tombstones) =
 					self.edits.remote(self.repo, old)?.retired.remove(identity)
 				else {
 					return Ok(());
@@ -334,7 +334,7 @@ impl<S: Snapshot> Step<'_, '_, S> {
 				if target.retired.contains_key(identity) {
 					return Err(conflict(carried));
 				}
-				target.retired.insert(identity.clone(), tombstone);
+				target.retired.insert(identity.clone(), tombstones);
 			}
 			_ => return Ok(()),
 		}

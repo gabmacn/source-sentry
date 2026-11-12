@@ -241,10 +241,10 @@ fn a_tombstones_completion_clock_error_points_at_its_marker_line() {
 			r#"{{
   "documents": {{}},
   "retired": {{
-    "v1.md": {{
+    "v1.md": [{{
       "retired": {retired},
       "{marker}": {value}
-    }}
+    }}]
   }},
   "schema": 1
 }}"#
@@ -264,7 +264,106 @@ fn a_tombstones_completion_clock_error_points_at_its_marker_line() {
 		assert_eq!(diagnostic.location.line, Some(6));
 		assert_eq!(
 			diagnostic.location.field,
-			Some(format!("retired[\"v1.md\"].{marker}"))
+			Some(format!("retired[\"v1.md\"][0].{marker}"))
 		);
+	}
+}
+
+/// Identical markers from successive documents at one path still date
+/// separately, both while the replacement is live and after it is retired.
+#[test]
+fn every_incarnation_credits_its_own_window_even_with_identical_markers() {
+	for (lifecycle, marker, value) in [
+		("records-only", "seal", seal("entry")),
+		("living", "completed", review()),
+	] {
+		let monthly = MONTHLY.replace("2026-01-01", "2026-02-01");
+		let config = format!(
+			"{CONFIG}series:\n  entries:\n    pattern: \
+			 'entries/v(?P<version>\\d+)\\.md'\n    version-kind: integer\n    \
+			 lifecycle: {lifecycle}\n{monthly}"
+		);
+		let retired = json!({"retired": review(), marker: value});
+		let lock = |live: bool, tombstones: &[serde_json::Value]| {
+			let mut documents = json!({"v2.md": {}});
+			if live {
+				documents["v1.md"] = json!({marker: value});
+			}
+			let retired = if tombstones.is_empty() {
+				json!({})
+			} else {
+				json!({"v1.md": tombstones})
+			};
+			json!({"documents": documents, "retired": retired, "schema": 1})
+				.to_string()
+		};
+		let file = "entries/source-sentry.lock";
+		let mut repo = Repo::new(&[
+			(REPOSITORY, &config),
+			("entries/v2.md", "head"),
+			(file, &lock(false, &[])),
+		]);
+		repo.commit(
+			5,
+			&[
+				("entries/v1.md", Some("entry")),
+				(file, Some(&lock(true, &[]))),
+			],
+		);
+		repo.commit(
+			6,
+			&[
+				("entries/v1.md", None),
+				(file, Some(&lock(false, std::slice::from_ref(&retired)))),
+			],
+		);
+		repo.commit(
+			40,
+			&[
+				("entries/v1.md", Some("entry")),
+				(file, Some(&lock(true, std::slice::from_ref(&retired)))),
+			],
+		);
+		for stage in ["lockfile", "on-file", "retired"] {
+			if stage == "on-file" {
+				if lifecycle == "records-only" {
+					continue;
+				}
+				let declaration = json!({marker: value});
+				let on_file = format!("---\nsource-sentry: {declaration}\n---\nentry");
+				repo.commit(
+					41,
+					&[
+						("entries/v1.md", Some(&on_file)),
+						(file, Some(&lock(false, std::slice::from_ref(&retired)))),
+					],
+				);
+			}
+			if stage == "retired" {
+				repo.commit(
+					42,
+					&[
+						("entries/v1.md", None),
+						(
+							file,
+							Some(&lock(false, &[retired.clone(), retired.clone()])),
+						),
+					],
+				);
+			}
+			let evaluation = repo.evaluate(day(60), None);
+			assert_clean(&evaluation);
+			let entries = series(&evaluation, "entries").series().unwrap();
+			let cadence = entries.cadence.as_ref().unwrap();
+			assert_eq!(cadence.completions.len(), 2);
+			let status = cadence.status.as_ref().unwrap();
+			assert_eq!(status.missed, [] as [usize; 0]);
+			assert!(!status.overdue);
+			for (index, expected) in [(0, day(5)), (1, day(40))] {
+				let credit = status.windows[index].credit.as_ref().unwrap();
+				assert_eq!(credit.entry, path("entries/v1.md"));
+				assert_eq!(credit.at, expected);
+			}
+		}
 	}
 }

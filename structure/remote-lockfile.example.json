@@ -49,6 +49,15 @@
       "url": "https://docs.google.com/document/d/1a2B3c4D5e6F7g8H9i0J/edit"
     }
   },
-  "retired": {},
+  "retired": {
+    "abstract:previous-privacy-training-video": [
+      {
+        "retired": {
+          "at": "2026-11-07T11:30:00Z",
+          "by": "Ana Ribeiro (Legal)"
+        }
+      }
+    ]
+  },
   "schema": 1
 }

@@ -346,7 +346,7 @@ pub struct Tombstone {
 	pub document: DocumentId,
 	/// The lockfile that holds the tombstone.
 	pub lockfile: RepoPath,
-	/// Its field there: `retired["<key>"]`.
+	/// Its field there: `retired["<key>"][<index>]`.
 	pub field: String,
 	/// Who retired it, and when, and the seal of a retired record.
 	pub retired: Retired,
@@ -355,7 +355,7 @@ pub struct Tombstone {
 	/// documents are [`Presence::Unknown`].
 	pub presence: Presence,
 	/// Where each tombstone field starts, by its diagnostic path, such as
-	/// `retired["docs/a.md"].completed`.
+	/// `retired["docs/a.md"][0].completed`.
 	pub lines: BTreeMap<String, u64>,
 }
 

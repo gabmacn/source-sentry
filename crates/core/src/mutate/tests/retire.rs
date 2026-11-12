@@ -58,7 +58,10 @@ fn a_sealed_local_record_keeps_its_seal() {
 	let written = LocalLockfile::parse(&path("audits"), &bytes).unwrap();
 	assert!(!written.documents.contains_key(&path("audits/a.md")));
 	assert!(written.documents.contains_key(&path("audits/b.md")));
-	assert_eq!(written.retired.get(&path("audits/a.md")), Some(&tombstone));
+	assert_eq!(
+		written.retired.get(&path("audits/a.md")),
+		Some(&vec![tombstone])
+	);
 }
 
 /// Retiring is the remedy for a listed document that is gone.
@@ -118,11 +121,11 @@ fn a_remote_document_is_retired_without_a_seal() {
 	let identity = "abstract:video".parse().unwrap();
 	assert_eq!(
 		written.retired.get(&identity),
-		Some(&Retired {
+		Some(&vec![Retired {
 			retired: review(),
 			seal: None,
 			completed: None,
-		})
+		}])
 	);
 }
 
@@ -172,9 +175,9 @@ fn the_living_head_is_refused_naming_the_config() {
 	assert!(error.to_string().contains(REPOSITORY), "{error}");
 }
 
-/// A tombstone is never replaced, even for a reused path.
+/// Retiring a reused path keeps its earlier tombstone and adds another.
 #[test]
-fn an_existing_tombstone_is_never_replaced() {
+fn an_existing_tombstone_is_kept_when_retiring_again() {
 	let tombstone = format!(r#"{{"retired": {}}}"#, super::REVIEW);
 	let tree = Tree::new(&[
 		(REPOSITORY, BASE),
@@ -184,14 +187,63 @@ fn an_existing_tombstone_is_never_replaced() {
 			&lockfile(&[("a.md", "{}")], &[("a.md", &tombstone)]),
 		),
 	]);
-	let error = retire(
+	let planned = retire(
 		&tree.snapshot,
 		&tree.inventory,
 		&request(local("docs/a.md")),
 	)
-	.unwrap_err();
-	assert!(
-		matches!(error, MutateError::AlreadyRetired { .. }),
-		"{error:?}"
+	.unwrap();
+	let after = tree.apply(&planned.plan);
+	after.assert_clean();
+	assert_eq!(after.inventory.tombstones.len(), 2);
+	assert_eq!(
+		after.inventory.tombstones[0].retired,
+		tree.inventory.tombstones[0].retired
 	);
+	assert_eq!(
+		after.inventory.tombstones[1].retired,
+		planned.summary.tombstone
+	);
+}
+
+/// A backwards clock still produces chronological lists, and equal instants
+/// place the new retirement after those already written.
+#[test]
+fn retirement_order_preserves_ties_and_handles_a_backwards_clock() {
+	let tombstone = format!(r#"{{"retired": {}}}"#, super::REVIEW);
+	for instant in [
+		"2026-10-31T00:00:00Z",
+		"2026-11-01T00:00:00Z",
+		"2026-11-02T00:00:00Z",
+	] {
+		let tree = Tree::new(&[
+			(REPOSITORY, BASE),
+			("docs/a.md", "# A\n"),
+			(
+				"docs/source-sentry.lock",
+				&lockfile(&[("a.md", "{}")], &[("a.md", &tombstone)]),
+			),
+		]);
+		let mut request = request(local("docs/a.md"));
+		request.at = instant.parse().unwrap();
+		let planned = retire(&tree.snapshot, &tree.inventory, &request).unwrap();
+		let after = tree.apply(&planned.plan);
+		after.assert_clean();
+		let old = &tree.inventory.tombstones[0].retired;
+		let new = &planned.summary.tombstone;
+		let expected = if new.retired.at < old.retired.at {
+			[new, old]
+		} else {
+			[old, new]
+		};
+		assert_eq!(
+			after
+				.inventory
+				.tombstones
+				.iter()
+				.map(|tombstone| &tombstone.retired)
+				.collect::<Vec<_>>(),
+			expected
+		);
+	}
 }

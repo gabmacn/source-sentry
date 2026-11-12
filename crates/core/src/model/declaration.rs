@@ -221,15 +221,15 @@ pub struct Declaration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Retired {
+	/// The completion, kept when the document was a `living` series entry
+	/// that had completed, so that the window it credited stays credited.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub completed: Option<Review>,
 	/// Who retired the document, and when.
 	pub retired: Review,
 	/// The seal, kept when the document was a record.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seal: Option<Seal>,
-	/// The completion, kept when the document was a `living` series entry
-	/// that had completed, so that the window it credited stays credited.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub completed: Option<Review>,
 }
 
 /// A whole lockfile, local or remote.
@@ -242,8 +242,9 @@ pub struct Retired {
 pub struct Lockfile {
 	/// The tracked documents.
 	pub documents: BTreeMap<String, Declaration>,
-	/// Documents that were deliberately removed.
-	pub retired: BTreeMap<String, Retired>,
+	/// Non-empty lists of tombstones, oldest retirement first. Equal
+	/// retirement instants retain their written order.
+	pub retired: BTreeMap<String, Vec<Retired>>,
 	/// The version of the lockfile format.
 	pub schema: u32,
 }

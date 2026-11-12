@@ -29,6 +29,8 @@ mod succession;
 #[cfg(test)]
 mod support;
 #[cfg(test)]
+mod tombstones;
+#[cfg(test)]
 mod track;
 #[cfg(test)]
 mod usage;

@@ -142,8 +142,11 @@ fn on_file_to_a_lockfile_and_back() {
 /// merges it, with its tombstones, and deletes it.
 #[test]
 fn merging_a_nested_lockfile_into_its_parent() {
-	let tombstone =
+	let first =
 		format!(r#"{{"retired": {REVIEW}, "seal": {}}}"#, seal_of("old\n"));
+	let second =
+		format!(r#"{{"retired": {REVIEW}, "seal": {}}}"#, seal_of("later\n"));
+	let tombstone = format!("{first}, {second}");
 	let a = format!(r#"{{"sources": [{}]}}"#, attested("/src/a.rs", SOURCE));
 	let tree = Tree::new(&[
 		(REPOSITORY, BASE),
@@ -221,7 +224,16 @@ fn merging_a_nested_lockfile_into_its_parent() {
 	}
 	let bytes = after.snapshot.read(&path("source-sentry.lock")).unwrap();
 	let merged = LocalLockfile::parse(&path(""), &bytes).unwrap();
-	assert!(merged.retired[&path("docs/old.md")].seal.is_some());
+	let tombstones = &merged.retired[&path("docs/old.md")];
+	assert_eq!(tombstones.len(), 2);
+	assert_eq!(
+		serde_json::to_value(&tombstones[0]).unwrap(),
+		serde_json::from_str::<serde_json::Value>(&first).unwrap()
+	);
+	assert_eq!(
+		serde_json::to_value(&tombstones[1]).unwrap(),
+		serde_json::from_str::<serde_json::Value>(&second).unwrap()
+	);
 	assert!(merged.documents.contains_key(&path("other/c.md")));
 }
 
@@ -259,8 +271,11 @@ fn a_nearer_lockfile_that_stays_is_refused() {
 /// takes over, and carries the tombstones below it.
 #[test]
 fn splitting_a_lockfile_moves_entries_and_tombstones() {
-	let tombstone =
+	let first =
 		format!(r#"{{"retired": {REVIEW}, "seal": {}}}"#, seal_of("old\n"));
+	let second =
+		format!(r#"{{"retired": {REVIEW}, "seal": {}}}"#, seal_of("later\n"));
+	let tombstone = format!("{first}, {second}");
 	let a = format!(r#"{{"sources": [{}]}}"#, attested("/src/a.rs", SOURCE));
 	let tree = Tree::new(&[
 		(REPOSITORY, BASE),
@@ -317,7 +332,16 @@ fn splitting_a_lockfile_moves_entries_and_tombstones() {
 		.read(&path("docs/source-sentry.lock"))
 		.unwrap();
 	let nested = LocalLockfile::parse(&path("docs"), &bytes).unwrap();
-	assert!(nested.retired[&path("docs/old.md")].seal.is_some());
+	let tombstones = &nested.retired[&path("docs/old.md")];
+	assert_eq!(tombstones.len(), 2);
+	assert_eq!(
+		serde_json::to_value(&tombstones[0]).unwrap(),
+		serde_json::from_str::<serde_json::Value>(&first).unwrap()
+	);
+	assert_eq!(
+		serde_json::to_value(&tombstones[1]).unwrap(),
+		serde_json::from_str::<serde_json::Value>(&second).unwrap()
+	);
 }
 
 /// Moving an entry to the nearest lockfile fixes its authority.

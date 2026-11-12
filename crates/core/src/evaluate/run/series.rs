@@ -21,7 +21,7 @@ use crate::evaluate::schedule::{
 	Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone,
 };
 use crate::evaluate::settings::EffectiveSettings;
-use crate::model::{DocumentId, Fact, Lifecycle, RepoPath, Rule};
+use crate::model::{DocumentId, Fact, Lifecycle, RepoPath, Review, Rule, Seal};
 
 /// One series, ready for its completions to be answered.
 pub(super) struct SeriesPlan<'a> {
@@ -90,8 +90,8 @@ pub(super) fn plan<'a>(
 	let mut completions = Vec::new();
 	if schedule.is_some() {
 		for member in &members.members {
-			if let Some((query, location)) =
-				completion(series.lifecycle, &member.path, inventory, scopes)
+			for (query, location) in
+				completion_queries(series.lifecycle, &member.path, inventory, scopes)
 			{
 				completions.push((
 					member.path.clone(),
@@ -172,55 +172,111 @@ fn check_head(
 	}
 }
 
-/// The question that dates `member`'s completion, and where its marker is
-/// written, or `None` when it has not completed in the evaluated snapshot:
-///
-/// - in a `records-only` series, the commit that introduced its seal, in its
-///   lockfile entry or its tombstone;
-/// - in a `living` series, the commit that introduced its `completed`.
-fn completion(
+/// The questions dating every completion of `member`, including those of
+/// earlier documents at the same path. Each marker is matched separately in
+/// history, so a tombstone credits the window of its own committed marker.
+fn completion_queries(
 	lifecycle: Lifecycle,
 	member: &RepoPath,
 	inventory: &Inventory,
 	scopes: &mut Scopes<'_>,
-) -> Option<(Query, Location)> {
+) -> Vec<(Query, Location)> {
 	let document = DocumentId::Local(member.clone());
-	let (marker, condition) = match lifecycle {
-		Lifecycle::RecordsOnly => ("seal", Condition::Sealed),
-		Lifecycle::Living => ("completed", Condition::Completed),
-	};
-	let claim = inventory
-		.claims_of(&document)
-		.find(|claim| match lifecycle {
-			Lifecycle::RecordsOnly => claim.is_sealed(),
-			Lifecycle::Living => claim.declaration.completed.is_some(),
-		});
-	if let Some(claim) = claim {
-		let location = claim.location_of(format!("{}.{marker}", claim.field));
-		let query = Query {
-			document,
-			sites: sites(claim, inventory, scopes),
-			condition,
-		};
-		return Some((query, location));
+	let mut queries = Vec::new();
+	for tombstone in inventory
+		.tombstones
+		.iter()
+		.filter(|tombstone| tombstone.document == document)
+	{
+		if let Some((marker, condition)) = completion_condition(
+			lifecycle,
+			tombstone.retired.seal.as_ref(),
+			tombstone.retired.completed.as_ref(),
+			&queries,
+		) {
+			let mut sites = vec![local_lockfile_site(tombstone.lockfile.clone())];
+			add_former_sites(&document, inventory, &mut sites);
+			queries.push((
+				Query {
+					document: document.clone(),
+					sites,
+					condition,
+				},
+				tombstone.location_of(format!("{}.{marker}", tombstone.field)),
+			));
+		}
 	}
-	// A retired entry keeps its marker in its tombstone.
-	let tombstone = inventory.tombstones.iter().find(|tombstone| {
-		tombstone.document == document
-			&& match lifecycle {
-				Lifecycle::RecordsOnly => tombstone.retired.seal.is_some(),
-				Lifecycle::Living => tombstone.retired.completed.is_some(),
-			}
-	})?;
-	let location = tombstone.location_of(format!("{}.{marker}", tombstone.field));
-	let mut sites = vec![local_lockfile_site(tombstone.lockfile.clone())];
-	add_former_sites(&document, inventory, &mut sites);
-	let query = Query {
-		document,
-		sites,
-		condition,
-	};
-	Some((query, location))
+	for claim in inventory.claims_of(&document) {
+		if let Some((marker, condition)) = completion_condition(
+			lifecycle,
+			claim.declaration.seal.as_ref(),
+			claim.declaration.completed.as_ref(),
+			&queries,
+		) {
+			queries.push((
+				Query {
+					document: document.clone(),
+					sites: sites(claim, inventory, scopes),
+					condition,
+				},
+				claim.location_of(format!("{}.{marker}", claim.field)),
+			));
+		}
+	}
+
+	queries
+}
+
+/// The marker used by `lifecycle` and its occurrence among earlier queries.
+/// Counting identical markers distinguishes repeated completions even when
+/// the recorded instant, author and record content all match.
+fn completion_condition(
+	lifecycle: Lifecycle,
+	seal: Option<&Seal>,
+	completed: Option<&Review>,
+	previous: &[(Query, Location)],
+) -> Option<(&'static str, Condition)> {
+	match lifecycle {
+		Lifecycle::RecordsOnly => seal.map(|seal| {
+			let occurrence = previous
+				.iter()
+				.filter(|(query, _)| {
+					matches!(
+						&query.condition,
+						Condition::Sealed { seal: earlier, .. } if earlier == seal
+					)
+				})
+				.count()
+				+ 1;
+			(
+				"seal",
+				Condition::Sealed {
+					seal: seal.clone(),
+					occurrence,
+				},
+			)
+		}),
+		Lifecycle::Living => completed.map(|completed| {
+			let occurrence = previous
+				.iter()
+				.filter(|(query, _)| {
+					matches!(
+						&query.condition,
+						Condition::Completed { completed: earlier, .. }
+							if earlier == completed
+					)
+				})
+				.count()
+				+ 1;
+			(
+				"completed",
+				Condition::Completed {
+					completed: completed.clone(),
+					occurrence,
+				},
+			)
+		}),
+	}
 }
 
 /// The members of `plan` that carry `awaiting-seal`, with the series that
@@ -358,17 +414,38 @@ fn windows(
 	completions: &[MemberCompletion],
 	at: DateTime<Utc>,
 ) -> Result<(CadenceStatus<RepoPath>, Option<Deadline>), ScheduleError> {
-	let completed: Vec<Completion<RepoPath>> = completions
+	let completed: Vec<Completion<(RepoPath, usize)>> = completions
 		.iter()
-		.filter_map(|completion| match &completion.state {
+		.enumerate()
+		.filter_map(|(index, completion)| match &completion.state {
 			CompletionState::Completed(start) => Some(Completion {
-				entry: completion.member.clone(),
+				entry: (completion.member.clone(), index),
 				at: start.timestamp,
 			}),
 			CompletionState::Uncommitted | CompletionState::Failed => None,
 		})
 		.collect();
+	// Cadence deduplicates entry identities. Each completed incarnation of a
+	// reused path is a separate entry; keep its index until credits are assigned.
 	let status = cadence::evaluate(recurrence, grace, zone, &completed, at)?;
+	let status = CadenceStatus {
+		windows: status
+			.windows
+			.into_iter()
+			.map(|window| cadence::Window {
+				after: window.after,
+				due: window.due,
+				last_day: window.last_day,
+				closed: window.closed,
+				credit: window.credit.map(|credit| Completion {
+					entry: credit.entry.0,
+					at: credit.at,
+				}),
+			})
+			.collect(),
+		missed: status.missed,
+		overdue: status.overdue,
+	};
 	let next = next_deadline(&status, recurrence, grace, zone)?;
 	Ok((status, next))
 }

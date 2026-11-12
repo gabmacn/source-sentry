@@ -432,9 +432,9 @@ pub struct SeriesSubject {
 /// A series' cadence, evaluated.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeriesCadence {
-	/// Every member that has completed or is about to, by path: a sealed
+	/// Every incarnation that has completed or is about to, by path: a sealed
 	/// record in a `records-only` series, or an entry with `completed` in a
-	/// `living` one.
+	/// `living` one. A reused path may have several completions.
 	pub completions: Vec<MemberCompletion>,
 	/// The windows, credits, and `overdue` and `missed`, or `None` when the
 	/// cadence, the grace period or the time zone is invalid, or a date fell

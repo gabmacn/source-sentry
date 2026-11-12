@@ -40,10 +40,10 @@ fn one_document(key: &str, declaration: &str) -> String {
 	)
 }
 
-/// A lockfile with one tombstone, `key`.
+/// A lockfile whose retired `key` holds comma-separated JSON tombstones.
 fn one_tombstone(key: &str, tombstone: &str) -> String {
 	format!(
-		"{{\"documents\": {{}}, \"retired\": {{{key:?}: {tombstone}}}, \
+		"{{\"documents\": {{}}, \"retired\": {{{key:?}: [{tombstone}]}}, \
 		 \"schema\": 1}}"
 	)
 }
@@ -129,7 +129,7 @@ fn the_remote_example_round_trips() {
 		lockfile.documents[&video].url.as_deref(),
 		Some("https://www.youtube.com/watch?v=EXAMPLE")
 	);
-	assert!(lockfile.retired.is_empty());
+	assert_eq!(lockfile.retired.len(), 1);
 	assert_eq!(
 		String::from_utf8(lockfile.to_bytes().unwrap()).unwrap(),
 		example
@@ -237,7 +237,7 @@ fn writing_sorts_sources_and_members() {
 fn a_path_may_be_both_retired_and_reused() {
 	let text = format!(
 		"{{\"documents\": {{\"a.md\": {{}}}}, \"retired\": {{\"a.md\": \
-		 {{\"retired\": {REVIEW}, \"seal\": {SEAL}}}}}, \"schema\": 1}}"
+		 [{{\"retired\": {REVIEW}, \"seal\": {SEAL}}}]}}, \"schema\": 1}}"
 	);
 	let lockfile = parse_local(&text).unwrap();
 	assert!(lockfile.documents.contains_key(&path("docs/a.md")));
@@ -314,6 +314,14 @@ fn duplicate_keys_are_rejected_at_every_level() {
 			"owners",
 		),
 		(
+			one_tombstone(
+				"a.md",
+				&format!("{{\"retired\": {REVIEW}, \"retired\": {REVIEW}}}"),
+			),
+			"retired[\"a.md\"][0]",
+			"retired",
+		),
+		(
 			one_document(
 				"a.md",
 				"{\"sources\": [{\"path\": \"x\"}, {\"path\": \"y\", \"path\": \
@@ -351,7 +359,7 @@ fn arrays_cannot_stand_in_for_objects() {
 			one_document("a.md", "{\"sources\": [[\"x\"]]}"),
 			"documents[\"a.md\"].sources[0]",
 		),
-		(one_tombstone("a.md", "[]"), "retired[\"a.md\"]"),
+		(one_tombstone("a.md", "[]"), "retired[\"a.md\"][0]"),
 	] {
 		let (at, _, message) = invalid(parse_local(&text));
 		assert_eq!(at, expected_at, "{text}");
@@ -397,7 +405,7 @@ fn malformed_fields_are_named_by_path() {
 		"a.md",
 		"{\"retired\": {\"at\": \"yesterday\", \"by\": null}}",
 	)));
-	assert_eq!(at, "retired[\"a.md\"].retired.at");
+	assert_eq!(at, "retired[\"a.md\"][0].retired.at");
 
 	let (at, _, _) = invalid(parse_local(
 		"{\"documents\": {}, \"retired\": {}, \"schema\": 1, \"x\": 0}",
@@ -607,7 +615,7 @@ fn remote_documents_cannot_be_records_or_series_entries() {
 			&format!("{{\"retired\": {REVIEW}, \"seal\": {SEAL}}}")
 		))),
 		DeclarationError::NotAllowed { at, .. }
-			if at == "retired[\"abstract:video\"].seal"
+			if at == "retired[\"abstract:video\"][0].seal"
 	));
 	// An unsealed tombstone is fine.
 	assert!(
@@ -672,7 +680,7 @@ fn writing_refuses_what_parsing_would_reject() {
 	let mut lockfile = RemoteLockfile::default();
 	lockfile.retired.insert(
 		"abstract:video".parse().unwrap(),
-		Retired {
+		vec![Retired {
 			retired: review("2026-11-07T00:00:00Z", None),
 			seal: Some(Seal {
 				at: "2026-11-07T00:00:00Z".parse().unwrap(),
@@ -680,12 +688,130 @@ fn writing_refuses_what_parsing_would_reject() {
 				oid: OID.parse().unwrap(),
 			}),
 			completed: None,
-		},
+		}],
 	);
 	assert!(matches!(
 		lockfile.to_bytes(),
 		Err(LockfileError::Declaration(
 			DeclarationError::NotAllowed { .. }
 		))
+	));
+}
+
+/// A local key retains every marker and the written order of equal instants.
+#[test]
+fn local_tombstone_lists_round_trip_without_reordering_equal_instants() {
+	let tombstones = format!(
+		"{{\"completed\": {REVIEW}, \"retired\": {REVIEW}, \"seal\": {SEAL}}}, \
+		 {{\"retired\": {REVIEW}}}"
+	);
+	let text = one_tombstone("a.md", &tombstones);
+	let lockfile = parse_local(&text).unwrap();
+	let tombstones = &lockfile.retired[&path("docs/a.md")];
+	assert_eq!(tombstones.len(), 2);
+	assert!(tombstones[0].seal.is_some());
+	assert!(tombstones[1].seal.is_none());
+	let written = lockfile.to_bytes().unwrap();
+	assert_eq!(LocalLockfile::parse(&docs(), &written).unwrap(), lockfile);
+	let written = String::from_utf8(written).unwrap();
+	assert!(written.contains("{\n        \"completed\": {"));
+}
+
+/// Remote keys always hold lists, for one or several tombstones alike.
+#[test]
+fn remote_tombstone_lists_round_trip() {
+	let first = format!("{{\"retired\": {REVIEW}}}");
+	let second = first.replace("null", "\"Another reviewer\"");
+	for tombstones in [first.clone(), format!("{first}, {second}")] {
+		let text = one_tombstone("abstract:video", &tombstones);
+		let lockfile = parse_remote(&text).unwrap();
+		let written = lockfile.to_bytes().unwrap();
+		let value: serde_json::Value = serde_json::from_slice(&written).unwrap();
+		let list = value["retired"]["abstract:video"].as_array().unwrap();
+		assert_eq!(list[0]["retired"]["by"], serde_json::Value::Null);
+		if list.len() == 2 {
+			assert_eq!(list[1]["retired"]["by"], "Another reviewer");
+		}
+		assert_eq!(RemoteLockfile::parse(&written).unwrap(), lockfile);
+	}
+}
+
+/// Both lockfile kinds reject empty lists, old singleton objects and
+/// retirement instants that decrease, including equivalent offset forms.
+#[test]
+fn invalid_tombstone_lists_have_a_field_and_line() {
+	for key in ["a.md", "abstract:video"] {
+		for (value, message) in [
+			("[]".to_owned(), "at least one tombstone"),
+			(
+				format!("{{\"retired\": {REVIEW}}}"),
+				"expected a non-empty list",
+			),
+			(
+				format!(
+					"[{{\"retired\": {REVIEW}}}, \
+					 {{\"retired\": {{\"at\": \"2026-11-07T00:59:59+01:00\", \"by\": null}}}}]"
+				),
+				"chronological order",
+			),
+		] {
+			let text = format!(
+				"{{\n  \"documents\": {{}},\n  \"retired\": {{\n    {key:?}: {value}\n  }},\n  \"schema\": 1\n}}"
+			);
+			let error = if key == "a.md" {
+				parse_local(&text).unwrap_err()
+			} else {
+				parse_remote(&text).unwrap_err()
+			};
+			let (at, position, found) = invalid::<LocalLockfile>(Err(error));
+			assert_eq!(at, format!("retired[{key:?}]"));
+			assert_eq!(position.line, 4, "{key}: {value}: {found}");
+			assert!(found.contains(message), "{found}");
+		}
+	}
+}
+
+/// Programmatically built local and remote lists obey the same invariants
+/// on write, rather than being silently sorted or dropped.
+#[test]
+fn writing_rejects_empty_and_out_of_order_tombstone_lists() {
+	let first = Retired {
+		completed: None,
+		retired: review("2026-11-07T00:00:00Z", None),
+		seal: None,
+	};
+	let later = Retired {
+		retired: review("2026-11-08T00:00:00Z", None),
+		..first.clone()
+	};
+	for tombstones in [vec![], vec![later, first]] {
+		let mut local = LocalLockfile::new(docs());
+		local.retired.insert(path("docs/a.md"), tombstones.clone());
+		let mut remote = RemoteLockfile::default();
+		remote
+			.retired
+			.insert("abstract:video".parse().unwrap(), tombstones);
+		for error in [
+			local.to_bytes().unwrap_err(),
+			remote.to_bytes().unwrap_err(),
+		] {
+			assert!(matches!(error, LockfileError::InvalidTombstones { .. }));
+		}
+	}
+}
+
+/// Every remote tombstone is checked, including a later completion marker.
+#[test]
+fn later_remote_tombstones_cannot_hold_completions() {
+	let text = one_tombstone(
+		"abstract:video",
+		&format!(
+			"{{\"retired\": {REVIEW}}}, {{\"completed\": {REVIEW}, \"retired\": {REVIEW}}}"
+		),
+	);
+	assert!(matches!(
+		declaration_error(parse_remote(&text)),
+		DeclarationError::NotAllowed { at, .. }
+			if at == "retired[\"abstract:video\"][1].completed"
 	));
 }

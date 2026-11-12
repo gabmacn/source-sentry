@@ -258,18 +258,6 @@ pub enum MutateError {
 		/// The document.
 		document: DocumentId,
 	},
-	/// A tombstone already exists where a new one would go.
-	#[error(
-		"{lockfile} already holds a tombstone for `{document}`, from an earlier \
-		 document at the same key, and Source Sentry never replaces a \
-		 tombstone. Resolve the earlier tombstone in review first"
-	)]
-	AlreadyRetired {
-		/// The document.
-		document: DocumentId,
-		/// The lockfile holding the tombstone.
-		lockfile: RepoPath,
-	},
 	/// `track` on a document that is already claimed.
 	#[error(
 		"`{document}` is already tracked ({}), and a second claim would be a \

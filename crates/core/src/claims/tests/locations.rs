@@ -74,12 +74,15 @@ fn lockfile_fields_keep_their_entry_keys_and_lines() {
     "{neighbor}": {{}}
   }},
   "retired": {{
-    {quoted}: {{
+    {quoted}: [{{
       "retired": {REVIEW}
     }},
-    "{neighbor}": {{
+    {{
       "retired": {REVIEW}
-    }}
+    }}],
+    "{neighbor}": [{{
+      "retired": {REVIEW}
+    }}]
   }},
   "schema": 1
 }}"#
@@ -115,20 +118,22 @@ fn lockfile_fields_keep_their_entry_keys_and_lines() {
 		assert_eq!(absent.line, None);
 		assert_eq!(absent.field, Some(format!("{field}.reviewed")));
 
-		let field = entry_field("retired", key);
-		let tombstone = inventory
-			.tombstones
-			.iter()
-			.find(|tombstone| tombstone.field == field)
-			.unwrap();
-		let location = tombstone.location_of(field.clone());
-		assert_eq!(location.line, Some(17));
-		let location = tombstone.location_of(format!("{field}.retired.at"));
-		assert_eq!(location.file, path(file));
-		assert_eq!(location.line, Some(18));
-		assert_eq!(location.column, None);
-		assert_eq!(tombstone.lines.len(), 4, "{:?}", tombstone.lines);
-		assert_eq!(tombstone.location_of(format!("{field}.seal")).line, None);
+		for (index, line) in [(0, 17), (1, 20)] {
+			let field = format!("{}[{index}]", entry_field("retired", key));
+			let tombstone = inventory
+				.tombstones
+				.iter()
+				.find(|tombstone| tombstone.field == field)
+				.unwrap();
+			let location = tombstone.location_of(field.clone());
+			assert_eq!(location.line, Some(line));
+			let location = tombstone.location_of(format!("{field}.retired.at"));
+			assert_eq!(location.file, path(file));
+			assert_eq!(location.line, Some(line + 1));
+			assert_eq!(location.column, None);
+			assert_eq!(tombstone.lines.len(), 4, "{:?}", tombstone.lines);
+			assert_eq!(tombstone.location_of(format!("{field}.seal")).line, None);
+		}
 	}
 }
 
@@ -165,9 +170,9 @@ fn a_tombstone_outside_its_lockfiles_authority_has_its_entry_line() {
 		r#"{{
   "documents": {{}},
   "retired": {{
-    "nested/old.md": {{
+    "nested/old.md": [{{
       "retired": {REVIEW}
-    }}
+    }}]
   }},
   "schema": 1
 }}"#
@@ -180,7 +185,7 @@ fn a_tombstone_outside_its_lockfiles_authority_has_its_entry_line() {
 	assert_eq!(diagnostic.location.line, Some(4));
 	assert_eq!(
 		diagnostic.location.field.as_deref(),
-		Some(r#"retired["nested/old.md"]"#)
+		Some(r#"retired["nested/old.md"][0]"#)
 	);
 }
 
@@ -190,9 +195,9 @@ fn a_shared_remote_tombstone_has_lines_in_both_owner_lockfiles() {
 		r#"{{
   "documents": {{}},
   "retired": {{
-    "abstract:old": {{
+    "abstract:old": [{{
       "retired": {REVIEW}
-    }}
+    }}]
   }},
   "schema": 1
 }}"#
@@ -207,6 +212,106 @@ fn a_shared_remote_tombstone_has_lines_in_both_owner_lockfiles() {
 	assert_eq!(diagnostic.related[0].line, Some(6));
 	assert_eq!(
 		diagnostic.related[0].field.as_deref(),
-		Some(r#"retired["abstract:old"]"#)
+		Some(r#"retired["abstract:old"][0]"#)
 	);
+}
+
+/// Every tombstone outside the nearest lockfile has its own indexed field
+/// and item line, even when another tombstone shares its path.
+#[test]
+fn authority_checks_every_tombstone_in_a_list() {
+	let lock = format!(
+		r#"{{
+  "documents": {{}},
+  "retired": {{
+    "nested/old.md": [
+      {{"retired": {REVIEW}}},
+      {{"retired": {REVIEW}}}
+    ]
+  }},
+  "schema": 1
+}}"#
+	);
+	let inventory = inventory(&[
+		("docs/source-sentry.lock", &lock),
+		("docs/nested/source-sentry.lock", &lockfile(&[], &[])),
+	]);
+	assert_eq!(inventory.diagnostics.len(), 2);
+	for (index, diagnostic) in inventory.diagnostics.iter().enumerate() {
+		assert_eq!(diagnostic.kind, DiagnosticKind::OutsideAuthority);
+		assert_eq!(diagnostic.location.line, Some(5 + index as u64));
+		assert_eq!(
+			diagnostic.location.field,
+			Some(format!("retired[\"nested/old.md\"][{index}]"))
+		);
+	}
+}
+
+/// Empty and out-of-order lists are configuration errors with JSON lines
+/// in local and remote lockfiles alike.
+#[test]
+fn invalid_tombstone_lists_report_lines_in_diagnostics() {
+	for (file, key) in [
+		("docs/source-sentry.lock", "old.md"),
+		(".source-sentry/remotes/legal.lock", "abstract:old"),
+	] {
+		for value in [
+			"[]".to_owned(),
+			format!(
+				"[{{\"retired\": {REVIEW}}}, {{\"retired\": {{\"at\": \"2026-01-01T00:00:00Z\", \"by\": null}}}}]"
+			),
+		] {
+			let lock = format!(
+				"{{\n\"documents\": {{}},\n\"retired\": {{{key:?}: {value}}},\n\"schema\": 1\n}}"
+			);
+			let inventory = inventory(&[(file, &lock)]);
+			let diagnostic = only(&inventory, DiagnosticKind::InvalidLockfile);
+			assert_eq!(diagnostic.location.line, Some(3));
+			assert_eq!(diagnostic.location.field, Some(entry_field("retired", key)));
+			assert_eq!(inventory.tombstones, []);
+		}
+	}
+}
+
+/// A later tombstone's seal and completion retain their own field lines.
+#[test]
+fn each_tombstone_keeps_its_marker_lines() {
+	let lock = format!(
+		r#"{{
+  "documents": {{}},
+  "retired": {{
+    "old.md": [
+      {{
+        "completed": {REVIEW},
+        "retired": {REVIEW},
+        "seal": {{"at": "2026-11-07T00:00:00Z", "by": null, "oid": {}}}
+      }},
+      {{
+        "completed": {REVIEW},
+        "retired": {REVIEW},
+        "seal": {{"at": "2026-11-07T00:00:00Z", "by": null, "oid": {}}}
+      }}
+    ]
+  }},
+  "schema": 1
+}}"#,
+		super::OID,
+		super::OID
+	);
+	let inventory = inventory(&[("docs/source-sentry.lock", &lock)]);
+	assert_eq!(inventory.diagnostics, []);
+	assert_eq!(inventory.tombstones.len(), 2);
+	for (index, tombstone) in inventory.tombstones.iter().enumerate() {
+		for (marker, line) in [("completed", 6), ("seal", 8), ("seal.oid", 8)] {
+			let location =
+				tombstone.location_of(format!("{}.{marker}", tombstone.field));
+			assert_eq!(location.line, Some(line + 5 * index as u64));
+		}
+		assert!(
+			tombstone
+				.lines
+				.keys()
+				.all(|field| field.starts_with(&tombstone.field))
+		);
+	}
 }
