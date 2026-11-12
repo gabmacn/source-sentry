@@ -56,7 +56,11 @@
               }
             }
           ],
-          "pattern": "/db/migrations/*.sql"
+          "pattern": "/db/migrations/*.sql",
+          "reviewed": {
+            "at": "2026-11-07T14:32:05Z",
+            "by": "Bruno Costa"
+          }
         },
         {
           "oid": "sha1:1234567890abcdef1234567890abcdef12345678",

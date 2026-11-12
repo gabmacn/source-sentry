@@ -4,8 +4,8 @@
 //! - Fields come in the example's order: `reviewed`, `completed`, `classes`,
 //!   `owners`, `schedule` (`grace`, then `cadence`) and `sources`; a path
 //!   source lists `path`, `oid` and `reviewed`, and a pattern source lists
-//!   `pattern` and `members`. `completed`, which the example lacks, follows
-//!   `reviewed`, the other review event.
+//!   `pattern`, `reviewed` and `members`. `completed`, which the example lacks,
+//!   follows `reviewed`, the other review event.
 //! - Indentation is two spaces, and sequences of mappings are indented under
 //!   their key.
 //! - `classes` and `owners` are flow sequences.
@@ -126,6 +126,9 @@ impl Out<'_> {
 			}
 			SourceDecl::Pattern(source) => {
 				self.line(2, &format!("- pattern: {}", quote(&source.pattern)));
+				if let Some(review) = &source.reviewed {
+					self.review(3, "reviewed", review);
+				}
 				if !source.members.is_empty() {
 					self.line(3, "members:");
 				}

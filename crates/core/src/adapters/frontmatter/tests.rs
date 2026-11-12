@@ -134,6 +134,7 @@ fn reads_the_approved_example() {
 				reviewed: review("2026-11-07T14:32:05Z", None),
 			}],
 			pattern: "/db/migrations/*.sql".to_owned(),
+			reviewed: Some(review("2026-11-07T14:32:05Z", Some("Bruno Costa"))),
 		})
 	);
 }
@@ -490,7 +491,7 @@ fn malformed_sources_name_their_problem() {
 		),
 		("{path: 'a', members: []}", "only a pattern source"),
 		(
-			"{pattern: 'a', reviewed: {at: 2026-11-07T00:00:00Z, by: null}}",
+			"{pattern: 'a', oid: 'sha1:1234567890abcdef1234567890abcdef12345678'}",
 			"of its own",
 		),
 		("{path: 'a', oid: 'sha1:12'}", "40 lowercase"),

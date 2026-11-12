@@ -42,16 +42,22 @@ source-sentry:
         at: 2026-11-07T14:32:05Z
         by: 'Bruno Costa' # Taken from git's user.name.
     # Not reviewed yet, so this reviewed document is stale. `unattested`
-    # means it has neither a document review nor any source attestation.
+    # means it has no document, pattern or member review or path attestation.
     - path: '../diagrams/user-flow.svg'
-    # Every tracked match has its own member attestation; the pattern itself
-    # has no oid or review. Quote patterns: YAML misreads a leading `*` or `!`.
+    # Every tracked match has its own member attestation. The pattern has its
+    # own review, but no oid. Quote patterns: YAML misreads a leading `*` or `!`.
     # Source globs match whole document-relative or `/`-rooted paths: `*`
     # never crosses `/`; a whole-component `**` spans directories. Matching
     # is case-sensitive, including on Windows. Unlike config patterns,
     # slashless source globs are not implicitly recursive; `!` is literal.
     # Backslashes are refused; use `[*]` for a literal wildcard.
     - pattern: '/db/migrations/*.sql'
+      # Attesting the pattern writes its review and every current member's
+      # review together. This stays when its last member is removed, without
+      # recording a whole-document reread. New matches still need review.
+      reviewed:
+        at: 2026-11-07T14:32:05Z
+        by: 'Bruno Costa'
       members:
         - path: '/db/migrations/0001-init.sql'
           oid: 'sha1:abcdef1234567890abcdef1234567890abcdef12'

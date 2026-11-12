@@ -170,6 +170,11 @@ pub struct PatternSource {
 	pub members: Vec<Member>,
 	/// The glob, as declared.
 	pub pattern: String,
+	/// Who last confirmed this pattern and all its current members, and when.
+	/// Kept when its last member is removed. Member reviews remain independent
+	/// evidence of their oids; this review never attests a new match's content.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reviewed: Option<Review>,
 }
 
 /// One attested member of a pattern source.

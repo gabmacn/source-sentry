@@ -565,6 +565,7 @@ fn a_source_path_that_does_not_resolve_is_a_configuration_error() {
 				SourceDecl::Pattern(PatternSource {
 					members: Vec::new(),
 					pattern: "/*.rs".to_owned(),
+					reviewed: None,
 				}),
 			],
 			..Declaration::default()

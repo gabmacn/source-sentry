@@ -48,6 +48,75 @@ fn a_document_whose_sources_match_is_fresh_and_passes() {
 	);
 }
 
+/// Review evidence includes a pattern's own review and legacy member reviews.
+#[test]
+fn pattern_and_member_reviews_clear_unattested_independently() {
+	for (source, expected) in [
+		(json!({"pattern": "/src/*.rs"}), true),
+		(json!({"pattern": "/src/*.rs", "reviewed": review()}), false),
+		(
+			json!({"pattern": "/src/*.rs", "members": [attested("/src/a.rs", "v1")]}),
+			false,
+		),
+		(
+			json!({"pattern": "/src/*.rs", "reviewed": review(), "members": [attested("/src/a.rs", "v1")]}),
+			false,
+		),
+	] {
+		let repo = Repo::new(&[
+			(REPOSITORY, CONFIG),
+			("src/a.rs", "v1"),
+			("docs/a.md", "# A\n"),
+			(
+				DOCS_LOCK,
+				&lockfile(&json!({"a.md": {
+					"schedule": {"grace": 30}, "sources": [source],
+				}})),
+			),
+		]);
+		let evaluation = repo.evaluate(day(1), None);
+		assert_clean(&evaluation);
+		assert_eq!(
+			facts(document(&evaluation, "docs/a.md")).contains(&Fact::Unattested),
+			expected,
+		);
+	}
+}
+
+/// A pattern review never attests new matches, and its timestamp dates no clock.
+#[test]
+fn a_reviewed_empty_patterns_new_match_starts_at_the_files_commit() {
+	let mut repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		("docs/a.md", "# A\n"),
+		(
+			DOCS_LOCK,
+			&lockfile(&json!({"a.md": {
+				"schedule": {"grace": 3},
+				"sources": [{"pattern": "/src/*.rs", "reviewed": {
+					"at": "2099-01-01T00:00:00Z", "by": null,
+				}}],
+			}})),
+		),
+	]);
+	let empty = repo.evaluate(day(1), None);
+	let subject = document(&empty, "docs/a.md");
+	assert_eq!(facts(subject), [Fact::Fresh]);
+	assert!(subject.deadline.is_none());
+	let added = repo.commit(5, &[("src/a.rs", Some("new"))]);
+	let evaluation = repo.evaluate(day(6), None);
+	assert_clean(&evaluation);
+	let subject = document(&evaluation, "docs/a.md");
+	assert_eq!(facts(subject), [Fact::Stale]);
+	let (commit, timestamp) =
+		started(timing(&evaluation, "docs/a.md", "src/a.rs"));
+	assert_eq!((commit, timestamp), (&added, day(5)));
+	assert_eq!(
+		subject.deadline.unwrap().due,
+		NaiveDate::from_ymd_opt(2026, 1, 9)
+	);
+}
+
 /// The clock starts at the first change after the
 /// attested oid, a later change does not reset it, and grace defers the
 /// deadline to the end of its last day.

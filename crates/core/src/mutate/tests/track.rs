@@ -208,6 +208,7 @@ fn without_a_lockfile_one_is_created_beside_the_document() {
 		[SourceDecl::Pattern(PatternSource {
 			members: Vec::new(),
 			pattern: "../src/*.rs".to_owned(),
+			reviewed: None,
 		})]
 	);
 }

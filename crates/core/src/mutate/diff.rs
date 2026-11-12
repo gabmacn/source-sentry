@@ -10,7 +10,7 @@ use super::repo::Repo;
 use super::select::{SourceState, observe};
 use super::{MutateError, Selection};
 use crate::claims::{Attestation, DiagnosticKind, Inventory};
-use crate::model::{DocumentId, ObjectId, RepoPath};
+use crate::model::{DocumentId, ObjectId, RepoPath, Review, SourceDecl};
 use crate::ports::{History, Snapshot};
 
 /// A document's selected sources, each compared with its attestation.
@@ -35,6 +35,9 @@ pub struct SourceDiff {
 	/// The path of a path source, or every current and former member of a
 	/// pattern, sorted by path.
 	pub entries: Vec<EntryDiff>,
+	/// The source's own last review, independent of its files' baselines.
+	/// A reviewed empty pattern can be attested again.
+	pub reviewed: Option<Review>,
 }
 
 /// One file, as attested and as it is now.
@@ -177,6 +180,12 @@ pub fn diff<S: Snapshot, H: History>(
 			declared: source.declared.clone(),
 			pattern,
 			entries,
+			reviewed: claim.declaration.sources.get(source.index).and_then(
+				|source| match source {
+					SourceDecl::Path(source) => source.reviewed.clone(),
+					SourceDecl::Pattern(source) => source.reviewed.clone(),
+				},
+			),
 		});
 	}
 	Ok(DocumentDiff {

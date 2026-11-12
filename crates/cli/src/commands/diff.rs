@@ -199,8 +199,9 @@ fn render(
 			"\n{}{kind}\n",
 			output::bold(&format!("`{}`", source.declared))
 		);
-		// No match and no attested member: `attest` refuses such a pattern.
-		if source.entries.is_empty() {
+		if source.entries.is_empty() && source.reviewed.is_some() {
+			text.push_str("  matches no file; its previous review is retained\n");
+		} else if source.entries.is_empty() {
 			text.push_str(
 				"  matches no file and was never attested, so `attest` refuses it: \
 				 correct the pattern, or `untrack` it\n",

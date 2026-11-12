@@ -196,7 +196,7 @@ pub enum MutateError {
 	/// A new pattern that matches nothing.
 	#[error(
 		"the new pattern `{pattern}` of `{document}` matches no tracked file, \
-		 and a pattern that matches nothing is never recorded. Correct the \
+		 and a new pattern that matches nothing is never recorded. Correct the \
 		 pattern, or add its files to git first"
 	)]
 	EmptyPattern {

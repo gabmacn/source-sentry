@@ -290,12 +290,14 @@ enum Membership<'a> {
 }
 
 /// Whether a declaration has never been reviewed: no document-level
-/// `reviewed` and no attested source.
+/// `reviewed`, no reviewed pattern and no attested source or member.
 fn is_unattested(declaration: &Declaration) -> bool {
 	declaration.reviewed.is_none()
 		&& declaration.sources.iter().all(|source| match source {
 			SourceDecl::Path(source) => source.oid.is_none(),
-			SourceDecl::Pattern(source) => source.members.is_empty(),
+			SourceDecl::Pattern(source) => {
+				source.reviewed.is_none() && source.members.is_empty()
+			}
 		})
 }
 

@@ -46,6 +46,7 @@ fn predecessor(sealed: bool) -> Declaration {
 			}),
 			SourceDecl::Pattern(PatternSource {
 				pattern: "../../src/*.rs".to_owned(),
+				reviewed: Some(review()),
 				members: vec![Member {
 					path: "../../src/a.rs".to_owned(),
 					oid: oid(SOURCE),
@@ -161,6 +162,7 @@ fn copies_settings_and_sources_without_evidence() {
 					}
 					SourceDecl::Pattern(source) => {
 						assert_eq!(source.members, [] as [Member; 0]);
+						assert_eq!(source.reviewed, None);
 					}
 				}
 			}
@@ -394,6 +396,7 @@ fn unresolvable_inherited_source_refuses_registration() {
 	let mut declaration = predecessor(true);
 	declaration.sources = vec![SourceDecl::Pattern(PatternSource {
 		pattern: "*.rs".to_owned(),
+		reviewed: None,
 		members: vec![],
 	})];
 	let tree = Tree::of(

@@ -248,15 +248,16 @@ impl<'de> Deserialize<'de> for Source {
 				})
 			}
 			(None, Some(pattern)) => {
-				if fields.oid.is_some() || fields.reviewed.is_some() {
+				if fields.oid.is_some() {
 					return Err(D::Error::custom(
-						"a pattern source has no `oid` or `reviewed` of its own; \
-						 each of its `members` has them",
+						"a pattern source has no `oid` of its own; \
+						 each of its `members` has one",
 					));
 				}
 				SourceDecl::Pattern(PatternSource {
 					members: fields.members.unwrap_or_default(),
 					pattern,
+					reviewed: fields.reviewed,
 				})
 			}
 		};

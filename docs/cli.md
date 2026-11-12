@@ -159,6 +159,10 @@ whether or not anything changed.
 - **A document without sources** is reviewed by rereading it, so its command
   carries `--reread`. A pattern that never matched a file and was never
   attested cannot be attested: correct it, or `untrack` it.
+  A previously reviewed pattern keeps its review when its last member's
+  removal is acknowledged. It then has only the `empty-pattern` warning,
+  without becoming `unattested` or regaining its declaration deadline.
+  It can be attested again, including with `--reread`.
 - **`--source`** selects a path source by the file it resolves to from the
   current directory, or from the repository root with `/`. A pattern is
   selected by its exact declared spelling or its `/`-rooted form. A value
@@ -176,9 +180,20 @@ whether or not anything changed.
   the array omits `--repo`.
   The report's other path fields retain their repository-relative form
   without a leading `/`.
+  Each source also carries its own `reviewed` (`at` and `by`) when present;
+  a pattern's review is independent of its files' baselines.
 
 `--reviewer` defaults to git's `user.name`. `--reread` also records that the
 whole document was reread.
+
+Attesting a selected pattern records its own `reviewed` and the same review
+on every current member, and removes former members. Selection covers whole
+sources; individual pattern members cannot be selected. Attesting a path
+that also matches a pattern leaves the pattern and its members unchanged.
+Unselected sources keep their reviews. A pattern's review counts as evidence
+that the document was reviewed, but does not attest new matches or record a
+whole-document reread. Member oids still determine source changes, and
+stored review timestamps never date deadlines.
 
 `review` walks the live documents whose facts include `stale`, `overdue`,
 `unattested` or `upstream-stale`. `--context` defaults to `default` and

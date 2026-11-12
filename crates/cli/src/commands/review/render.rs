@@ -39,7 +39,7 @@ pub(super) fn changes(
 	let mut omitted = 0;
 	let mut pending = false;
 	for source in &compared.sources {
-		if source.entries.is_empty() {
+		if source.entries.is_empty() && source.reviewed.is_none() {
 			text.push_str("A source pattern matches no file and was never attested; correct it before recording a review.\n");
 		}
 		for entry in source.entries.iter().filter(|entry| entry.is_changed()) {

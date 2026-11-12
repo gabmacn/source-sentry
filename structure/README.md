@@ -58,6 +58,20 @@ a record, which must never change.
 living-series entry's first complete source review. The preset example
 explains how committed completion and seal markers credit series windows.
 
+Each pattern source may carry **`reviewed`**, with `at` and `by`, as well as
+its members' reviews. Attesting a pattern writes the same review on the
+pattern and all current members, and drops removed members. Sources are
+selected as whole paths or patterns; individual pattern members cannot be
+selected. Attesting a path that also matches a pattern leaves that pattern
+and its members unchanged. Unselected sources keep their reviews.
+
+The pattern's review remains when its last member is removed. It records
+review evidence without recording a whole-document reread, and does not
+attest a new member or replace any member's oid and review. Older lockfiles
+may omit it, including on patterns with reviewed members; those member
+reviews still count as review evidence. The schema remains 1. Frontmatter
+uses the same optional field.
+
 Keys are sorted alphabetically and every value sits on its own line, so two
 people's changes rarely touch the same lines.
 
@@ -72,11 +86,12 @@ copy. This applies to `living` and `records-only` series.
 The new declaration copies explicit classes, owners, grace, cadence and
 source paths and patterns. Relative sources are re-expressed for the new
 document's directory, with patterns rebased by their literal prefix;
-`/`-rooted spellings stay unchanged. Source attestations and pattern members,
-the document's `reviewed`, its seal and `completed` are absent. Registration
-options add to these values using the ordinary `track` rules. The plan shows
-the predecessor and copied values before confirmation. The new declaration
-uses normal placement, independently of the predecessor's placement.
+`/`-rooted spellings stay unchanged. Source attestations, pattern reviews and
+members, the document's `reviewed`, its seal and `completed` are absent.
+Registration options add to these values using the ordinary `track` rules.
+The plan shows the predecessor and copied values before confirmation. The
+new declaration uses normal placement, independently of the predecessor's
+placement.
 
 Without a declared earlier entry, registration is unchanged. `init` uses
 the declarations present when it starts for all entries in its plan. A

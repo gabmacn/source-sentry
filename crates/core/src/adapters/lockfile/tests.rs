@@ -175,6 +175,7 @@ fn writing_sorts_sources_and_members() {
 				SourceDecl::Pattern(PatternSource {
 					members: vec![member("/m/b.sql"), member("/m/a.sql")],
 					pattern: "/m/*.sql".to_owned(),
+					reviewed: None,
 				}),
 				source("../a.rs"),
 				source("/m/*.sql"),

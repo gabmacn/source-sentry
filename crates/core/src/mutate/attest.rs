@@ -95,9 +95,11 @@ const TOLERATED: &[DiagnosticKind] = &[DiagnosticKind::MissingSource];
 /// For each selected path source, records its current canonical oid. For
 /// each selected pattern, replaces its members with the files it matches now
 /// and their oids, so additions are recorded and removals dropped. Every
-/// attested source gets `Review::new(at, reviewer)`. Only `reread` updates
-/// the document's own `reviewed`. When the document is an entry of a
-/// `living` series, has no `completed` yet, and every source is attested at
+/// attested source, including a pattern with no remaining members, and each
+/// current member gets `Review::new(at, reviewer)`. Unselected sources keep
+/// their reviews. Only `reread` updates the document's own `reviewed`.
+/// When the document is an entry of a `living` series, has no `completed`
+/// yet, and every source is attested at
 /// its current oid once this attestation is recorded, `completed` is set to
 /// the same review.
 ///
@@ -115,8 +117,8 @@ const TOLERATED: &[DiagnosticKind] = &[DiagnosticKind::MissingSource];
 /// - for an invalid reviewer name;
 /// - when the selection names no source or an unknown one, or includes a
 ///   missing path source;
-/// - for a selected pattern with no attested members that matches nothing
-///   ([`MutateError::EmptyPattern`]);
+/// - for a selected pattern with no review or attested members that matches
+///   nothing ([`MutateError::EmptyPattern`]);
 /// - for a file without a canonical oid;
 /// - when the selection is empty and `reread` is not set
 ///   ([`MutateError::NothingToAttest`]);
@@ -195,7 +197,10 @@ fn refuse_new_empty_patterns(
 		if let SourceState::Pattern { matches, members } = &source.state
 			&& matches.is_empty()
 			&& members.is_empty()
-		{
+			&& !matches!(
+				claim.declaration.sources.get(source.index),
+				Some(SourceDecl::Pattern(pattern)) if pattern.reviewed.is_some()
+			) {
 			return Err(MutateError::EmptyPattern {
 				document: claim.document.clone(),
 				pattern: source.declared.clone(),
@@ -243,6 +248,7 @@ fn record(
 						SourceState::Pattern { matches, members },
 						SourceDecl::Pattern(declared),
 					) => {
+						declared.reviewed = Some(review.clone());
 						declared.members = matches
 							.iter()
 							.map(|(path, oid)| Member {

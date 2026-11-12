@@ -965,6 +965,7 @@ pub(super) fn sources<S: Snapshot>(
 				declared.push(SourceDecl::Pattern(PatternSource {
 					members: Vec::new(),
 					pattern: pattern.clone(),
+					reviewed: None,
 				}));
 			}
 		}

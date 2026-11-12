@@ -4,6 +4,40 @@ use super::{BASE, REPOSITORY, REVIEW, inventory, lockfile, only};
 use crate::claims::{DiagnosticKind, entry_field};
 use crate::testing::path;
 
+/// Local and remote lockfiles locate a pattern's review separately from members.
+#[test]
+fn lockfiles_locate_pattern_reviews() {
+	for (key, file) in [
+		("guide.md", "source-sentry.lock"),
+		("abstract:guide", ".source-sentry/remotes/team.lock"),
+	] {
+		let lock = format!(
+			r#"{{
+  "documents": {{{key:?}: {{"sources": [{{
+    "pattern": "/src/*.rs",
+    "reviewed": {{
+      "at": "2026-11-07T14:32:05Z",
+      "by": null
+    }}
+  }}]}}}},
+  "retired": {{}},
+  "schema": 1
+}}"#,
+		);
+		let inventory = inventory(&[(REPOSITORY, BASE), (file, &lock)]);
+		assert!(inventory.lockfiles[0].parsed);
+		let claim = &inventory.claims[0];
+		for (suffix, line) in
+			[("reviewed", 4), ("reviewed.at", 5), ("reviewed.by", 6)]
+		{
+			assert_eq!(
+				claim.lines[&format!("{}.sources[0].{suffix}", claim.field)],
+				line
+			);
+		}
+	}
+}
+
 /// Discovery checks schedules even when a sealed record needs no deadline.
 #[test]
 fn a_sealed_records_cadence_is_validated_during_discovery() {

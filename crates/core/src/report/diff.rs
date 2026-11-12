@@ -22,7 +22,8 @@
 //!           "path": "db/schema.sql"
 //!         }
 //!       ],
-//!       "pattern": false
+//!       "pattern": false,
+//!       "reviewed": {"at": "2026-11-07T14:32:05Z", "by": null}
 //!     }
 //!   ]
 //! }
@@ -91,6 +92,7 @@ impl DiffReport {
 						.map(|entry| DiffEntryReport::new(entry, &unified))
 						.collect(),
 					pattern: source.pattern,
+					reviewed: source.reviewed.clone(),
 				})
 				.collect(),
 		}
@@ -108,6 +110,9 @@ pub struct DiffSourceReport {
 	pub entries: Vec<DiffEntryReport>,
 	/// Whether it is a pattern.
 	pub pattern: bool,
+	/// The source's own review, when recorded. Member baselines remain separate.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub reviewed: Option<crate::model::Review>,
 }
 
 /// One file, as attested and as it is now.

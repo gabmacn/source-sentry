@@ -134,6 +134,7 @@ fn in_a_lockfile_with_matching_expectations() {
 	assert_eq!(planned.plan.writes[0].path, path("docs/source-sentry.lock"));
 	let after = tree.apply(&planned.plan);
 	after.assert_clean();
+	assert_eq!(pattern_of(&after, "docs/guide.md").reviewed, Some(review()));
 	assert_eq!(
 		pattern_of(&after, "docs/guide.md").members,
 		[
@@ -228,6 +229,7 @@ fn a_removal_is_acknowledged_through_the_pattern() {
 	assert_eq!(entries[0].recorded, None);
 	let after = tree.apply(&planned.plan);
 	assert_eq!(pattern_of(&after, "docs/guide.md").members.len(), 2);
+	assert_eq!(pattern_of(&after, "docs/guide.md").reviewed, Some(review()));
 	// The path source was not selected, so it stays unattested.
 	assert_eq!(path_of(&after, "docs/guide.md").oid, None);
 }
@@ -401,16 +403,51 @@ fn a_new_empty_pattern_is_refused() {
 			&markdown("  sources:\n    - pattern: '/db/*.sql'\n"),
 		),
 	]);
-	let error = attest(
-		&tree.snapshot,
-		&tree.inventory,
-		&request(local("docs/guide.md")),
-	)
-	.unwrap_err();
-	assert!(
-		matches!(error, MutateError::EmptyPattern { .. }),
-		"{error:?}"
+	for reread in [false, true] {
+		let mut request = request(local("docs/guide.md"));
+		request.reread = reread;
+		let error = attest(&tree.snapshot, &tree.inventory, &request).unwrap_err();
+		assert!(
+			matches!(error, MutateError::EmptyPattern { .. }),
+			"{error:?}"
+		);
+	}
+}
+
+/// Selecting an overlapping path leaves the pattern and its members untouched.
+#[test]
+fn attesting_an_overlapping_path_keeps_the_pattern_review() {
+	let entry = format!(
+		r#"{{"sources": [{{"path": "/db/1.sql"}}, {{
+			"pattern": "/db/*.sql",
+			"reviewed": {{"at": "2026-01-01T00:00:00Z", "by": "Earlier reviewer"}},
+			"members": [{}]
+		}}]}}"#,
+		attested("/db/1.sql", "old\n"),
 	);
+	let tree = Tree::new(&[
+		(REPOSITORY, BASE),
+		("db/1.sql", "new\n"),
+		("docs/guide.md", "# Guide\n"),
+		(
+			"docs/source-sentry.lock",
+			&lockfile(&[("guide.md", &entry)], &[]),
+		),
+	]);
+	let before = pattern_of(&tree, "docs/guide.md");
+	let mut request = request(local("docs/guide.md"));
+	request.selection = Selection::Sources(vec!["/db/1.sql".to_owned()]);
+	let planned = attest(&tree.snapshot, &tree.inventory, &request).unwrap();
+	let after = tree.apply(&planned.plan);
+	assert_eq!(pattern_of(&after, "docs/guide.md"), before);
+	assert_eq!(path_of(&after, "docs/guide.md").reviewed, Some(review()));
+	request.selection = Selection::Sources(vec!["/db/*.sql".to_owned()]);
+	let planned = attest(&after.snapshot, &after.inventory, &request).unwrap();
+	let after = after.apply(&planned.plan);
+	let pattern = pattern_of(&after, "docs/guide.md");
+	assert_eq!(pattern.reviewed, Some(review()));
+	assert_eq!(pattern.members[0].reviewed, review());
+	assert_eq!(pattern.members[0].oid, oid("new\n"));
 }
 
 /// An explicitly named source that is missing is an error, but

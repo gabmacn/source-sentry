@@ -11,6 +11,8 @@
 // and `panic` in test code, cover the helpers as well as the `#[test]`
 // functions.
 #[cfg(test)]
+mod attest;
+#[cfg(test)]
 mod check;
 #[cfg(test)]
 mod diff;
