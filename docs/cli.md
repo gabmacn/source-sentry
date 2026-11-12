@@ -6,7 +6,8 @@ source-sentry help [<command>]
 ```
 
 - `--repo` names the repository; by default, the current directory, searching
-  upward as git does.
+  upward as git does. Relative repository locations start in the current
+  directory; a leading `/` starts at the root of the containing repository.
 - `--color` defaults to `auto`, which respects `NO_COLOR` and redirected
   output.
 - `--quiet` prints only errors and what was asked for: the JSON of
@@ -14,11 +15,16 @@ source-sentry help [<command>]
 - `-h` or `--help` describes a command; `-V` or `--version` prints the
   version.
 
-Documents are named by path, relative to the current directory as in git, or
-by remote identity: `abstract:onboarding-video`,
-`google-drive:1a2B3c4D5e6F7g8H9i0J`. Sources are named as a declaration
-writes them: relative to the document's directory, or from the repository
-root with a leading `/`.
+Documents are named by path or by remote identity: `abstract:onboarding-video`,
+`google-drive:1a2B3c4D5e6F7g8H9i0J`. Every command-line path is relative to the
+current directory, as in git; a leading `/` means the repository root. This
+also applies with `--repo`: it selects the repository without changing the
+current directory. Native drive-qualified paths are accepted on Windows.
+
+Human output displays repository paths relative to the current directory,
+including diagnostic locations and commands printed for copying. Quoted
+source declarations retain their declared spelling. JSON keeps paths
+relative to the repository root.
 
 ## Checking
 
@@ -139,13 +145,21 @@ whether or not anything changed.
 - **A document without sources** is reviewed by rereading it, so its command
   carries `--reread`. A pattern that never matched a file and was never
   attested cannot be attested: correct it, or `untrack` it.
-- **`--source`** selects sources by their declared spelling, or by their
-  repository path or pattern with a leading `/`. **`--expect`** takes
-  repository paths, as `diff` prints them.
+- **`--source`** selects a path source by the file it resolves to from the
+  current directory, or from the repository root with `/`. A pattern is
+  selected by its exact declared spelling or its `/`-rooted form. A value
+  that selects both a path and a pattern is refused, naming both.
+- **`--expect`** takes a path from the current directory, or a `/`-rooted
+  path, followed by `@oid` or `@absent`. Parent components are accepted;
+  the last `@` separates the path from its state.
 - **`--format json`** prints one object: its `schema`, the `document` and
   `revision`, each of the `sources` with every file's `baseline`,
   `current`, `changed` and `diff`, the `expectations`, and the `attest`
-  command as a list of arguments.
+  command as a list of arguments. The array uses `/`-rooted document,
+  path-source and expectation arguments, so repository paths do not depend
+  on the current directory; declared pattern selectors keep their spelling.
+  The report's other path fields retain their repository-relative form
+  without a leading `/`.
 
 `--reviewer` defaults to git's `user.name`. `--reread` also records that the
 whole document was reread.
@@ -211,6 +225,19 @@ source-sentry migrate [--dry-run] [--yes]
   tracked document. Placement follows the usual rules. The plan names the
   predecessor and shows the copied declaration before the options apply.
   A source that cannot be re-expressed or registered refuses the whole plan.
+- **`--source` and `--pattern`** name files and globs from the current
+  directory, or from the repository root with `/`. A relative input is
+  stored relative to the document's directory: from the root,
+  `track docs/cli.md --source crates/cli/src/cli.rs` writes
+  `../crates/cli/src/cli.rs`. A `/`-rooted input is stored as given.
+  A pattern is rebased by the literal components before its first glob
+  component. Invalid glob syntax, `..` after a glob component, and directory
+  names containing glob metacharacters are refused with a usage error
+  explaining why they cannot be rebased safely. A remote document's sources
+  are stored `/`-rooted because it has no directory.
+- **`--lockfile <directory>`** names a directory from the current directory,
+  or from the repository root with `/`; the flag alone chooses the nearest
+  lockfile.
 - **`--from` and `--to`** move declarations with their reviews and
   every tombstone of each moved key. A move between lockfiles must include
   every entry whose nearest lockfile changes, and a lockfile left empty is
@@ -218,15 +245,18 @@ source-sentry migrate [--dry-run] [--yes]
   or a source of another document. The plan shows any settings that change
   with the move, such as an owner's defaults.
 - **`untrack`** removes the declared sources it names. A path is matched by
-  the file it resolves to, and a pattern by its spelling. The other sources
+  the file it resolves to from the current directory or `/`, and a pattern
+  by its declared spelling or `/`-rooted form. The other sources
   keep their reviews. To stop tracking a document altogether, `retire` it;
   for an on-file document, delete its `source-sentry` key instead.
 - **A placement** is written `on-file`, `lockfile:<directory>` or
-  `remote:<owner>`.
+  `remote:<owner>`. A lockfile directory is relative to the current
+  directory, or `/`-rooted.
 - **`init`** registers the documents that a root's scan finds and nothing
   claims. Without paths it only previews roots, claims and candidates. With
-  paths, or `--all`, it registers them as unattested. It never creates a
-  root: `track` a first document, or add a directory config with
+  paths, or `--all`, it registers them as unattested. Candidate paths start
+  at the current directory, or at the repository root with `/`. It never
+  creates a root: `track` a first document, or add a directory config with
   `root: true`.
 
   Series entries inherit as with `track`, using the declarations present

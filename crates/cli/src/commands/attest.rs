@@ -2,9 +2,7 @@
 
 use std::fmt::Write as _;
 
-use source_sentry_core::mutate::{
-	AttestRequest, AttestSummary, Selection, attest,
-};
+use source_sentry_core::mutate::{AttestRequest, AttestSummary, attest};
 
 use crate::cli::AttestArgs;
 use crate::describe;
@@ -29,23 +27,30 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
+	let (_, inventory) = load(workspace, &snapshot)?;
+	let document = workspace.document(&args.document)?;
 	let request = AttestRequest {
-		document: workspace.document(&args.document)?,
-		selection: if args.sources.is_empty() {
-			Selection::All
+		selection: workspace.selection(&inventory, &document, &args.sources)?,
+		document,
+		expectations: if args.expectations.is_empty() {
+			None
 		} else {
-			Selection::Sources(args.sources.clone())
+			Some(
+				args
+					.expectations
+					.iter()
+					.map(|argument| workspace.expectation(argument))
+					.collect::<Result<_, _>>()?,
+			)
 		},
-		expectations: (!args.expectations.is_empty())
-			.then(|| args.expectations.clone()),
 		reviewer: super::person(workspace, args.reviewer.as_deref())?,
 		at: super::now(),
 		reread: args.reread,
 	};
 	let planned = attest(&snapshot, &inventory, &request)
-		.map_err(|error| Failure::mutate(&error))?;
-	let summary = summary(&planned.summary, !args.expectations.is_empty());
+		.map_err(|error| Failure::mutate(workspace, &error))?;
+	let summary =
+		summary(workspace, &planned.summary, !args.expectations.is_empty());
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
@@ -56,15 +61,19 @@ pub(super) fn run(
 }
 
 /// What the attestation records.
-fn summary(summary: &AttestSummary, expected: bool) -> String {
+fn summary(
+	workspace: &Workspace,
+	summary: &AttestSummary,
+	expected: bool,
+) -> String {
 	let mut text = format!(
 		"Attest {} ({})\n",
-		output::bold(&summary.document.to_string()),
-		describe::location(&summary.declared_in)
+		output::bold(&workspace.display_document(&summary.document)),
+		describe::location(workspace, &summary.declared_in)
 	);
 	for source in &summary.sources {
 		let kind = if source.pattern { " (pattern)" } else { "" };
-		let _ = writeln!(text, "  {}{kind}", source.declared);
+		let _ = writeln!(text, "  `{}`{kind}", source.declared);
 		for entry in &source.entries {
 			let previous = entry
 				.previous
@@ -74,7 +83,11 @@ fn summary(summary: &AttestSummary, expected: bool) -> String {
 				.recorded
 				.as_ref()
 				.map_or("dropped from the pattern", describe::short);
-			let _ = writeln!(text, "    {}  {previous} → {recorded}", entry.path);
+			let _ = writeln!(
+				text,
+				"    {}  {previous} → {recorded}",
+				workspace.display_path(&entry.path)
+			);
 		}
 	}
 	let reviewer = summary
@@ -100,7 +113,7 @@ fn summary(summary: &AttestSummary, expected: bool) -> String {
 	};
 	let _ = writeln!(text, "{verb}:");
 	for expectation in &summary.expectations {
-		let _ = writeln!(text, "  {expectation}");
+		let _ = writeln!(text, "  {}", workspace.display_expectation(expectation));
 	}
 	text
 }

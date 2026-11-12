@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::MutateError;
+use super::SourceSpec;
 use super::expectation::{self, Expectation};
 use super::repo::Repo;
 use crate::claims::{Attestation, Claim, ResolvedSource};
@@ -22,6 +23,9 @@ pub enum Selection {
 	/// exactly as declared, or, written with a leading `/`, its repository
 	/// path or its pattern resolved against the repository root.
 	Sources(Vec<String>),
+	/// Sources identified by their exact declared spelling and kind, after
+	/// a caller has resolved its own selection syntax without ambiguity.
+	Declared(Vec<SourceSpec>),
 }
 
 /// The selected sources of a claim, with the current canonical oid of every
@@ -102,9 +106,18 @@ pub(super) fn select<'c>(
 	claim: &'c Claim,
 	selection: &Selection,
 ) -> Result<Vec<&'c ResolvedSource>, MutateError> {
-	let names = match selection {
+	let names: Vec<(&str, Option<bool>)> = match selection {
 		Selection::All => return Ok(claim.sources.iter().collect()),
-		Selection::Sources(names) => names,
+		Selection::Sources(names) => {
+			names.iter().map(|name| (name.as_str(), None)).collect()
+		}
+		Selection::Declared(sources) => sources
+			.iter()
+			.map(|source| match source {
+				SourceSpec::Path(path) => (path.as_str(), Some(false)),
+				SourceSpec::Pattern(pattern) => (pattern.as_str(), Some(true)),
+			})
+			.collect(),
 	};
 	if names.is_empty() {
 		return Err(MutateError::NothingSelected {
@@ -112,10 +125,17 @@ pub(super) fn select<'c>(
 		});
 	}
 	let mut chosen = BTreeSet::new();
-	for name in names {
+	for (name, pattern) in names {
 		let mut found = false;
 		for source in &claim.sources {
-			if names_source(claim, source, name) {
+			let matches = pattern.map_or_else(
+				|| names_source(claim, source, name),
+				|pattern| {
+					declared(claim, source.index()) == name
+						&& matches!(source, ResolvedSource::Pattern(_)) == pattern
+				},
+			);
+			if matches {
 				chosen.insert(source.index());
 				found = true;
 			}
@@ -123,7 +143,7 @@ pub(super) fn select<'c>(
 		if !found {
 			return Err(MutateError::UnknownSource {
 				document: claim.document.clone(),
-				selector: name.clone(),
+				selector: name.to_owned(),
 				declared: claim
 					.declaration
 					.sources

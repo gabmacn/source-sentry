@@ -25,26 +25,31 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
-	let planned =
-		migrate(&snapshot, &inventory).map_err(|error| Failure::mutate(&error))?;
+	let (_, inventory) = load(workspace, &snapshot)?;
+	let planned = migrate(&snapshot, &inventory)
+		.map_err(|error| Failure::mutate(workspace, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
-		&summary(&planned.summary),
+		&summary(workspace, &planned.summary),
 		args.confirm,
 		printer,
 	)
 }
 
 /// Every lockfile's schema.
-fn summary(report: &SchemaReport) -> String {
+fn summary(workspace: &Workspace, report: &SchemaReport) -> String {
 	let mut text = format!("Lockfile schema {} is current.\n", report.current);
 	if report.lockfiles.is_empty() {
 		text.push_str("There are no lockfiles.\n");
 	}
 	for lockfile in &report.lockfiles {
-		let _ = writeln!(text, "  {}  schema {}", lockfile.path, lockfile.schema);
+		let _ = writeln!(
+			text,
+			"  {}  schema {}",
+			workspace.display_path(&lockfile.path),
+			lockfile.schema
+		);
 	}
 	text
 }

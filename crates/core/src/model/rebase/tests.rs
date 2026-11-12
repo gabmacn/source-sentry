@@ -72,6 +72,61 @@ fn refuses_unresolvable_sources() {
 	);
 	assert!(matches!(
 		rebase_pattern("*.rs", &path("docs/[old]"), &path("other")),
-		Err(RebaseError::PatternPrefix(_))
+		Err(RebaseError::PatternDirectory(_))
+	));
+}
+
+/// Paths retain their target across sibling, parent and root directories.
+#[test]
+fn paths_keep_their_target() {
+	for (declared, from, to, expected) in [
+		("crates/cli.rs", "", "docs", "../crates/cli.rs"),
+		("../src/a.rs", "docs", "docs/deep", "../../src/a.rs"),
+		("./a.rs", "src", "", "src/a.rs"),
+		("a.rs", "src", "src", "a.rs"),
+		(".", "src", "src", "."),
+		("/src/./a.rs", "docs", "elsewhere", "/src/./a.rs"),
+	] {
+		assert_eq!(
+			rebase_path(declared, &path(from), &path(to)).unwrap(),
+			expected
+		);
+	}
+	assert!(rebase_path("../outside", &RepoPath::ROOT, &path("docs")).is_err());
+	assert!(rebase_path("", &RepoPath::ROOT, &path("docs")).is_err());
+}
+
+/// Glob syntax remains intact while the literal prefix changes base.
+#[test]
+fn patterns_rebase_only_the_literal_prefix() {
+	for (declared, from, to, expected) in [
+		("src/**/*.rs", "", "docs", "../src/**/*.rs"),
+		("../src/{a,b}/*.rs", "docs", "src", "{a,b}/*.rs"),
+		("*.rs", "src", "docs/deep", "../../src/*.rs"),
+		("{src,lib}/**", "", "docs", "../{src,lib}/**"),
+		("src/../lib/a?.rs", "", "docs", "../lib/a?.rs"),
+		("src/*/fixed/../a.rs", "", "docs", "../src/*/fixed/../a.rs"),
+		("src/a.rs", "", "docs", "../src/a.rs"),
+		("/src/*.rs", "docs", "", "/src/*.rs"),
+	] {
+		assert_eq!(
+			rebase_pattern(declared, &path(from), &path(to)).unwrap(),
+			expected
+		);
+	}
+}
+
+/// Unsafe or invalid spellings carry a reason instead of changing meaning.
+#[test]
+fn unsafe_patterns_are_rejected() {
+	for invalid in ["", "../*.rs", "src/*/../a.rs", "src/{a,b", "src\\*.rs"] {
+		assert!(
+			rebase_pattern(invalid, &RepoPath::ROOT, &path("docs")).is_err(),
+			"{invalid}"
+		);
+	}
+	assert!(matches!(
+		rebase_pattern("*.rs", &path("src[*]"), &path("docs")),
+		Err(RebaseError::PatternDirectory(_))
 	));
 }

@@ -8,7 +8,6 @@ use source_sentry_core::mutate::{
 	Candidates, InitPreview, InitRequest, InitSummary, Placement, init,
 	init_preview,
 };
-use source_sentry_core::report;
 
 use crate::cli::InitArgs;
 use crate::describe;
@@ -30,9 +29,9 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (configs, inventory) = load(&snapshot)?;
+	let (configs, inventory) = load(workspace, &snapshot)?;
 	if args.paths.is_empty() && !args.all {
-		printer.print(&preview(&init_preview(&configs, &inventory)));
+		printer.print(&preview(workspace, &init_preview(&configs, &inventory)));
 		return Ok(exit::SUCCESS);
 	}
 	let candidates = if args.all {
@@ -52,11 +51,11 @@ pub(super) fn run(
 		owners: args.owners.clone(),
 	};
 	let planned = init(&snapshot, &configs, &inventory, &request)
-		.map_err(|error| Failure::mutate(&error))?;
+		.map_err(|error| Failure::mutate(workspace, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
-		&summary(&planned.summary),
+		&summary(workspace, &planned.summary),
 		args.confirm,
 		printer,
 	)
@@ -64,10 +63,13 @@ pub(super) fn run(
 
 /// The preview: roots, the candidates in full, and the documents already
 /// tracked, counted by placement, because `init` only acts on candidates.
-fn preview(preview: &InitPreview) -> String {
+fn preview(workspace: &Workspace, preview: &InitPreview) -> String {
 	let mut text = String::new();
-	let roots: Vec<String> =
-		preview.roots.iter().map(report::directory).collect();
+	let roots: Vec<String> = preview
+		.roots
+		.iter()
+		.map(|path| workspace.display_path(path))
+		.collect();
 	let _ = writeln!(
 		text,
 		"{}  {}",
@@ -85,7 +87,7 @@ fn preview(preview: &InitPreview) -> String {
 		let placement = match &claim.placement {
 			Placement::OnFile => "on-file".to_owned(),
 			Placement::Lockfile { directory } => {
-				format!("lockfile:{}", report::directory(directory))
+				format!("lockfile:{}", workspace.display_path(directory))
 			}
 			Placement::Remote { owner } => format!("remote:{owner}"),
 		};
@@ -115,28 +117,29 @@ fn preview(preview: &InitPreview) -> String {
 		let _ = writeln!(
 			text,
 			"  {}  in root {}",
-			candidate.path,
-			report::directory(&candidate.root)
+			workspace.display_path(&candidate.path),
+			workspace.display_path(&candidate.root)
 		);
 	}
 	if !preview.candidates.is_empty() {
-		text.push_str(
-			"\nRegister candidates as unattested with `source-sentry init <path>...` \
-			 or `source-sentry init --all`.",
+		let command = workspace.command_prefix();
+		let _ = write!(
+			text,
+			"\nRegister candidates as unattested with `{command} init <path>...` or `{command} init --all`."
 		);
 	}
 	text
 }
 
 /// What adoption registers.
-fn summary(summary: &InitSummary) -> String {
+fn summary(workspace: &Workspace, summary: &InitSummary) -> String {
 	let mut text = format!(
 		"Register {} as unattested\n",
 		describe::count(summary.registered.len(), "document", "documents")
 	);
 	for registered in &summary.registered {
-		super::track::registration(&mut text, registered);
+		super::track::registration(workspace, &mut text, registered);
 	}
-	super::track::carried(&mut text, &summary.carried);
+	super::track::carried(workspace, &mut text, &summary.carried);
 	text
 }

@@ -32,36 +32,37 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
+	let (_, inventory) = load(workspace, &snapshot)?;
+	let document = workspace.document(&args.document)?;
 	let request = UntrackRequest {
-		document: workspace.document(&args.document)?,
-		sources: args.ordered.clone(),
+		sources: workspace.removals(&inventory, &document, &args.ordered)?,
+		document,
 	};
 	let planned = mutate::untrack(&snapshot, &inventory, &request)
-		.map_err(|error| Failure::mutate(&error))?;
+		.map_err(|error| Failure::mutate(workspace, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
-		&summary(&planned.summary),
+		&summary(workspace, &planned.summary),
 		args.confirm,
 		printer,
 	)
 }
 
 /// What `untrack` removes.
-fn summary(summary: &UntrackSummary) -> String {
+fn summary(workspace: &Workspace, summary: &UntrackSummary) -> String {
 	let mut text = format!(
 		"Remove sources from the declaration of {}, {} ({})\n",
-		output::bold(&summary.document.to_string()),
-		super::track::placement_name(&summary.placement),
-		describe::location(&summary.declared_in)
+		output::bold(&workspace.display_document(&summary.document)),
+		super::track::placement_name(workspace, &summary.placement),
+		describe::location(workspace, &summary.declared_in)
 	);
 	for source in &summary.removed {
 		let (kind, declared) = match source {
 			SourceDecl::Path(path) => ("source ", &path.path),
 			SourceDecl::Pattern(pattern) => ("pattern", &pattern.pattern),
 		};
-		let _ = writeln!(text, "  {kind}  {declared}");
+		let _ = writeln!(text, "  {kind}  `{declared}`");
 	}
 	let _ = writeln!(
 		text,

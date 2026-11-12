@@ -52,7 +52,7 @@ pub(super) fn run(
 		Format::Human if printer.is_quiet() => {
 			for diagnostic in &evaluation.diagnostics {
 				if diagnostic.severity().is_fatal() {
-					output::write_err(&diagnostic_line(diagnostic));
+					output::write_err(&diagnostic_line(workspace, diagnostic));
 				}
 			}
 		}
@@ -103,16 +103,31 @@ fn evaluate_with_configs(
 		let snapshot = repository
 			.commit_snapshot(revision)
 			.map_err(|error| Failure::backend(&error))?;
-		evaluate_snapshot(&snapshot, repository, at, &args.context, report_invalid)
+		evaluate_snapshot(
+			workspace,
+			&snapshot,
+			repository,
+			at,
+			&args.context,
+			report_invalid,
+		)
 	} else {
 		let snapshot = repository
 			.working_tree_snapshot()
 			.map_err(|error| Failure::backend(&error))?;
-		evaluate_snapshot(&snapshot, repository, at, &args.context, report_invalid)
+		evaluate_snapshot(
+			workspace,
+			&snapshot,
+			repository,
+			at,
+			&args.context,
+			report_invalid,
+		)
 	}
 }
 
 fn evaluate_snapshot<S: Snapshot>(
+	workspace: &Workspace,
 	snapshot: &S,
 	repository: &GitRepository,
 	at: chrono::DateTime<chrono::Utc>,
@@ -124,7 +139,7 @@ fn evaluate_snapshot<S: Snapshot>(
 		Err(LoadError::Invalid(errors)) if report_invalid => {
 			return Ok((unloadable(snapshot.revision(), at, &errors), None));
 		}
-		Err(error) => return Err(Failure::load(&error)),
+		Err(error) => return Err(Failure::load(workspace, &error)),
 	};
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;
@@ -183,7 +198,7 @@ pub(super) fn render(
 	listed.sort_by_key(|(_, outcome, _)| std::cmp::Reverse(*outcome));
 	let names: Vec<String> = listed
 		.iter()
-		.map(|(subject, _, _)| describe::subject_name(subject))
+		.map(|(subject, _, _)| describe::subject_name(workspace, subject))
 		.collect();
 	let width = names
 		.iter()
@@ -202,9 +217,9 @@ pub(super) fn render(
 			output::pad(&output::bold(name), name, width),
 			describe::facts(subject)
 		);
-		let details = describe::changes(subject)
+		let details = describe::changes(workspace, subject)
 			.into_iter()
-			.chain(describe::deciding_rules(evaluation, subject));
+			.chain(describe::deciding_rules(workspace, evaluation, subject));
 		for detail in details {
 			let _ = writeln!(text, "      {}", output::dim(&detail));
 		}
@@ -212,7 +227,8 @@ pub(super) fn render(
 			let _ = writeln!(text, "      {hint}");
 		}
 		for diagnostic in own {
-			let _ = writeln!(text, "      {}", diagnostic_line(diagnostic));
+			let _ =
+				writeln!(text, "      {}", diagnostic_line(workspace, diagnostic));
 		}
 	}
 
@@ -226,13 +242,13 @@ pub(super) fn render(
 	if !rest.is_empty() {
 		text.push('\n');
 		for diagnostic in rest {
-			let _ = writeln!(text, "{}", diagnostic_line(diagnostic));
+			let _ = writeln!(text, "{}", diagnostic_line(workspace, diagnostic));
 		}
 	}
 
 	if !outside.is_empty() {
 		text.push('\n');
-		text.push_str(&outside_note(outside));
+		text.push_str(&outside_note(workspace, outside));
 	}
 
 	text.push('\n');
@@ -245,7 +261,10 @@ const OUTSIDE_SHOWN: usize = 10;
 
 /// The note on files that would count but that git does not track, which
 /// `check` therefore leaves out. It never changes the exit code.
-fn outside_note(outside: &[(RepoPath, Outside)]) -> String {
+fn outside_note(
+	workspace: &Workspace,
+	outside: &[(RepoPath, Outside)],
+) -> String {
 	let mut text = format!(
 		"{}  {} outside git's index, so this check leaves {} out; `git add` {} \
 		 to include {}:\n",
@@ -264,7 +283,12 @@ fn outside_note(outside: &[(RepoPath, Outside)]) -> String {
 			Outside::Own => "Source Sentry's own file",
 			Outside::Document => "a document",
 		};
-		let _ = writeln!(text, "      {path}  {}", output::dim(what));
+		let _ = writeln!(
+			text,
+			"      {}  {}",
+			workspace.display_path(path),
+			output::dim(what)
+		);
 	}
 	if outside.len() > OUTSIDE_SHOWN {
 		let _ = writeln!(text, "      and {} more", outside.len() - OUTSIDE_SHOWN);
@@ -274,6 +298,7 @@ fn outside_note(outside: &[(RepoPath, Outside)]) -> String {
 
 /// One diagnostic: its severity, its code, where it points and its message.
 pub(super) fn diagnostic_line(
+	workspace: &Workspace,
 	diagnostic: &source_sentry_core::claims::Diagnostic,
 ) -> String {
 	let severity = diagnostic.severity();
@@ -281,7 +306,7 @@ pub(super) fn diagnostic_line(
 		"{}  {}  {}  {}",
 		output::severity(severity.name(), severity.is_fatal()),
 		diagnostic.kind.code(),
-		describe::location(&diagnostic.location),
+		describe::location(workspace, &diagnostic.location),
 		diagnostic.message
 	)
 }

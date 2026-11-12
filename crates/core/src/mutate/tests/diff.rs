@@ -6,7 +6,7 @@ use super::{
 };
 use crate::mutate::{
 	AttestRequest, Baseline, Current, Expectation, MutateError, Selection,
-	attest, diff,
+	SourceSpec, attest, diff,
 };
 use crate::testing::{FakeHistory, FakeSnapshot};
 
@@ -38,6 +38,40 @@ fn setup() -> (FakeHistory, Tree) {
 			lockfile(&[("guide.md", &entry)], &[]).as_bytes(),
 		);
 	(history, Tree::of(snapshot))
+}
+
+/// An already resolved selection retains the declaration's source kind.
+#[test]
+fn typed_selection_distinguishes_identically_spelled_sources() {
+	let (history, tree) = setup();
+	let snapshot = tree.snapshot.with_file(
+		"docs/source-sentry.lock",
+		lockfile(
+			&[(
+				"guide.md",
+				r#"{"sources": [{"path": "/src/a.rs"}, {"pattern": "/src/a.rs"}]}"#,
+			)],
+			&[],
+		)
+		.as_bytes(),
+	);
+	let tree = Tree::of(snapshot);
+	for spec in [
+		SourceSpec::Path("/src/a.rs".to_owned()),
+		SourceSpec::Pattern("/src/a.rs".to_owned()),
+	] {
+		let pattern = matches!(spec, SourceSpec::Pattern(_));
+		let result = diff(
+			&tree.snapshot,
+			&history,
+			&tree.inventory,
+			&local("docs/guide.md"),
+			&Selection::Declared(vec![spec]),
+		)
+		.unwrap();
+		assert_eq!(result.sources.len(), 1);
+		assert_eq!(result.sources[0].pattern, pattern);
+	}
 }
 
 #[test]

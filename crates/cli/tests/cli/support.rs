@@ -159,6 +159,38 @@ impl TestRepo {
 		}
 	}
 
+	/// Runs a printed command through the platform's shell, with the tested
+	/// binary on PATH and the same isolated git configuration as other runs.
+	pub fn run_shell_in(&self, directory: &str, line: &str) -> Run {
+		let mut command = if cfg!(windows) {
+			let mut command = Command::new("powershell");
+			command.args(["-NoProfile", "-NonInteractive", "-Command"]);
+			command.arg(format!("{line}; exit $LASTEXITCODE"));
+			command
+		} else {
+			let mut command = Command::new("sh");
+			command.args(["-c", line]);
+			command
+		};
+		self.isolate(&mut command);
+		let mut paths = vec![Path::new(BINARY).parent().unwrap().to_path_buf()];
+		paths.extend(std::env::split_paths(
+			&std::env::var_os("PATH").unwrap_or_default(),
+		));
+		let output = command
+			.current_dir(self.path.join(directory))
+			.env("PATH", std::env::join_paths(paths).unwrap())
+			.env("NO_COLOR", "1")
+			.stdin(Stdio::null())
+			.output()
+			.expect("run the printed command");
+		Run {
+			code: output.status.code().expect("an exit code"),
+			stdout: String::from_utf8(output.stdout).expect("UTF-8 stdout"),
+			stderr: String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+		}
+	}
+
 	/// Registers `docs/guide.md` against `src/a.rs`, attests it, and
 	/// commits both steps in October 2026.
 	pub fn reviewed_guide(&self) {

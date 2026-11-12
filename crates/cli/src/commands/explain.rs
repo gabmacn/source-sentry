@@ -14,7 +14,6 @@ use source_sentry_core::model::{
 	ClassName, DocumentId, Lifecycle, ObjectId, VersionKind,
 };
 use source_sentry_core::policy::Basis;
-use source_sentry_core::report;
 
 use crate::cli::{ExplainArgs, parse_document};
 use crate::describe;
@@ -56,8 +55,11 @@ pub(super) fn run(
 			if !own.is_empty() {
 				heading(&mut text, "Diagnostics");
 				for diagnostic in own {
-					let _ =
-						writeln!(text, "  {}", super::check::diagnostic_line(diagnostic));
+					let _ = writeln!(
+						text,
+						"  {}",
+						super::check::diagnostic_line(workspace, diagnostic)
+					);
 				}
 			}
 			text
@@ -143,22 +145,24 @@ fn explain(
 	evaluation: &Evaluation,
 	subject: &Subject,
 ) -> String {
-	let mut text = output::bold(&describe::subject_name(subject));
+	let mut text = output::bold(&describe::subject_name(workspace, subject));
 	text.push('\n');
 	text.push_str(&output::dim(&describe::header(evaluation)));
 	text.push_str("\n\n");
 
 	let mut rows: Vec<(&str, String)> = Vec::new();
 	match &subject.kind {
-		SubjectKind::Document(document) => document_rows(document, &mut rows),
+		SubjectKind::Document(document) => {
+			document_rows(workspace, document, &mut rows);
+		}
 		SubjectKind::Unclaimed(file) => rows.push((
 			"File",
 			format!(
 				"unclaimed, found by the scan of root {}",
-				report::directory(&file.root)
+				workspace.display_path(&file.root)
 			),
 		)),
-		SubjectKind::Series(series) => series_rows(series, &mut rows),
+		SubjectKind::Series(series) => series_rows(workspace, series, &mut rows),
 	}
 	rows.push((
 		"Outcome",
@@ -219,7 +223,7 @@ fn explain(
 			text,
 			"  {name:<8} {}  {}",
 			output::pad(&value, &value, width),
-			output::dim(&describe::setting_origin(origin))
+			output::dim(&describe::setting_origin(workspace, origin))
 		);
 	}
 
@@ -227,16 +231,20 @@ fn explain(
 		SubjectKind::Document(DocumentSubject {
 			state: DocumentState::Live(live),
 			..
-		}) => sources(&mut text, live),
-		SubjectKind::Series(series) => members(&mut text, series),
+		}) => sources(workspace, &mut text, live),
+		SubjectKind::Series(series) => members(workspace, &mut text, series),
 		SubjectKind::Document(_) | SubjectKind::Unclaimed(_) => {}
 	}
-	judgement(&mut text, evaluation, subject);
+	judgement(workspace, &mut text, evaluation, subject);
 	text
 }
 
 /// The rows that describe a document's claim and state.
-fn document_rows(document: &DocumentSubject, rows: &mut Vec<(&str, String)>) {
+fn document_rows(
+	workspace: &Workspace,
+	document: &DocumentSubject,
+	rows: &mut Vec<(&str, String)>,
+) {
 	rows.push((
 		"Document",
 		format!(
@@ -246,7 +254,7 @@ fn document_rows(document: &DocumentSubject, rows: &mut Vec<(&str, String)>) {
 				Mode::LocalLockfile => "by its lockfile",
 				Mode::RemoteLockfile { .. } => "by its owner lockfile",
 			},
-			document.declared_in,
+			workspace.display_path(&document.declared_in),
 			document.field
 		),
 	));
@@ -269,7 +277,7 @@ fn document_rows(document: &DocumentSubject, rows: &mut Vec<(&str, String)>) {
 			format!(
 				"a seal: series {} ({}) has a newer entry",
 				series.name,
-				report::scope(&series.scope)
+				describe::scope(workspace, &series.scope)
 			),
 		));
 	}
@@ -294,7 +302,11 @@ fn record_state(record: &RecordCheck) -> String {
 }
 
 /// The rows that describe a series.
-fn series_rows(series: &SeriesSubject, rows: &mut Vec<(&str, String)>) {
+fn series_rows(
+	workspace: &Workspace,
+	series: &SeriesSubject,
+	rows: &mut Vec<(&str, String)>,
+) {
 	let definition = &series.series;
 	rows.push((
 		"Series",
@@ -309,13 +321,13 @@ fn series_rows(series: &SeriesSubject, rows: &mut Vec<(&str, String)>) {
 				VersionKind::Dotted => "dotted",
 				VersionKind::Date => "date",
 			},
-			describe::config_origin(&definition.origin),
-			report::scope(&definition.scope)
+			describe::config_origin(workspace, &definition.origin),
+			describe::scope(workspace, &definition.scope)
 		),
 	));
 	rows.push(("Pattern", definition.pattern.as_str().to_owned()));
 	if let Some(head) = &series.head {
-		rows.push(("Head", head.to_string()));
+		rows.push(("Head", workspace.display_path(head)));
 	}
 }
 
@@ -342,7 +354,7 @@ fn clock(timing: &Timing) -> String {
 }
 
 /// Each source with its oids, state and clock.
-fn sources(text: &mut String, live: &LiveDocument) {
+fn sources(workspace: &Workspace, text: &mut String, live: &LiveDocument) {
 	heading(text, "Sources");
 	if live.sources.is_empty() {
 		text.push_str("  none declared\n");
@@ -355,7 +367,7 @@ fn sources(text: &mut String, live: &LiveDocument) {
 		let _ = writeln!(
 			text,
 			"  {}  {}{pattern}",
-			output::bold(source.path.as_str()),
+			output::bold(&workspace.display_path(&source.path)),
 			state_name(source.state)
 		);
 		let oid = |oid: Option<&ObjectId>| {
@@ -373,7 +385,11 @@ fn sources(text: &mut String, live: &LiveDocument) {
 		}
 	}
 	for upstream in &live.stale_upstreams {
-		let _ = writeln!(text, "  source document {upstream} is not up to date");
+		let _ = writeln!(
+			text,
+			"  source document {} is not up to date",
+			workspace.display_path(upstream)
+		);
 	}
 }
 
@@ -391,7 +407,7 @@ fn state_name(state: SourceState) -> &'static str {
 }
 
 /// A series' members and its recent cadence windows.
-fn members(text: &mut String, series: &SeriesSubject) {
+fn members(workspace: &Workspace, text: &mut String, series: &SeriesSubject) {
 	heading(text, "Members");
 	if series.members.is_empty() {
 		text.push_str("  none yet\n");
@@ -423,7 +439,8 @@ fn members(text: &mut String, series: &SeriesSubject) {
 		let _ = writeln!(
 			text,
 			"  {}  version {}{completion}",
-			member.path, member.version
+			workspace.display_path(&member.path),
+			member.version
 		);
 	}
 	let Some(status) = series
@@ -444,7 +461,7 @@ fn members(text: &mut String, series: &SeriesSubject) {
 	}
 	for (position, window) in status.windows.iter().enumerate().skip(skipped) {
 		let state = if let Some(credit) = &window.credit {
-			format!("credited to {}", credit.entry)
+			format!("credited to {}", workspace.display_path(&credit.entry))
 		} else if status.missed.contains(&position) {
 			"missed".to_owned()
 		} else if window.closed {
@@ -466,7 +483,12 @@ fn members(text: &mut String, series: &SeriesSubject) {
 
 /// Each fact's outcome, with the rule that decided it and every other rule
 /// that matched.
-fn judgement(text: &mut String, evaluation: &Evaluation, subject: &Subject) {
+fn judgement(
+	workspace: &Workspace,
+	text: &mut String,
+	evaluation: &Evaluation,
+	subject: &Subject,
+) {
 	heading(text, "Judgement");
 	let Some(judgement) = &subject.judgement else {
 		text.push_str(
@@ -498,7 +520,7 @@ fn judgement(text: &mut String, evaluation: &Evaluation, subject: &Subject) {
 						format!(
 							"{context}: {} ({})",
 							describe::rule(&applied.rule),
-							describe::rule_origin(&applied.origin)
+							describe::rule_origin(workspace, &applied.origin)
 						)
 					},
 				)
@@ -522,7 +544,7 @@ fn judgement(text: &mut String, evaluation: &Evaluation, subject: &Subject) {
 					output::dim(&format!(
 						"also matches {} ({})",
 						describe::rule(&applied.rule),
-						describe::rule_origin(&applied.origin)
+						describe::rule_origin(workspace, &applied.origin)
 					))
 				);
 			}

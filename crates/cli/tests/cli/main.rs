@@ -19,6 +19,8 @@ mod history;
 #[cfg(test)]
 mod init;
 #[cfg(test)]
+mod paths;
+#[cfg(test)]
 mod records;
 #[cfg(test)]
 mod review;

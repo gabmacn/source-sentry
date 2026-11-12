@@ -17,6 +17,8 @@ use source_sentry_core::policy::Basis;
 use source_sentry_core::ports::Revision;
 use source_sentry_core::report;
 
+use crate::workspace::Workspace;
+
 /// The first seven digits of an oid, as git abbreviates it.
 pub(crate) fn short(oid: &ObjectId) -> &str {
 	let hex = oid.hex();
@@ -72,14 +74,16 @@ pub(crate) fn header(evaluation: &Evaluation) -> String {
 
 /// A subject's name: the document, the file, or the series as
 /// `<directory>: <name>`.
-pub(crate) fn subject_name(subject: &Subject) -> String {
+pub(crate) fn subject_name(workspace: &Workspace, subject: &Subject) -> String {
 	match &subject.kind {
-		SubjectKind::Document(document) => document.document.to_string(),
-		SubjectKind::Unclaimed(file) => file.path.to_string(),
+		SubjectKind::Document(document) => {
+			workspace.display_document(&document.document)
+		}
+		SubjectKind::Unclaimed(file) => workspace.display_path(&file.path),
 		SubjectKind::Series(series) => {
 			let scope = match &series.series.scope {
-				Scope::Directory(directory) => report::directory(directory),
-				other => report::scope(other),
+				Scope::Directory(directory) => workspace.display_path(directory),
+				other => scope(workspace, other),
 			};
 			format!("{scope}: {}", series.series.name)
 		}
@@ -88,31 +92,25 @@ pub(crate) fn subject_name(subject: &Subject) -> String {
 
 /// The command to register an unclaimed successor and its predecessor.
 pub(crate) fn inheritance_hint(
-	workspace: &crate::workspace::Workspace,
+	workspace: &Workspace,
 	subject: &Subject,
 ) -> Option<String> {
 	let SubjectKind::Unclaimed(file) = &subject.kind else {
 		return None;
 	};
 	let predecessor = file.inherit_from.as_ref()?;
-	let mut command = vec!["source-sentry".to_owned()];
-	if let Some(repo) = workspace.repo_argument() {
-		command.extend(["--repo".to_owned(), repo.display().to_string()]);
-	}
 	let path = workspace.display_path(&file.path);
-	command.extend([
-		"track".to_owned(),
-		if path.starts_with('-') {
-			format!("./{path}")
-		} else {
-			path
-		},
-	]);
-	let command = command
-		.iter()
-		.map(|word| crate::commands::shell_word(word))
-		.collect::<Vec<_>>()
-		.join(" ");
+	let path = if path.starts_with('-') {
+		format!("./{path}")
+	} else {
+		path
+	};
+	let command = format!(
+		"{} track {}",
+		workspace.command_prefix(),
+		crate::commands::shell_word(&path)
+	);
+	let predecessor = workspace.display_path(predecessor);
 	Some(format!(
 		"Run `{command}` to inherit the declaration of `{predecessor}`"
 	))
@@ -192,18 +190,22 @@ fn missed(subject: &Subject) -> String {
 
 /// How a source compares with its attestation, and when it changed:
 /// `db/schema.sql changed in 7d2e9b0, counted from 2026-10-20`.
-pub(crate) fn source_change(source: &SourceReport) -> String {
+pub(crate) fn source_change(
+	workspace: &Workspace,
+	source: &SourceReport,
+) -> String {
+	let path = workspace.display_path(&source.path);
 	let pattern = source.pattern.as_deref().unwrap_or("its pattern");
 	let what = match source.state {
-		SourceState::Fresh => format!("{} is unchanged", source.path),
-		SourceState::Drifted => format!("{} changed", source.path),
-		SourceState::Unattested => format!("{} was never attested", source.path),
-		SourceState::Added => format!("{} newly matches {pattern}", source.path),
+		SourceState::Fresh => format!("{path} is unchanged"),
+		SourceState::Drifted => format!("{path} changed"),
+		SourceState::Unattested => format!("{path} was never attested"),
+		SourceState::Added => format!("{path} newly matches {pattern}"),
 		SourceState::Removed => {
-			format!("{} no longer matches {pattern}", source.path)
+			format!("{path} no longer matches {pattern}")
 		}
-		SourceState::Missing => format!("{} is missing", source.path),
-		SourceState::Unhashable => format!("{} cannot be hashed", source.path),
+		SourceState::Missing => format!("{path} is missing"),
+		SourceState::Unhashable => format!("{path} cannot be hashed"),
 	};
 	format!("{what}{}", timing_suffix(&source.timing))
 }
@@ -231,7 +233,7 @@ pub(crate) fn timing_suffix(timing: &Timing) -> String {
 /// The stale sources of a reviewed document and its stale upstreams, one
 /// line each. An unattested document's sources are all unattested, which
 /// its facts already say.
-pub(crate) fn changes(subject: &Subject) -> Vec<String> {
+pub(crate) fn changes(workspace: &Workspace, subject: &Subject) -> Vec<String> {
 	let Some(document) = subject.document() else {
 		return Vec::new();
 	};
@@ -242,13 +244,13 @@ pub(crate) fn changes(subject: &Subject) -> Vec<String> {
 		.sources
 		.iter()
 		.filter(|source| live.unattested.is_none() && source.state.is_stale())
-		.map(source_change)
-		.chain(
-			live
-				.stale_upstreams
-				.iter()
-				.map(|upstream| format!("its source {upstream} is not up to date")),
-		)
+		.map(|source| source_change(workspace, source))
+		.chain(live.stale_upstreams.iter().map(|upstream| {
+			format!(
+				"its source {} is not up to date",
+				workspace.display_path(upstream)
+			)
+		}))
 		.collect()
 }
 
@@ -257,6 +259,7 @@ pub(crate) fn changes(subject: &Subject) -> Vec<String> {
 /// (.source-sentry/source-sentry.yaml:20)`. A fallback decides without a
 /// rule, so it has no line.
 pub(crate) fn deciding_rules(
+	workspace: &Workspace,
 	evaluation: &Evaluation,
 	subject: &Subject,
 ) -> Vec<String> {
@@ -276,7 +279,7 @@ pub(crate) fn deciding_rules(
 		let Some(applied) = evaluation.rule(subject, reference) else {
 			continue;
 		};
-		let origin = rule_origin(&applied.origin);
+		let origin = rule_origin(workspace, &applied.origin);
 		let condition = rule_condition(&applied.rule);
 		match lines.iter_mut().find(|(known, known_condition, _)| {
 			*known == origin && *known_condition == condition
@@ -325,13 +328,16 @@ pub(crate) fn rule(rule: &Rule) -> String {
 }
 
 /// Where a rule comes from, briefly.
-pub(crate) fn rule_origin(origin: &RuleOrigin) -> String {
+pub(crate) fn rule_origin(
+	workspace: &Workspace,
+	origin: &RuleOrigin,
+) -> String {
 	match origin {
 		RuleOrigin::Context {
 			definition: Some(definition),
 			..
 		}
-		| RuleOrigin::Scoped(definition) => config_origin(definition),
+		| RuleOrigin::Scoped(definition) => config_origin(workspace, definition),
 		RuleOrigin::Context {
 			definition: None, ..
 		} => "built-in".to_owned(),
@@ -340,11 +346,11 @@ pub(crate) fn rule_origin(origin: &RuleOrigin) -> String {
 
 /// Where a config value comes from: `docs/source-sentry.yaml:7`, with the
 /// presets it was imported through, or `built-in`.
-pub(crate) fn config_origin(origin: &Origin) -> String {
+pub(crate) fn config_origin(workspace: &Workspace, origin: &Origin) -> String {
 	let Some(file) = &origin.file else {
 		return "built-in".to_owned();
 	};
-	let mut text = file.to_string();
+	let mut text = workspace.display_path(file);
 	if let Some(position) = origin.position {
 		let _ = write!(text, ":{}", position.line);
 	}
@@ -352,7 +358,7 @@ pub(crate) fn config_origin(origin: &Origin) -> String {
 		let chain: Vec<String> = origin
 			.import_chain
 			.iter()
-			.map(ToString::to_string)
+			.map(|file| workspace.display_path(file))
 			.collect();
 		let _ = write!(text, ", imported through {}", chain.join(" → "));
 	}
@@ -360,7 +366,10 @@ pub(crate) fn config_origin(origin: &Origin) -> String {
 }
 
 /// Where an effective setting comes from, with the scope of a config.
-pub(crate) fn setting_origin(origin: &SettingOrigin) -> String {
+pub(crate) fn setting_origin(
+	workspace: &Workspace,
+	origin: &SettingOrigin,
+) -> String {
 	match origin {
 		SettingOrigin::BuiltIn => "built-in".to_owned(),
 		SettingOrigin::Config(origin) if origin.file.is_none() => {
@@ -368,17 +377,19 @@ pub(crate) fn setting_origin(origin: &SettingOrigin) -> String {
 		}
 		SettingOrigin::Config(origin) => format!(
 			"{} (for {})",
-			config_origin(origin),
-			report::scope(&origin.scope)
+			config_origin(workspace, origin),
+			scope(workspace, &origin.scope)
 		),
-		SettingOrigin::Declaration { file, field } => format!("{file} `{field}`"),
+		SettingOrigin::Declaration { file, field } => {
+			format!("{} `{field}`", workspace.display_path(file))
+		}
 	}
 }
 
 /// Where a diagnostic points: `file:line:column`, or the file and field
 /// when the line is unknown.
-pub(crate) fn location(location: &Location) -> String {
-	let mut text = location.file.to_string();
+pub(crate) fn location(workspace: &Workspace, location: &Location) -> String {
+	let mut text = workspace.display_path(&location.file);
 	match (location.line, location.column) {
 		(Some(line), Some(column)) => {
 			let _ = write!(text, ":{line}:{column}");
@@ -414,5 +425,15 @@ pub(crate) fn count(count: usize, singular: &str, plural: &str) -> String {
 		format!("1 {singular}")
 	} else {
 		format!("{count} {plural}")
+	}
+}
+
+/// A scope with directory paths relative to the current directory.
+pub(crate) fn scope(workspace: &Workspace, value: &Scope) -> String {
+	match value {
+		Scope::Directory(directory) => {
+			format!("directory:{}", workspace.display_path(directory))
+		}
+		other => report::scope(other),
 	}
 }

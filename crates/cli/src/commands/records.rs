@@ -26,18 +26,18 @@ pub(super) fn seal(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
+	let (_, inventory) = load(workspace, &snapshot)?;
 	let request = SealRequest {
 		document: workspace.document(&args.document)?,
 		by: super::person(workspace, args.by.as_deref())?,
 		at: super::now(),
 	};
 	let planned = mutate::seal(&snapshot, &inventory, &request)
-		.map_err(|error| Failure::mutate(&error))?;
+		.map_err(|error| Failure::mutate(workspace, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
-		&seal_summary(&planned.summary),
+		&seal_summary(workspace, &planned.summary),
 		args.confirm,
 		printer,
 	)
@@ -57,30 +57,30 @@ pub(super) fn retire(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
+	let (_, inventory) = load(workspace, &snapshot)?;
 	let request = RetireRequest {
 		document: workspace.document(&args.document)?,
 		by: super::person(workspace, args.by.as_deref())?,
 		at: super::now(),
 	};
 	let planned = mutate::retire(&snapshot, &inventory, &request)
-		.map_err(|error| Failure::mutate(&error))?;
+		.map_err(|error| Failure::mutate(workspace, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,
-		&retire_summary(&planned.summary),
+		&retire_summary(workspace, &planned.summary),
 		args.confirm,
 		printer,
 	)
 }
 
 /// What sealing records.
-fn seal_summary(summary: &SealSummary) -> String {
+fn seal_summary(workspace: &Workspace, summary: &SealSummary) -> String {
 	let by = summary.seal.by.as_deref().unwrap_or("an unknown person");
 	let mut text = format!(
 		"Seal {} in {}\n",
-		output::bold(summary.document.as_str()),
-		summary.lockfile
+		output::bold(&workspace.display_path(&summary.document)),
+		workspace.display_path(&summary.lockfile)
 	);
 	let _ = writeln!(
 		text,
@@ -95,13 +95,13 @@ fn seal_summary(summary: &SealSummary) -> String {
 }
 
 /// What retiring records.
-fn retire_summary(summary: &RetireSummary) -> String {
+fn retire_summary(workspace: &Workspace, summary: &RetireSummary) -> String {
 	let review = &summary.tombstone.retired;
 	let by = review.by.as_deref().unwrap_or("an unknown person");
 	let mut text = format!(
 		"Retire {}: its entry in {} becomes a tombstone\n",
-		output::bold(&summary.document.to_string()),
-		summary.lockfile
+		output::bold(&workspace.display_document(&summary.document)),
+		workspace.display_path(&summary.lockfile)
 	);
 	let _ = writeln!(text, "  by {by} at {}", describe::instant(review.at));
 	if let Some(seal) = &summary.tombstone.seal {

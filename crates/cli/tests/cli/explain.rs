@@ -41,7 +41,7 @@ fn explain_finds_unclaimed_files_and_reports_unknown_subjects() {
 	assert!(
 		run
 			.stdout
-			.contains("unclaimed, found by the scan of root docs")
+			.contains("unclaimed, found by the scan of root .")
 	);
 	assert!(run.stdout.contains("unclaimed"), "{}", run.stdout);
 

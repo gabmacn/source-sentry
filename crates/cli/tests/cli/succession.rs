@@ -18,9 +18,9 @@ fn series_repo(on_file: bool, sealed: bool) -> TestRepo {
 	}
 	args.extend([
 		"--source",
-		"../../src/a.rs",
+		"src/a.rs",
 		"--pattern",
-		"../../src/*.rs",
+		"src/*.rs",
 		"--class",
 		"privacy",
 		"--owner",
@@ -200,8 +200,48 @@ fn check_and_explain_hint_at_registration() {
 		explained.stdout
 	);
 	assert!(
-		explained.stdout.contains("audits/old/v2.md"),
+		explained
+			.stdout
+			.contains("inherit the declaration of `old/v2.md`"),
 		"{}",
 		explained.stdout
 	);
+}
+
+/// Inheritance commands retain the repository and run where they are printed.
+#[test]
+fn inheritance_commands_preserve_repository_selection() {
+	let repo = series_repo(false, true);
+	for (directory, repository, document, predecessor) in [
+		("audits", "..", "new/deep/v10.md", "old/v2.md"),
+		(
+			"..",
+			"repo",
+			"repo/audits/new/deep/v10.md",
+			"repo/audits/old/v2.md",
+		),
+	] {
+		for command in ["check", "explain"] {
+			let mut args = vec!["--repo", repository, command];
+			if command == "explain" {
+				args.push(document);
+			}
+			args.extend(["--at", AT]);
+			let run = repo.run_in(directory, &args);
+			let hint = run.stdout.split("Run `").nth(1).unwrap();
+			let (line, detail) = hint.split_once("` to inherit").unwrap();
+			assert_eq!(
+				line,
+				format!("source-sentry --repo {repository} track {document}")
+			);
+			assert!(detail.contains(&format!("`{predecessor}`")), "{detail}");
+			let plan = repo.run_shell_in(directory, &format!("{line} --dry-run"));
+			plan.expect_code(0);
+			assert!(
+				plan.stdout.contains(&format!("Inherit from {predecessor}")),
+				"{}",
+				plan.stdout
+			);
+		}
+	}
 }

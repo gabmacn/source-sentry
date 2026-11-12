@@ -4,13 +4,14 @@
 use std::fmt::Write as _;
 
 use similar::{ChangeTag, TextDiff};
+use source_sentry_core::claims::Inventory;
 use source_sentry_core::mutate::{
-	Baseline, Current, DocumentDiff, EntryDiff, Selection, diff,
+	Baseline, Current, DocumentDiff, EntryDiff, Selection, SourceSpec, diff,
 };
 use source_sentry_core::ports::Snapshot as _;
 use source_sentry_core::report::{DiffReport, to_json};
 
-use crate::cli::{DiffArgs, Format};
+use crate::cli::{DiffArgs, DocumentArg, Format, parse_document};
 use crate::describe;
 use crate::exit::{self, Failure};
 use crate::output::{self, Printer};
@@ -34,13 +35,9 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (_, inventory) = load(&snapshot)?;
+	let (_, inventory) = load(workspace, &snapshot)?;
 	let document = workspace.document(&args.document)?;
-	let selection = if args.sources.is_empty() {
-		Selection::All
-	} else {
-		Selection::Sources(args.sources.clone())
-	};
+	let selection = workspace.selection(&inventory, &document, &args.sources)?;
 	let compared = diff(
 		&snapshot,
 		&workspace.repository,
@@ -48,8 +45,8 @@ pub(super) fn run(
 		&document,
 		&selection,
 	)
-	.map_err(|error| Failure::mutate(&error))?;
-	let attest = attest_command(workspace, args, &compared);
+	.map_err(|error| Failure::mutate(workspace, &error))?;
+	let attest = attest_command(workspace, args, &inventory, &compared)?;
 	match args.format {
 		Format::Json => {
 			let report =
@@ -74,33 +71,106 @@ pub(super) fn run(
 fn attest_command(
 	workspace: &Workspace,
 	args: &DiffArgs,
+	inventory: &Inventory,
 	compared: &DocumentDiff,
-) -> Vec<String> {
+) -> Result<Vec<String>, Failure> {
 	let mut command = vec![source_sentry_core::SLUG.to_owned()];
 	if let Some(repo) = workspace.repo_argument() {
-		command.push("--repo".to_owned());
-		command.push(repo.display().to_string());
+		option(&mut command, "--repo", repo.display().to_string());
 	}
 	command.push("attest".to_owned());
-	let document = workspace.display_document(&compared.document);
-	// A path that starts with `-` would read as an option.
-	command.push(if document.starts_with('-') {
+	let document = match (args.format, &compared.document) {
+		(Format::Json, source_sentry_core::model::DocumentId::Local(path)) => {
+			format!("/{}", path.as_str())
+		}
+		_ => workspace.display_document(&compared.document),
+	};
+	// Keep a local path from reading as an option or a remote identity.
+	let local_identity =
+		matches!(
+			compared.document,
+			source_sentry_core::model::DocumentId::Local(_)
+		) && matches!(parse_document(&document), Ok(DocumentArg::Remote(_)));
+	command.push(if document.starts_with('-') || local_identity {
 		format!("./{document}")
 	} else {
 		document
 	});
 	for source in &args.sources {
-		command.push("--source".to_owned());
-		command.push(source.clone());
+		let selector = command_selector(
+			workspace,
+			inventory,
+			&compared.document,
+			source,
+			args.format,
+		)?;
+		option(&mut command, "--source", selector);
 	}
 	for expectation in &compared.expectations {
-		command.push("--expect".to_owned());
-		command.push(expectation.to_string());
+		let path = match args.format {
+			Format::Human => workspace.display_path(expectation.path()),
+			Format::Json => format!("/{}", expectation.path().as_str()),
+		};
+		let state = expectation.to_string();
+		let state = state.rsplit_once('@').map_or("absent", |(_, state)| state);
+		option(&mut command, "--expect", format!("{path}@{state}"));
 	}
 	if compared.sources.is_empty() {
 		command.push("--reread".to_owned());
 	}
-	command
+	Ok(command)
+}
+
+/// A path selector relative to the current directory for people, or rooted
+/// for JSON; pattern selectors keep their spelling.
+/// Redundant `./` components distinguish a path from a pattern with the
+/// same rooted spelling. A finite declaration has only finitely many such
+/// spellings, so inserting them must find an unambiguous path selector.
+fn command_selector(
+	workspace: &Workspace,
+	inventory: &Inventory,
+	document: &source_sentry_core::model::DocumentId,
+	selector: &str,
+	format: Format,
+) -> Result<String, Failure> {
+	let selected =
+		workspace.selection(inventory, document, &[selector.to_owned()])?;
+	if !matches!(selected, Selection::Declared(sources) if sources.iter().any(|source| matches!(source, SourceSpec::Path(_))))
+	{
+		return Ok(selector.to_owned());
+	}
+	let path = workspace.repo_path(std::path::Path::new(selector))?;
+	let mut shown = match format {
+		Format::Human => workspace.display_path(&path),
+		Format::Json => format!("/{}", path.as_str()),
+	};
+	let attempts = inventory
+		.claims
+		.iter()
+		.find(|claim| &claim.document == document)
+		.map_or(0, |claim| claim.declaration.sources.len());
+	for _ in 0..attempts {
+		if workspace
+			.selection(inventory, document, std::slice::from_ref(&shown))
+			.is_ok()
+		{
+			return Ok(shown);
+		}
+		shown.insert_str(usize::from(shown.starts_with('/')), "./");
+	}
+	workspace.selection(inventory, document, std::slice::from_ref(&shown))?;
+	Ok(shown)
+}
+
+/// Appends one option, protecting a value that begins with `-` from parsing
+/// as another option when the command is copied.
+fn option(command: &mut Vec<String>, flag: &str, value: String) {
+	if value.starts_with('-') {
+		command.push(format!("{flag}={value}"));
+	} else {
+		command.push(flag.to_owned());
+		command.push(value);
+	}
 }
 
 /// The human output: each source with its files and their diffs, then the
@@ -123,7 +193,11 @@ fn render(
 	);
 	for source in &compared.sources {
 		let kind = if source.pattern { " (pattern)" } else { "" };
-		let _ = write!(text, "\n{}{kind}\n", output::bold(&source.declared));
+		let _ = write!(
+			text,
+			"\n{}{kind}\n",
+			output::bold(&format!("`{}`", source.declared))
+		);
 		// No match and no attested member: `attest` refuses such a pattern.
 		if source.entries.is_empty() {
 			text.push_str(
@@ -132,7 +206,7 @@ fn render(
 			);
 		}
 		for entry in &source.entries {
-			entry_text(&mut text, entry);
+			entry_text(workspace, &mut text, entry);
 		}
 	}
 	let line = attest
@@ -154,7 +228,7 @@ fn render(
 }
 
 /// One file: what changed, and its diff.
-fn entry_text(text: &mut String, entry: &EntryDiff) {
+fn entry_text(workspace: &Workspace, text: &mut String, entry: &EntryDiff) {
 	let attested = match &entry.baseline {
 		Baseline::Unattested => None,
 		Baseline::Unavailable { oid } | Baseline::Available { oid, .. } => {
@@ -179,7 +253,11 @@ fn entry_text(text: &mut String, entry: &EntryDiff) {
 		}
 		(None, None) => "absent".to_owned(),
 	};
-	let _ = writeln!(text, "  {}  {status}", output::bold(entry.path.as_str()));
+	let _ = writeln!(
+		text,
+		"  {}  {status}",
+		output::bold(&workspace.display_path(&entry.path))
+	);
 	if !entry.is_changed() {
 		return;
 	}
@@ -212,7 +290,7 @@ fn entry_text(text: &mut String, entry: &EntryDiff) {
 		text.push_str("  binary content is not shown\n");
 		return;
 	};
-	let path = entry.path.as_str();
+	let path = workspace.display_path(&entry.path);
 	let _ = writeln!(
 		text,
 		"  {}\n  {}",

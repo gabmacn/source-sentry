@@ -13,6 +13,8 @@ use source_sentry_git::GitRepository;
 use crate::cli::DocumentArg;
 use crate::exit::Failure;
 
+mod sources;
+
 /// An open repository, with the directories that command-line paths are
 /// resolved against.
 pub(crate) struct Workspace {
@@ -51,7 +53,18 @@ impl Workspace {
 		let current = working.canonicalize().map_err(|error| {
 			io_failure("cannot resolve the current directory", &error)
 		})?;
-		let start = repo.map_or_else(|| working.clone(), |repo| working.join(repo));
+		let start = match repo {
+			Some(repo) if repo.to_string_lossy().starts_with('/') => {
+				let containing = GitRepository::open(&working)
+					.map_err(|error| Failure::backend(&error))?;
+				let root = containing.work_dir().ok_or_else(|| {
+					Failure::usage("a `/`-rooted --repo needs a working tree")
+				})?;
+				argument_path(root, &working, repo)?
+			}
+			Some(repo) => working.join(repo),
+			None => working.clone(),
+		};
 		let repository =
 			GitRepository::open(&start).map_err(|error| Failure::backend(&error))?;
 		let root_shown = repository
@@ -80,7 +93,8 @@ impl Workspace {
 	}
 
 	/// The repository path of a command-line path, which is relative to the
-	/// current directory unless it is absolute. The path need not
+	/// current directory, or to the repository root after a leading `/`.
+	/// Native drive-qualified paths are also accepted. The path need not
 	/// exist, so that a deleted document can still be named.
 	///
 	/// # Errors
@@ -88,7 +102,8 @@ impl Workspace {
 	/// Exit 64 when the path lies outside the working tree or cannot be a
 	/// repository path.
 	pub(crate) fn repo_path(&self, argument: &Path) -> Result<RepoPath, Failure> {
-		let absolute = normalize(&self.working.join(argument));
+		let absolute =
+			normalize(&argument_path(&self.root_shown, &self.working, argument)?);
 		let resolved = resolve_existing(&absolute);
 		let relative = resolved.strip_prefix(&self.root).map_err(|_| {
 			Failure::usage(format!(
@@ -183,6 +198,45 @@ impl Workspace {
 	pub(crate) fn repo_argument(&self) -> Option<&Path> {
 		self.repo_argument.as_deref()
 	}
+
+	/// The command prefix for a hint, including the repository argument.
+	pub(crate) fn command_prefix(&self) -> String {
+		self.repo_argument().map_or_else(
+			|| source_sentry_core::SLUG.to_owned(),
+			|repo| {
+				let argument = repo.display().to_string();
+				let separator = if argument.starts_with('-') { "=" } else { " " };
+				format!(
+					"{} --repo{separator}{}",
+					source_sentry_core::SLUG,
+					crate::commands::shell_word(&argument)
+				)
+			},
+		)
+	}
+}
+
+/// Resolves command-line paths. A single leading `/` denotes the repository
+/// root; all other relative paths start at the current directory.
+fn argument_path(
+	root: &Path,
+	current: &Path,
+	argument: &Path,
+) -> Result<PathBuf, Failure> {
+	let written = argument.to_string_lossy();
+	if let Some(relative) = written.strip_prefix('/') {
+		if relative.starts_with('/') {
+			return Err(Failure::usage(format!(
+				"`{written}` starts with `//`; use a single `/` for the repository root"
+			)));
+		}
+		// Normalize before joining so `..` cannot leave the repository.
+		let relative = RepoPath::new(relative)
+			.map_err(|error| Failure::usage(error.to_string()))?;
+		Ok(root.join(relative.as_str()))
+	} else {
+		Ok(current.join(argument))
+	}
 }
 
 /// Loads the configs of `snapshot` and discovers its inventory.
@@ -191,10 +245,11 @@ impl Workspace {
 ///
 /// Exit 3 for invalid configs, and 4 when the snapshot cannot be read.
 pub(crate) fn load<S: Snapshot>(
+	workspace: &Workspace,
 	snapshot: &S,
 ) -> Result<(ConfigSet, Inventory), Failure> {
-	let configs =
-		ConfigSet::load(snapshot).map_err(|error| Failure::load(&error))?;
+	let configs = ConfigSet::load(snapshot)
+		.map_err(|error| Failure::load(workspace, &error))?;
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;
 	Ok((configs, inventory))
@@ -244,4 +299,34 @@ fn resolve_existing(path: &Path) -> PathBuf {
 /// An I/O failure while resolving directories: exit 4.
 fn io_failure(context: &str, error: &io::Error) -> Failure {
 	Failure::new(crate::exit::OPERATIONAL, format!("{context}: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Leading slashes share one root resolver, including lexical parents.
+	#[test]
+	fn rooted_arguments_use_the_repository_root() {
+		let root = Path::new("repository");
+		let current = root.join("docs");
+		for (argument, expected) in [
+			("/", "repository"),
+			("/src/../a.rs", "repository/a.rs"),
+			("../src/a.rs", "repository/src/a.rs"),
+		] {
+			assert_eq!(
+				normalize(&argument_path(root, &current, Path::new(argument)).unwrap()),
+				PathBuf::from(expected)
+			);
+		}
+		for argument in ["//server/share", "/../outside"] {
+			assert_eq!(
+				argument_path(root, &current, Path::new(argument))
+					.unwrap_err()
+					.code,
+				crate::exit::USAGE
+			);
+		}
+	}
 }

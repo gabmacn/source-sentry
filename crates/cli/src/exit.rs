@@ -16,6 +16,10 @@ use source_sentry_core::policy::USAGE_EXIT_CODE;
 use source_sentry_core::ports::BackendError;
 use source_sentry_git::ApplyError;
 
+use crate::workspace::Workspace;
+
+mod render;
+
 /// The command did what was asked: it applied its plan, found nothing to
 /// change, printed a dry run, or printed what was asked for.
 pub(crate) const SUCCESS: u8 = 0;
@@ -64,13 +68,13 @@ impl Failure {
 
 	/// Configs that failed to load: exit 3 when they are invalid, 4 when the
 	/// snapshot could not be read.
-	pub(crate) fn load(error: &LoadError) -> Self {
+	pub(crate) fn load(workspace: &Workspace, error: &LoadError) -> Self {
 		match error {
 			LoadError::Backend(error) => Self::backend(error),
 			LoadError::Invalid(errors) => {
 				let mut message = String::from("the configs are invalid:");
 				for error in errors {
-					let _ = write!(message, "\n  - {error}");
+					let _ = write!(message, "\n  - {}", render::config(workspace, error));
 				}
 				Self::new(CONFIGURATION, message)
 			}
@@ -78,8 +82,8 @@ impl Failure {
 	}
 
 	/// A planner's refusal, with the code its cause calls for.
-	pub(crate) fn mutate(error: &MutateError) -> Self {
-		Self::new(refusal_code(error), chain(error))
+	pub(crate) fn mutate(workspace: &Workspace, error: &MutateError) -> Self {
+		Self::new(refusal_code(error), render::mutation(workspace, error))
 	}
 
 	/// A write plan that could not be applied: exit 4.
@@ -87,7 +91,7 @@ impl Failure {
 	/// A plan that creates a file which already exists usually means a file
 	/// that an earlier command created and git does not track yet: snapshots
 	/// list git's index, so the hint says to add it.
-	pub(crate) fn apply(error: &ApplyError) -> Self {
+	pub(crate) fn apply(workspace: &Workspace, error: &ApplyError) -> Self {
 		let mut message = chain(error);
 		if !matches!(error, ApplyError::RollbackFailed { .. }) {
 			message.push_str("; nothing was changed");
@@ -98,10 +102,27 @@ impl Failure {
 			actual: Some(_),
 		} = error
 		{
+			let git = if workspace.repo_argument().is_some() {
+				format!(
+					"git -C {}",
+					crate::commands::shell_word(
+						&workspace.display_path(&source_sentry_core::model::RepoPath::ROOT)
+					)
+				)
+			} else {
+				"git".to_owned()
+			};
+			let argument = if workspace.repo_argument().is_some() {
+				path.as_str().to_owned()
+			} else {
+				workspace.display_path(path)
+			};
+			let argument = crate::commands::shell_word(&argument);
+			let path = workspace.display_path(path);
 			let _ = write!(
 				message,
 				". A file that git does not track already exists at {path}; move \
-				 it aside, or add it with `git add {path}`, and run the command \
+				 it aside, or add it with `{git} add -- {argument}`, and run the command \
 				 again"
 			);
 		}

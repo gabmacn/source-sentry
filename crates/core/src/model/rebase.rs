@@ -1,30 +1,32 @@
-//! Source spellings re-expressed between document directories.
+//! Re-expressing source declarations between directories.
+
+use globset::GlobBuilder;
 
 use super::{PathError, RepoPath};
 
-/// Why a source spelling could not be re-expressed.
+/// Why a source cannot be re-expressed safely.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RebaseError {
-	/// A source or its literal prefix cannot resolve within the repository.
+	/// A literal path is invalid or leaves the repository.
 	#[error(transparent)]
 	Path(#[from] PathError),
-	/// A parent component after a wildcard has no lexical meaning.
+	/// A parent component follows a glob component.
 	#[error("`..` follows a wildcard; write the directories out instead")]
 	ParentAfterWildcard,
-	/// A literal directory would become glob syntax in the new spelling.
-	#[error(
-		"`{0}` contains glob metacharacters and cannot be a literal pattern prefix"
-	)]
-	PatternPrefix(String),
+	/// A directory would introduce glob syntax into the resolved pattern.
+	#[error("the directory `{0}` contains glob metacharacters")]
+	PatternDirectory(RepoPath),
+	/// The glob syntax is invalid.
+	#[error("invalid glob syntax: {0}")]
+	Glob(String),
 }
 
-/// Re-expresses `declared`, a source path written relative to the directory
-/// `from`, relative to the directory `to`. A `/`-rooted spelling is returned
-/// unchanged.
+/// Re-expresses `declared`, a source path written relative to the directory `from`, relative to the directory `to`. A `/`-rooted spelling is returned unchanged.
 ///
 /// # Errors
 ///
-/// Fails when the relative source cannot resolve within the repository.
+/// Rejects empty relative paths, invalid path characters and paths that
+/// climb above the repository root.
 pub fn rebase_path(
 	declared: &str,
 	from: &RepoPath,
@@ -39,13 +41,16 @@ pub fn rebase_path(
 	Ok(relative(&from.join(declared)?, to))
 }
 
-/// The same for a source pattern, rebased by its literal prefix (the leading
-/// components with no glob metacharacter).
+/// The same for a source pattern, rebased by its literal prefix.
+///
+/// A `/`-rooted spelling is returned unchanged. The suffix beginning with
+/// the first component containing `*`, `?`, `[`, `]`, `{` or `}` is kept.
 ///
 /// # Errors
 ///
-/// Fails when the literal prefix cannot resolve, a parent component follows
-/// a wildcard, or the new literal prefix would introduce glob syntax.
+/// Rejects invalid paths or glob syntax, `..` after a glob component, and
+/// directories containing glob metacharacters, which cannot be inserted
+/// into a pattern as literal components safely.
 pub fn rebase_pattern(
 	declared: &str,
 	from: &RepoPath,
@@ -54,47 +59,63 @@ pub fn rebase_pattern(
 	if declared.starts_with('/') {
 		return Ok(declared.to_owned());
 	}
-	if declared.is_empty() {
-		return Err(PathError::Empty.into());
-	}
-	// Validate forbidden path characters even in the wildcard suffix.
+	// Validate characters before interpreting the glob components.
 	from.join(declared)?;
-	let components: Vec<&str> = declared.split('/').collect();
-	let literal = components.iter().take_while(|part| !wildcard(part)).count();
-	let suffix = &components[literal..];
-	if suffix.contains(&"..") {
-		return Err(RebaseError::ParentAfterWildcard);
+	for directory in [from, to] {
+		if has_glob(directory.as_str()) {
+			return Err(RebaseError::PatternDirectory(directory.clone()));
+		}
 	}
-	let prefix = relative(&from.join(&components[..literal].join("/"))?, to);
-	if wildcard(&prefix) {
-		return Err(RebaseError::PatternPrefix(prefix));
+	let Some(first) = declared.find(['*', '?', '[', ']', '{', '}']) else {
+		return rebase_path(declared, from, to);
+	};
+	let split = declared[..first].rfind('/').map_or(0, |index| index + 1);
+	let (prefix, suffix) = declared.split_at(split);
+	let mut components: Vec<&str> = Vec::new();
+	for component in suffix.split('/') {
+		match component {
+			"" | "." => {}
+			".." => {
+				if components
+					.last()
+					.is_none_or(|component| has_glob(component))
+				{
+					return Err(RebaseError::ParentAfterWildcard);
+				}
+				components.pop();
+			}
+			component => components.push(component),
+		}
 	}
-	if suffix.is_empty() {
-		Ok(prefix)
-	} else if prefix == "." {
-		Ok(suffix.join("/"))
+	GlobBuilder::new(declared)
+		.literal_separator(true)
+		.backslash_escape(false)
+		.build()
+		.map_err(|error| RebaseError::Glob(error.kind().to_string()))?;
+	let prefix = relative(&from.join(prefix)?, to);
+	Ok(if prefix == "." {
+		suffix.to_owned()
 	} else {
-		Ok(format!("{prefix}/{}", suffix.join("/")))
-	}
+		format!("{prefix}/{suffix}")
+	})
 }
 
-/// Whether a component contains glob syntax.
-fn wildcard(component: &str) -> bool {
-	component.contains(['*', '?', '[', ']', '{', '}'])
+/// Whether text contains a glob metacharacter.
+fn has_glob(value: &str) -> bool {
+	value.contains(['*', '?', '[', ']', '{', '}'])
 }
 
 /// A canonical target relative to a canonical directory.
 fn relative(target: &RepoPath, directory: &RepoPath) -> String {
-	let target: Vec<&str> = target.components().collect();
-	let directory: Vec<&str> = directory.components().collect();
+	let target: Vec<_> = target.components().collect();
+	let directory: Vec<_> = directory.components().collect();
 	let common = target
 		.iter()
 		.zip(&directory)
-		.take_while(|(a, b)| a == b)
+		.take_while(|(left, right)| left == right)
 		.count();
-	let parts: Vec<&str> = std::iter::repeat_n("..", directory.len() - common)
-		.chain(target[common..].iter().copied())
-		.collect();
+	let mut parts = vec![".."; directory.len() - common];
+	parts.extend_from_slice(&target[common..]);
 	if parts.is_empty() {
 		".".to_owned()
 	} else {

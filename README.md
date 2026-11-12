@@ -70,6 +70,10 @@ source-sentry attest docs/privacy.md    # Record a review.
 source-sentry explain docs/privacy.md   # Why a document is judged as it is.
 ```
 
+Command-line paths are relative to the current directory, as in git; a
+leading `/` means the repository root. Human output uses the current
+directory too. JSON paths remain relative to the repository root.
+
 A source counts as changed when its content does, as git would store it:
 git's own conversions, such as line endings, apply. Files in Git LFS are
 compared by their pointers, which Source Sentry computes without running

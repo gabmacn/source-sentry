@@ -5,7 +5,7 @@
 //!
 //! ```json
 //! {
-//!   "attest": ["source-sentry", "attest", "docs/privacy.md", "--expect", "db/schema.sql@sha1:9c11…"],
+//!   "attest": ["source-sentry", "attest", "/docs/privacy.md", "--expect", "/db/schema.sql@sha1:9c11…"],
 //!   "document": "docs/privacy.md",
 //!   "expectations": ["db/schema.sql@sha1:9c11…"],
 //!   "revision": {"head": "sha1:4f3c…", "kind": "working-tree"},

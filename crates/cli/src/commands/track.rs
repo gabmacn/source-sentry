@@ -5,15 +5,13 @@ use std::fmt::Write as _;
 
 use chrono::NaiveDate;
 use source_sentry_core::model::{
-	Cadence, CadenceSetting, ClassName, Declaration, DocumentId, Schedule,
-	SourceDecl,
+	Cadence, CadenceSetting, ClassName, Declaration, Schedule, SourceDecl,
 };
 use source_sentry_core::mutate::{
 	CarriedTombstone, PatternMatches, Placement, Registered, Setting, Target,
 	TrackFromRequest, TrackFromSummary, TrackRequest, TrackSummary, track,
 	track_from,
 };
-use source_sentry_core::report;
 
 use crate::cli::{DocumentArg, PlacementArg, TrackArgs};
 use crate::describe;
@@ -37,7 +35,7 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (configs, inventory) = load(&snapshot)?;
+	let (configs, inventory) = load(workspace, &snapshot)?;
 	let (plan, summary) = if let (Some(from), Some(to)) = (&args.from, &args.to) {
 		let request = TrackFromRequest {
 			documents: args
@@ -49,13 +47,16 @@ pub(super) fn run(
 			to: target(workspace, to)?,
 		};
 		let planned = track_from(&snapshot, &configs, &inventory, &request)
-			.map_err(|error| Failure::mutate(&error))?;
-		(planned.plan, moved_summary(&planned.summary))
+			.map_err(|error| Failure::mutate(workspace, &error))?;
+		(planned.plan, moved_summary(workspace, &planned.summary))
 	} else {
 		let request = register_request(workspace, args)?;
 		let planned = track(&snapshot, &configs, &inventory, &request)
-			.map_err(|error| Failure::mutate(&error))?;
-		(planned.plan, registered_summary(&planned.summary))
+			.map_err(|error| Failure::mutate(workspace, &error))?;
+		(
+			planned.plan,
+			registered_summary(workspace, &planned.summary),
+		)
 	};
 	super::apply::confirm_and_apply(
 		workspace,
@@ -98,13 +99,19 @@ fn register_request(
 		// The nearest lockfile, or a new one in the document's directory.
 		Target::Lockfile { directory: None }
 	};
+	let document = workspace.document(document)?;
+	let sources = args
+		.ordered
+		.iter()
+		.map(|source| workspace.source_spec(&document, source))
+		.collect::<Result<_, _>>()?;
 	Ok(TrackRequest {
-		document: workspace.document(document)?,
+		document,
 		target,
 		placement_named: args.on_file
 			|| args.lockfile.is_some()
 			|| args.remote.is_some(),
-		sources: args.ordered.clone(),
+		sources,
 		classes: args.classes.clone(),
 		owners: args.owners.clone(),
 		schedule: schedule(args)?,
@@ -178,15 +185,19 @@ fn target(
 }
 
 /// What registering records.
-fn registered_summary(summary: &TrackSummary) -> String {
+fn registered_summary(workspace: &Workspace, summary: &TrackSummary) -> String {
 	let mut text = String::new();
-	registration(&mut text, &summary.registered);
-	carried(&mut text, &summary.carried);
+	registration(workspace, &mut text, &summary.registered);
+	carried(workspace, &mut text, &summary.carried);
 	text
 }
 
 /// One registration, as `track` and `init` print it.
-pub(super) fn registration(text: &mut String, registered: &Registered) {
+pub(super) fn registration(
+	workspace: &Workspace,
+	text: &mut String,
+	registered: &Registered,
+) {
 	let created = if registered.created {
 		", a new lockfile whose directory becomes a root"
 	} else {
@@ -196,24 +207,24 @@ pub(super) fn registration(text: &mut String, registered: &Registered) {
 		let _ = writeln!(
 			text,
 			"Add to the declaration of {}, {} ({}); new sources are unattested",
-			output::bold(&registered.document.to_string()),
-			placement_name(&registered.placement),
-			describe::location(&registered.declared_in)
+			output::bold(&workspace.display_document(&registered.document)),
+			placement_name(workspace, &registered.placement),
+			describe::location(workspace, &registered.declared_in)
 		);
 	} else {
 		let _ = writeln!(
 			text,
 			"Track {} as unattested, {} ({}{created})",
-			output::bold(&registered.document.to_string()),
-			placement_name(&registered.placement),
-			describe::location(&registered.declared_in)
+			output::bold(&workspace.display_document(&registered.document)),
+			placement_name(workspace, &registered.placement),
+			describe::location(workspace, &registered.declared_in)
 		);
 	}
 	if let Some(inherited) = &registered.inherited {
 		let _ = writeln!(
 			text,
 			"  Inherit from {} without reviews, seal or completion:",
-			inherited.predecessor,
+			workspace.display_path(&inherited.predecessor),
 		);
 		declaration_fields(text, &inherited.declaration, &registered.matches);
 		text.push_str("  Result after command options:\n");
@@ -230,7 +241,7 @@ fn declaration_fields(
 	for source in &declaration.sources {
 		match source {
 			SourceDecl::Path(path) => {
-				let _ = writeln!(text, "  source   {}", path.path);
+				let _ = writeln!(text, "  source   `{}`", path.path);
 			}
 			SourceDecl::Pattern(pattern) => {
 				let matches = patterns
@@ -239,7 +250,7 @@ fn declaration_fields(
 					.map_or(0, |found| found.matches.len());
 				let _ = writeln!(
 					text,
-					"  pattern  {} ({})",
+					"  pattern  `{}` ({})",
 					pattern.pattern,
 					describe::count(matches, "match", "matches")
 				);
@@ -282,29 +293,38 @@ fn declaration_fields(
 }
 
 /// Where a placement is, briefly.
-pub(super) fn placement_name(placement: &Placement) -> String {
+pub(super) fn placement_name(
+	workspace: &Workspace,
+	placement: &Placement,
+) -> String {
 	match placement {
 		Placement::OnFile => "on-file".to_owned(),
 		Placement::Lockfile { directory } => {
-			format!("lockfile:{}", report::directory(directory))
+			format!("lockfile:{}", workspace.display_path(directory))
 		}
 		Placement::Remote { owner } => format!("remote:{owner}"),
 	}
 }
 
 /// Tombstones that move with a lockfile change.
-pub(super) fn carried(text: &mut String, carried: &[CarriedTombstone]) {
+pub(super) fn carried(
+	workspace: &Workspace,
+	text: &mut String,
+	carried: &[CarriedTombstone],
+) {
 	for tombstone in carried {
 		let _ = writeln!(
 			text,
 			"  the tombstones of {} move from {} to {}",
-			tombstone.document, tombstone.from, tombstone.to
+			workspace.display_document(&tombstone.document),
+			workspace.display_path(&tombstone.from),
+			workspace.display_path(&tombstone.to)
 		);
 	}
 }
 
 /// What a move changes, with each document's settings before and after.
-fn moved_summary(summary: &TrackFromSummary) -> String {
+fn moved_summary(workspace: &Workspace, summary: &TrackFromSummary) -> String {
 	let mut text = String::new();
 	for moved in &summary.moved {
 		let created = if moved.created {
@@ -315,9 +335,9 @@ fn moved_summary(summary: &TrackFromSummary) -> String {
 		let _ = writeln!(
 			text,
 			"Move {} from {} to {}{created}",
-			output::bold(&document_name(&moved.document)),
-			describe::location(&moved.from),
-			describe::location(&moved.to)
+			output::bold(&workspace.display_document(&moved.document)),
+			describe::location(workspace, &moved.from),
+			describe::location(workspace, &moved.to)
 		);
 		let preview = &moved.settings;
 		if preview.changed.is_empty() {
@@ -349,12 +369,8 @@ fn moved_summary(summary: &TrackFromSummary) -> String {
 			let _ = writeln!(text, "  {name} changes: {before} → {after}");
 		}
 	}
-	carried(&mut text, &summary.carried);
+	carried(workspace, &mut text, &summary.carried);
 	text
-}
-
-fn document_name(document: &DocumentId) -> String {
-	document.to_string()
 }
 
 /// Class names separated by commas, or `none`.

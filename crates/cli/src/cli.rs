@@ -4,12 +4,11 @@
 //! repository paths once the repository is open, in [`crate::workspace`].
 
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use clap::{ArgMatches, Args, Parser, Subcommand, ValueEnum};
-use source_sentry_core::model::{ClassName, RemoteIdentity};
-use source_sentry_core::mutate::{Expectation, SourceSpec};
+use source_sentry_core::model::{ClassName, ObjectId, RemoteIdentity};
+use source_sentry_core::mutate::SourceSpec;
 use source_sentry_core::policy::Threshold;
 
 /// Track documentation and records against the sources they describe.
@@ -17,7 +16,8 @@ use source_sentry_core::policy::Threshold;
 #[command(name = "source-sentry", version, about, max_term_width = 100)]
 pub(crate) struct Cli {
 	/// The repository. By default, the current directory, searching upward
-	/// as git does. Document paths stay relative to the current directory.
+	/// as git does. Paths stay relative to the current directory; `/` names
+	/// the repository root.
 	#[arg(long, global = true, value_name = "PATH")]
 	pub(crate) repo: Option<PathBuf>,
 	/// When to use colour. `auto` respects `NO_COLOR` and redirected output.
@@ -229,8 +229,8 @@ pub(crate) struct DiffArgs {
 	/// identity such as `abstract:onboarding-video`.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
-	/// A source to show, as declared or as a `/`-rooted repository path. By
-	/// default, every source.
+	/// A source file from the current directory or `/`, or a pattern as
+	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
 	/// The output format.
@@ -245,15 +245,16 @@ pub(crate) struct AttestArgs {
 	/// identity.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
-	/// A source to attest, as declared or as a `/`-rooted repository path. By
-	/// default, every source.
+	/// A source file from the current directory or `/`, or a pattern as
+	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
-	/// What the reviewer approved, as `diff` prints it: `path@oid`, or
+	/// What the reviewer approved: a path from the current directory or `/`,
+	/// as `path@oid`, or
 	/// `path@absent` for a removal. When given, the snapshot must match them
 	/// exactly; otherwise the current state is recorded.
 	#[arg(long = "expect", value_name = "PATH@STATE", value_parser = parse_expectation)]
-	pub(crate) expectations: Vec<Expectation>,
+	pub(crate) expectations: Vec<ExpectationArg>,
 	/// Who reviewed. By default, git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) reviewer: Option<String>,
@@ -306,10 +307,10 @@ pub(crate) struct TrackArgs {
 	/// A link to a remote document, which never changes its identity.
 	#[arg(long, value_name = "URL")]
 	pub(crate) url: Option<String>,
-	/// A source file, relative to the document's directory, or `/`-rooted.
+	/// A source file, relative to the current directory, or `/`-rooted.
 	#[arg(long = "source", value_name = "PATH")]
 	pub(crate) sources: Vec<String>,
-	/// A glob whose every match is a source.
+	/// A glob from the current directory or `/`, whose every match is a source.
 	#[arg(long = "pattern", value_name = "GLOB")]
 	pub(crate) patterns: Vec<String>,
 	/// A class, which the repository config must declare.
@@ -369,7 +370,7 @@ pub(crate) struct UntrackArgs {
 	/// A declared source to remove, written as `track` takes it.
 	#[arg(long = "source", value_name = "PATH")]
 	pub(crate) sources: Vec<String>,
-	/// A declared pattern to remove, written exactly as declared.
+	/// A declared pattern to remove, as declared or `/`-rooted.
 	#[arg(long = "pattern", value_name = "GLOB")]
 	pub(crate) patterns: Vec<String>,
 	#[command(flatten)]
@@ -383,7 +384,8 @@ pub(crate) struct UntrackArgs {
 #[derive(Debug, Args)]
 pub(crate) struct InitArgs {
 	/// Candidates to register, relative to the current directory. Without
-	/// paths or `--all`, `init` only previews.
+	/// paths or `--all`, `init` only previews. A leading `/` names the
+	/// repository root.
 	#[arg(value_name = "PATH", conflicts_with = "all")]
 	pub(crate) paths: Vec<PathBuf>,
 	/// Register every candidate.
@@ -423,7 +425,7 @@ pub(crate) struct ConfirmArgs {
 pub(crate) enum DocumentArg {
 	/// A remote identity, such as `abstract:onboarding-video`.
 	Remote(RemoteIdentity),
-	/// A path, relative to the current directory unless absolute.
+	/// A path, relative to the current directory or `/`-rooted.
 	Path(PathBuf),
 }
 
@@ -485,8 +487,34 @@ fn parse_instant(value: &str) -> Result<DateTime<Utc>, String> {
 		})
 }
 
-fn parse_expectation(value: &str) -> Result<Expectation, String> {
-	Expectation::from_str(value).map_err(|error| error.to_string())
+/// An expectation whose path still has its command-line spelling.
+#[derive(Clone, Debug)]
+pub(crate) struct ExpectationArg {
+	/// The path from the current directory or `/`.
+	pub(crate) path: PathBuf,
+	/// The expected oid, or absence.
+	pub(crate) oid: Option<ObjectId>,
+}
+
+/// Reads the expected state while retaining the path for workspace resolution.
+fn parse_expectation(value: &str) -> Result<ExpectationArg, String> {
+	let (path, state) = value.rsplit_once('@').ok_or_else(|| {
+		format!("`{value}` has no state; write `<path>@<oid>`, or `<path>@absent` for a removal")
+	})?;
+	if path.is_empty() {
+		return Err(format!("`{value}`: the path is empty"));
+	}
+	let oid = if state == "absent" {
+		None
+	} else {
+		Some(state.parse().map_err(|error| {
+			format!("`{value}`: {error}; or write `absent` for a removal")
+		})?)
+	};
+	Ok(ExpectationArg {
+		path: PathBuf::from(path),
+		oid,
+	})
 }
 
 fn parse_class(value: &str) -> Result<ClassName, String> {

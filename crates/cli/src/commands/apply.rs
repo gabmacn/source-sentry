@@ -40,7 +40,7 @@ pub(super) fn confirm_and_apply(
 		return Ok(exit::SUCCESS);
 	}
 	text.push_str("\n\n");
-	text.push_str(&files(plan));
+	text.push_str(&files(workspace, plan));
 	if confirm.dry_run {
 		text.push_str("\n\nDry run: nothing was written.");
 		printer.print(&text);
@@ -72,13 +72,13 @@ pub(super) fn confirm_and_apply(
 	workspace
 		.repository
 		.apply(plan)
-		.map_err(|error| Failure::apply(&error))?;
+		.map_err(|error| Failure::apply(workspace, &error))?;
 	printer.print(&applied(workspace, plan));
 	Ok(exit::SUCCESS)
 }
 
 /// The files a plan writes, creates and deletes.
-fn files(plan: &WritePlan) -> String {
+fn files(workspace: &Workspace, plan: &WritePlan) -> String {
 	let mut lines = Vec::new();
 	for write in &plan.writes {
 		let verb = if write.expected.is_some() {
@@ -86,10 +86,13 @@ fn files(plan: &WritePlan) -> String {
 		} else {
 			"create"
 		};
-		lines.push(format!("  {verb}  {}", write.path));
+		lines.push(format!("  {verb}  {}", workspace.display_path(&write.path)));
 	}
 	for delete in &plan.deletes {
-		lines.push(format!("  delete  {}", delete.path));
+		lines.push(format!(
+			"  delete  {}",
+			workspace.display_path(&delete.path)
+		));
 	}
 	let mut text = format!("Files:\n{}", lines.join("\n"));
 	if plan.writes.iter().any(|write| write.expected.is_none()) {
@@ -130,10 +133,12 @@ fn applied(workspace: &Workspace, plan: &WritePlan) -> String {
 	if !created.is_empty() {
 		let git = repo.map_or_else(
 			|| "git".to_owned(),
-			|repo| {
+			|_repo| {
 				format!(
 					"git -C {}",
-					super::diff::shell_word(&repo.display().to_string())
+					super::diff::shell_word(
+						&workspace.display_path(&source_sentry_core::model::RepoPath::ROOT)
+					)
 				)
 			},
 		);
