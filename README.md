@@ -82,6 +82,11 @@ object names are both supported.
 [`recipes/`](recipes/README.md) holds CI recipes for GitHub Actions, GitLab
 CI, Forgejo Actions and Woodpecker.
 
+[`skills/source-sentry/`](skills/source-sentry/SKILL.md) is an
+[Agent Skill](https://agentskills.io) that teaches coding agents to keep
+documentation current with Source Sentry's commands rather than by editing
+its files. Copy the folder into the skills directory of your agent.
+
 ## Workspace
 
 `Cargo.toml` is the workspace manifest. It centralizes package metadata,
