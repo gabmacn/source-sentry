@@ -16,8 +16,8 @@ use source_sentry_core::policy::Threshold;
 #[command(name = "source-sentry", version, about, max_term_width = 100)]
 pub(crate) struct Cli {
 	/// The repository. By default, the current directory, searching upward
-	/// as git does. Paths stay relative to the current directory; `/` names
-	/// the repository root.
+	/// as git does. Accepts a path relative to the current directory or an
+	/// absolute filesystem path, without changing the current directory.
 	#[arg(long, global = true, value_name = "PATH")]
 	pub(crate) repo: Option<PathBuf>,
 	/// When to use colour. `auto` respects `NO_COLOR` and redirected output.
@@ -225,7 +225,7 @@ pub(crate) struct ExplainArgs {
 /// `diff`.
 #[derive(Debug, Args)]
 pub(crate) struct DiffArgs {
-	/// The document: a path relative to the current directory, or a remote
+	/// The document: a relative or absolute filesystem path, or a remote
 	/// identity such as `abstract:onboarding-video`.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
@@ -233,7 +233,7 @@ pub(crate) struct DiffArgs {
 	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
-	/// The output format.
+	/// The output format. The JSON `attest` array runs from the repository root.
 	#[arg(long, value_enum, default_value_t = Format::Human, value_name = "FORMAT")]
 	pub(crate) format: Format,
 }
@@ -241,7 +241,7 @@ pub(crate) struct DiffArgs {
 /// The arguments of `attest`.
 #[derive(Debug, Args)]
 pub(crate) struct AttestArgs {
-	/// The document: a path relative to the current directory, or a remote
+	/// The document: a relative or absolute filesystem path, or a remote
 	/// identity.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
@@ -268,7 +268,7 @@ pub(crate) struct AttestArgs {
 /// `seal` and `retire`.
 #[derive(Debug, Args)]
 pub(crate) struct RecordArgs {
-	/// The document: a path relative to the current directory, or a remote
+	/// The document: a relative or absolute filesystem path, or a remote
 	/// identity.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
@@ -289,7 +289,7 @@ pub(crate) struct TrackArgs {
 	#[arg(long, conflicts_with_all = ["lockfile", "remote"])]
 	pub(crate) on_file: bool,
 	/// Register in a local lockfile: the nearest one by default, or the one
-	/// in DIRECTORY.
+	/// in DIRECTORY, a relative or absolute filesystem path.
 	#[expect(
 		clippy::option_option,
 		reason = "clap's shape for a flag whose value is optional: absent, 		          given alone, or given with a directory"
@@ -383,9 +383,8 @@ pub(crate) struct UntrackArgs {
 /// The arguments of `init`.
 #[derive(Debug, Args)]
 pub(crate) struct InitArgs {
-	/// Candidates to register, relative to the current directory. Without
-	/// paths or `--all`, `init` only previews. A leading `/` names the
-	/// repository root.
+	/// Candidates to register, as relative or absolute filesystem paths.
+	/// Without paths or `--all`, `init` only previews.
 	#[arg(value_name = "PATH", conflicts_with = "all")]
 	pub(crate) paths: Vec<PathBuf>,
 	/// Register every candidate.
@@ -419,13 +418,13 @@ pub(crate) struct ConfirmArgs {
 	pub(crate) yes: bool,
 }
 
-/// A document as named on the command line: a remote identity, or a path
-/// relative to the current directory.
+/// A document as named on the command line: a remote identity, or a relative
+/// or absolute filesystem path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum DocumentArg {
 	/// A remote identity, such as `abstract:onboarding-video`.
 	Remote(RemoteIdentity),
-	/// A path, relative to the current directory or `/`-rooted.
+	/// A filesystem path, relative to the current directory or absolute.
 	Path(PathBuf),
 }
 

@@ -7,7 +7,7 @@ source-sentry help [<command>]
 
 - `--repo` names the repository; by default, the current directory, searching
   upward as git does. Relative repository locations start in the current
-  directory; a leading `/` starts at the root of the containing repository.
+  directory; absolute filesystem paths are accepted.
 - `--color` defaults to `auto`, which respects `NO_COLOR` and redirected
   output.
 - `--quiet` prints only errors and what was asked for: the JSON of
@@ -16,10 +16,20 @@ source-sentry help [<command>]
   version.
 
 Documents are named by path or by remote identity: `abstract:onboarding-video`,
-`google-drive:1a2B3c4D5e6F7g8H9i0J`. Every command-line path is relative to the
-current directory, as in git; a leading `/` means the repository root. This
-also applies with `--repo`: it selects the repository without changing the
-current directory. Native drive-qualified paths are accepted on Windows.
+`google-drive:1a2B3c4D5e6F7g8H9i0J`.
+
+Document arguments, `init` paths, `--lockfile` directories,
+`lockfile:<directory>` placements and `--repo` are filesystem paths. Relative
+paths start in the current directory, as in git. Absolute paths use the
+platform's native form: `/home/me/project/docs/guide.md` on Unix, or
+`C:\project\docs\guide.md` on Windows. A leading `/` has its filesystem
+meaning. `--repo` selects the repository without changing the current
+directory.
+
+Source spellings, given to `--source` or `--pattern` of `track`, `untrack`,
+`diff` and `attest`, and the path of `--expect`, start in the current
+directory when relative. A leading `/` means the repository root, as in
+source declarations: `/src/a.rs` names `src/a.rs` in the selected repository.
 
 Human output displays repository paths relative to the current directory,
 including diagnostic locations and commands printed for copying. Quoted
@@ -155,9 +165,11 @@ whether or not anything changed.
 - **`--format json`** prints one object: its `schema`, the `document` and
   `revision`, each of the `sources` with every file's `baseline`,
   `current`, `changed` and `diff`, the `expectations`, and the `attest`
-  command as a list of arguments. The array uses `/`-rooted document,
-  path-source and expectation arguments, so repository paths do not depend
-  on the current directory; declared pattern selectors keep their spelling.
+  command as a list of arguments to run from the repository root. The
+  document uses its repository path without a leading `/`; path-source and
+  expectation arguments are `/`-rooted, and declared pattern selectors keep
+  their spelling. Repository selection is implicit in that directory, so
+  the array omits `--repo`.
   The report's other path fields retain their repository-relative form
   without a leading `/`.
 
@@ -236,7 +248,7 @@ source-sentry migrate [--dry-run] [--yes]
   explaining why they cannot be rebased safely. A remote document's sources
   are stored `/`-rooted because it has no directory.
 - **`--lockfile <directory>`** names a directory from the current directory,
-  or from the repository root with `/`; the flag alone chooses the nearest
+  or by an absolute filesystem path; the flag alone chooses the nearest
   lockfile.
 - **`--from` and `--to`** move declarations with their reviews and
   every tombstone of each moved key. A move between lockfiles must include
@@ -251,11 +263,11 @@ source-sentry migrate [--dry-run] [--yes]
   for an on-file document, delete its `source-sentry` key instead.
 - **A placement** is written `on-file`, `lockfile:<directory>` or
   `remote:<owner>`. A lockfile directory is relative to the current
-  directory, or `/`-rooted.
+  directory, or an absolute filesystem path.
 - **`init`** registers the documents that a root's scan finds and nothing
   claims. Without paths it only previews roots, claims and candidates. With
   paths, or `--all`, it registers them as unattested. Candidate paths start
-  at the current directory, or at the repository root with `/`. It never
+  at the current directory, or are absolute filesystem paths. It never
   creates a root: `track` a first document, or add a directory config with
   `root: true`.
 

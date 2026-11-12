@@ -75,13 +75,14 @@ fn attest_command(
 	compared: &DocumentDiff,
 ) -> Result<Vec<String>, Failure> {
 	let mut command = vec![source_sentry_core::SLUG.to_owned()];
-	if let Some(repo) = workspace.repo_argument() {
+	if let (Format::Human, Some(repo)) = (args.format, workspace.repo_argument())
+	{
 		option(&mut command, "--repo", repo.display().to_string());
 	}
 	command.push("attest".to_owned());
 	let document = match (args.format, &compared.document) {
 		(Format::Json, source_sentry_core::model::DocumentId::Local(path)) => {
-			format!("/{}", path.as_str())
+			path.as_str().to_owned()
 		}
 		_ => workspace.display_document(&compared.document),
 	};
@@ -139,7 +140,7 @@ fn command_selector(
 	{
 		return Ok(selector.to_owned());
 	}
-	let path = workspace.repo_path(std::path::Path::new(selector))?;
+	let path = workspace.source_path(std::path::Path::new(selector))?;
 	let mut shown = match format {
 		Format::Human => workspace.display_path(&path),
 		Format::Json => format!("/{}", path.as_str()),

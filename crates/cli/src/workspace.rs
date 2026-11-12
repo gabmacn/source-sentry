@@ -54,14 +54,6 @@ impl Workspace {
 			io_failure("cannot resolve the current directory", &error)
 		})?;
 		let start = match repo {
-			Some(repo) if repo.to_string_lossy().starts_with('/') => {
-				let containing = GitRepository::open(&working)
-					.map_err(|error| Failure::backend(&error))?;
-				let root = containing.work_dir().ok_or_else(|| {
-					Failure::usage("a `/`-rooted --repo needs a working tree")
-				})?;
-				argument_path(root, &working, repo)?
-			}
 			Some(repo) => working.join(repo),
 			None => working.clone(),
 		};
@@ -92,18 +84,16 @@ impl Workspace {
 		})
 	}
 
-	/// The repository path of a command-line path, which is relative to the
-	/// current directory, or to the repository root after a leading `/`.
-	/// Native drive-qualified paths are also accepted. The path need not
-	/// exist, so that a deleted document can still be named.
+	/// The repository path of a filesystem path, relative to the current
+	/// directory or absolute in the platform's native form. The path need
+	/// not exist, so that a deleted document can still be named.
 	///
 	/// # Errors
 	///
 	/// Exit 64 when the path lies outside the working tree or cannot be a
 	/// repository path.
 	pub(crate) fn repo_path(&self, argument: &Path) -> Result<RepoPath, Failure> {
-		let absolute =
-			normalize(&argument_path(&self.root_shown, &self.working, argument)?);
+		let absolute = normalize(&self.working.join(argument));
 		let resolved = resolve_existing(&absolute);
 		let relative = resolved.strip_prefix(&self.root).map_err(|_| {
 			Failure::usage(format!(
@@ -128,6 +118,21 @@ impl Workspace {
 		RepoPath::new(&components.join("/")).map_err(|error| {
 			Failure::usage(format!("`{}`: {error}", argument.display()))
 		})
+	}
+
+	/// The repository path of a source spelling, relative to the current
+	/// directory or to the repository root after a leading `/`.
+	///
+	/// # Errors
+	///
+	/// Exit 64 when the spelling cannot resolve within the working tree.
+	pub(crate) fn source_path(
+		&self,
+		argument: &Path,
+	) -> Result<RepoPath, Failure> {
+		let absolute =
+			source_argument_path(&self.root_shown, &self.working, argument)?;
+		self.repo_path(&absolute)
 	}
 
 	/// The identity of a document argument.
@@ -216,9 +221,9 @@ impl Workspace {
 	}
 }
 
-/// Resolves command-line paths. A single leading `/` denotes the repository
+/// Resolves source spellings. A single leading `/` denotes the repository
 /// root; all other relative paths start at the current directory.
-fn argument_path(
+fn source_argument_path(
 	root: &Path,
 	current: &Path,
 	argument: &Path,
@@ -305,9 +310,9 @@ fn io_failure(context: &str, error: &io::Error) -> Failure {
 mod tests {
 	use super::*;
 
-	/// Leading slashes share one root resolver, including lexical parents.
+	/// Source spellings share one root resolver, including lexical parents.
 	#[test]
-	fn rooted_arguments_use_the_repository_root() {
+	fn rooted_sources_use_the_repository_root() {
 		let root = Path::new("repository");
 		let current = root.join("docs");
 		for (argument, expected) in [
@@ -316,13 +321,15 @@ mod tests {
 			("../src/a.rs", "repository/src/a.rs"),
 		] {
 			assert_eq!(
-				normalize(&argument_path(root, &current, Path::new(argument)).unwrap()),
+				normalize(
+					&source_argument_path(root, &current, Path::new(argument)).unwrap()
+				),
 				PathBuf::from(expected)
 			);
 		}
 		for argument in ["//server/share", "/../outside"] {
 			assert_eq!(
-				argument_path(root, &current, Path::new(argument))
+				source_argument_path(root, &current, Path::new(argument))
 					.unwrap_err()
 					.code,
 				crate::exit::USAGE

@@ -23,6 +23,62 @@ fn run_printed_attest(repo: &TestRepo, directory: &str, stdout: &str) {
 		.expect_code(0);
 }
 
+/// Native absolute document paths work independently of the current directory.
+#[test]
+fn documents_accept_absolute_filesystem_paths() {
+	let repo = TestRepo::init();
+	let document = repo.path().join("docs/guide.md");
+	assert!(document.is_absolute());
+	let document = document.to_str().unwrap();
+	repo
+		.run_in(
+			"src",
+			&["track", document, "--source", "/src/a.rs", "--yes"],
+		)
+		.expect_code(0);
+	for command in ["diff", "explain"] {
+		repo.run_in("src", &[command, document]).expect_code(0);
+	}
+	repo
+		.run_in("src", &["attest", document, "--yes"])
+		.expect_code(0);
+	for command in ["untrack", "seal", "retire"] {
+		let mut args = vec![command, document, "--dry-run"];
+		if command == "untrack" {
+			args.extend(["--source", "/src/a.rs"]);
+		}
+		repo.run_in("src", &args).expect_code(0);
+	}
+	assert_eq!(sources(&repo)[0]["path"], "/src/a.rs");
+}
+
+/// An absolute repository location works from outside any repository.
+#[test]
+fn repo_accepts_an_absolute_filesystem_path() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	assert!(repo.path().is_absolute());
+	let repository = repo.path().to_str().unwrap();
+	let diff = repo.run_in(
+		"..",
+		&[
+			"--repo",
+			repository,
+			"diff",
+			"repo/docs/guide.md",
+			"--source",
+			"/src/a.rs",
+		],
+	);
+	diff.expect_code(0);
+	assert!(
+		diff.stdout.contains("repo/docs/guide.md"),
+		"{}",
+		diff.stdout
+	);
+	run_printed_attest(&repo, "..", &diff.stdout);
+}
+
 /// A source argument starts in the current directory and is stored from
 /// the document's directory; rooted spellings remain intact.
 #[test]
@@ -30,7 +86,7 @@ fn track_reexpresses_paths_and_patterns() {
 	for (directory, document, source, pattern) in [
 		(".", "docs/guide.md", "src/a.rs", "src/**/*.rs"),
 		("docs", "guide.md", "../src/a.rs", "../src/**/*.rs"),
-		("src", "/docs/guide.md", "a.rs", "**/*.rs"),
+		("src", "../docs/guide.md", "a.rs", "**/*.rs"),
 	] {
 		let repo = TestRepo::init();
 		repo
@@ -65,7 +121,7 @@ fn track_reexpresses_paths_and_patterns() {
 			"src",
 			&[
 				"track",
-				"/docs/guide.md",
+				"../docs/guide.md",
 				"--source",
 				"/src/./a.rs",
 				"--pattern",
@@ -135,26 +191,26 @@ fn selectors_match_resolved_files() {
 	repo
 		.run(&["track", "docs/guide.md", "--source", "src/a.rs", "--yes"])
 		.expect_code(0);
-	for (directory, source) in [
-		(".", "src/./a.rs"),
-		("docs", "../src/a.rs"),
-		("src", "a.rs"),
-		("src", "/src/a.rs"),
+	for (directory, document, source) in [
+		(".", "docs/guide.md", "src/./a.rs"),
+		("docs", "guide.md", "../src/a.rs"),
+		("src", "../docs/guide.md", "a.rs"),
+		("src", "../docs/guide.md", "/src/a.rs"),
 	] {
 		repo
-			.run_in(directory, &["diff", "/docs/guide.md", "--source", source])
+			.run_in(directory, &["diff", document, "--source", source])
 			.expect_code(0);
 		repo
 			.run_in(
 				directory,
-				&["attest", "/docs/guide.md", "--source", source, "--dry-run"],
+				&["attest", document, "--source", source, "--dry-run"],
 			)
 			.expect_code(0);
 	}
 	repo
 		.run_in(
 			"src",
-			&["untrack", "/docs/guide.md", "--source", "a.rs", "--yes"],
+			&["untrack", "../docs/guide.md", "--source", "a.rs", "--yes"],
 		)
 		.expect_code(0);
 	assert_eq!(sources(&repo), [] as [Value; 0]);
@@ -169,7 +225,7 @@ fn patterns_are_selected_as_declared_or_rooted() {
 		.expect_code(0);
 	for selector in ["../src/*.rs", "/src/*.rs"] {
 		let diff =
-			repo.run_in("src", &["diff", "/docs/guide.md", "--source", selector]);
+			repo.run_in("src", &["diff", "../docs/guide.md", "--source", selector]);
 		diff.expect_code(0);
 		run_printed_attest(&repo, "src", &diff.stdout);
 	}
@@ -178,7 +234,7 @@ fn patterns_are_selected_as_declared_or_rooted() {
 			"src",
 			&[
 				"untrack",
-				"/docs/guide.md",
+				"../docs/guide.md",
 				"--pattern",
 				"/src/*.rs",
 				"--yes",
@@ -230,7 +286,7 @@ fn an_ambiguous_path_and_pattern_are_never_guessed() {
 		"src",
 		&[
 			"diff",
-			"/docs/guide.md",
+			"../docs/guide.md",
 			"--source",
 			"./a.rs",
 			"--format",
@@ -247,7 +303,7 @@ fn an_ambiguous_path_and_pattern_are_never_guessed() {
 		.map(|word| word.as_str().unwrap())
 		.collect();
 	command.push("--yes");
-	repo.run_in("src", &command).expect_code(0);
+	repo.run(&command).expect_code(0);
 }
 
 /// Copyable commands preserve quoted filenames and values beginning with `-`.
@@ -267,7 +323,7 @@ fn printed_commands_quote_and_protect_path_arguments() {
 			"src",
 			&[
 				"diff",
-				&format!("/{document}"),
+				&format!("../{document}"),
 				&format!("--source={selector}"),
 			],
 		);
@@ -285,7 +341,16 @@ fn human_diff_commands_run_where_they_are_printed() {
 		repo.write("src/a.rs", "fn changed() {}\n");
 		let run = repo.run_in(
 			directory,
-			&["diff", "/docs/guide.md", "--source", "/src/a.rs"],
+			&[
+				"diff",
+				if directory == "docs" {
+					"guide.md"
+				} else {
+					"../docs/guide.md"
+				},
+				"--source",
+				"/src/a.rs",
+			],
 		);
 		run.expect_code(0);
 		let path = if directory == "docs" {
@@ -329,7 +394,7 @@ fn printed_absence_expectations_work_from_a_subdirectory() {
 	run_printed_attest(&repo, "docs", &run.stdout);
 }
 
-/// JSON keeps repository paths and emits rooted command arguments.
+/// JSON keeps repository paths and emits commands to run from the root.
 #[test]
 fn json_paths_are_independent_of_the_current_directory() {
 	let repo = TestRepo::init();
@@ -339,12 +404,22 @@ fn json_paths_are_independent_of_the_current_directory() {
 		.run(&["diff", "docs/guide.md", "--format", "json"])
 		.json();
 	let nested = repo
-		.run_in("src", &["diff", "../docs/guide.md", "--format", "json"])
+		.run_in(
+			"src",
+			&[
+				"--repo",
+				"..",
+				"diff",
+				"../docs/guide.md",
+				"--format",
+				"json",
+			],
+		)
 		.json();
 	assert_eq!(root, nested);
 	assert_eq!(nested["document"], "docs/guide.md");
 	assert_eq!(nested["sources"][0]["entries"][0]["path"], "src/a.rs");
-	assert_eq!(nested["attest"][2], "/docs/guide.md");
+	assert_eq!(nested["attest"][2], "docs/guide.md");
 	let mut command: Vec<_> = nested["attest"]
 		.as_array()
 		.unwrap()
@@ -353,13 +428,61 @@ fn json_paths_are_independent_of_the_current_directory() {
 		.map(|word| word.as_str().unwrap())
 		.collect();
 	command.push("--yes");
-	repo.run_in("src", &command).expect_code(0);
+	repo.run(&command).expect_code(0);
 	assert_eq!(
 		repo.run(&["check", "--at", AT, "--format", "json"]).json(),
 		repo
 			.run_in("src", &["check", "--at", AT, "--format", "json"])
 			.json()
 	);
+}
+
+/// JSON commands protect option-like documents and retain rooted selectors.
+#[test]
+fn json_commands_run_from_the_root_with_protected_document_names() {
+	for (document, expected) in [
+		("./-guide.md", "./-guide.md"),
+		("docs/a guide.md", "docs/a guide.md"),
+	] {
+		let repo = TestRepo::init();
+		repo.write(document, "# Guide\n");
+		repo
+			.run(&["track", document, "--source", "src/a.rs", "--yes"])
+			.expect_code(0);
+		let report = repo
+			.run_in(
+				"src",
+				&[
+					"--repo",
+					"..",
+					"diff",
+					&format!("../{document}"),
+					"--source",
+					"a.rs",
+					"--format",
+					"json",
+				],
+			)
+			.expect_code(0)
+			.json();
+		assert_eq!(report["attest"][2], expected);
+		assert_eq!(report["attest"][4], "/src/a.rs");
+		assert!(
+			report["attest"][6]
+				.as_str()
+				.unwrap()
+				.starts_with("/src/a.rs@")
+		);
+		let mut command: Vec<_> = report["attest"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.skip(1)
+			.map(|word| word.as_str().unwrap())
+			.collect();
+		command.push("--yes");
+		repo.run(&command).expect_code(0);
+	}
 }
 
 /// Expectations allow parent components and split the state at the last `@`.
@@ -387,60 +510,83 @@ fn expectations_resolve_current_and_rooted_paths() {
 	}
 }
 
-/// Placement directories, init candidates and document paths share `/`.
+/// Placement directories, init candidates and documents use filesystem paths.
 #[test]
 fn placements_and_init_follow_the_same_path_rule() {
-	let repo = TestRepo::init();
-	repo
-		.run_in(
+	for absolute in [false, true] {
+		let repo = TestRepo::init();
+		let directory = if absolute {
+			repo.path().join("docs").to_str().unwrap().to_owned()
+		} else {
+			"../docs".to_owned()
+		};
+		repo
+			.run_in(
+				"src",
+				&[
+					"track",
+					"../docs/guide.md",
+					"--lockfile",
+					&directory,
+					"--yes",
+				],
+			)
+			.expect_code(0);
+		let moved = repo.run_in(
 			"src",
-			&["track", "/docs/guide.md", "--lockfile", "/docs", "--yes"],
-		)
-		.expect_code(0);
-	let moved = repo.run_in(
-		"src",
-		&[
-			"track",
-			"/docs/guide.md",
-			"--from",
-			"lockfile:/docs",
-			"--to",
-			"on-file",
-			"--yes",
-		],
-	);
-	moved.expect_code(0);
-	assert!(
-		moved.stdout.contains("Move ../docs/guide.md"),
-		"{}",
-		moved.stdout
-	);
-	repo
-		.run_in(
-			"docs",
 			&[
 				"track",
-				"guide.md",
+				"../docs/guide.md",
 				"--from",
-				"on-file",
+				&format!("lockfile:{directory}"),
 				"--to",
-				"lockfile:.",
+				"on-file",
 				"--yes",
 			],
-		)
-		.expect_code(0);
-	repo.write("docs/other.md", "# Other\n");
-	let init = repo.run_in("docs", &["init", "/docs/other.md", "--yes"]);
-	init.expect_code(0);
-	assert!(init.stdout.contains("Track other.md"), "{}", init.stdout);
-	assert!(
-		init.stdout.contains("write   source-sentry.lock"),
-		"{}",
-		init.stdout
-	);
-	repo
-		.run_in("docs", &["--repo", "/", "explain", "/docs/guide.md"])
-		.expect_code(0);
+		);
+		moved.expect_code(0);
+		assert!(
+			moved.stdout.contains("Move ../docs/guide.md"),
+			"{}",
+			moved.stdout
+		);
+		repo
+			.run_in(
+				"docs",
+				&[
+					"track",
+					"guide.md",
+					"--from",
+					"on-file",
+					"--to",
+					&format!("lockfile:{directory}"),
+					"--yes",
+				],
+			)
+			.expect_code(0);
+		repo.write("docs/other.md", "# Other\n");
+		let candidate = if absolute {
+			repo
+				.path()
+				.join("docs/other.md")
+				.to_str()
+				.unwrap()
+				.to_owned()
+		} else {
+			"other.md".to_owned()
+		};
+		let init = repo.run_in("docs", &["init", &candidate, "--yes"]);
+		init.expect_code(0);
+		assert!(init.stdout.contains("Track other.md"), "{}", init.stdout);
+		assert!(
+			init.stdout.contains("write   source-sentry.lock"),
+			"{}",
+			init.stdout
+		);
+		repo
+			.run_in("docs", &["--repo", "..", "explain", "guide.md"])
+			.expect_code(0);
+	}
 }
 
 /// Subjects, source paths, origins and diagnostic locations are clickable.
@@ -513,7 +659,7 @@ fn printed_commands_preserve_repository_selection() {
 	let repo = TestRepo::init();
 	repo.reviewed_guide();
 	repo.write("src/a.rs", "fn changed() {}\n");
-	let diff = repo.run_in("src", &["--repo", "/", "diff", "/docs/guide.md"]);
+	let diff = repo.run_in("src", &["--repo", "..", "diff", "../docs/guide.md"]);
 	diff.expect_code(0);
 	run_printed_attest(&repo, "src", &diff.stdout);
 	repo.write("docs/new.md", "# New\n");

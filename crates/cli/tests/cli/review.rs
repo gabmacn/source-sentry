@@ -149,7 +149,7 @@ fn diff_as_json() {
 		json!([
 			"source-sentry",
 			"attest",
-			"/docs/guide.md",
+			"docs/guide.md",
 			"--expect",
 			format!("/src/a.rs@{oid}")
 		])

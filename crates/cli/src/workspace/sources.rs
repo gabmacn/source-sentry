@@ -43,7 +43,7 @@ impl Workspace {
 				.unwrap_or(declared.len());
 			let split = declared[..first].rfind('/').map_or(0, |index| index + 1);
 			let (prefix, suffix) = declared.split_at(split);
-			let base = self.repo_path(Path::new(if prefix.is_empty() {
+			let base = self.source_path(Path::new(if prefix.is_empty() {
 				"."
 			} else {
 				prefix
@@ -56,7 +56,7 @@ impl Workspace {
 				Failure::usage(format!("cannot rebase pattern `{declared}`: {error}"))
 			})?
 		} else {
-			let path = self.repo_path(Path::new(declared))?;
+			let path = self.source_path(Path::new(declared))?;
 			if declared.starts_with('/') {
 				declared.clone()
 			} else {
@@ -111,7 +111,7 @@ impl Workspace {
 		claim: &Claim,
 		name: &str,
 	) -> Result<SourceSpec, Failure> {
-		let resolved = self.repo_path(Path::new(name));
+		let resolved = self.source_path(Path::new(name));
 		let path = claim
 			.declaration
 			.sources
@@ -179,7 +179,7 @@ impl Workspace {
 			.iter()
 			.map(|spec| match spec {
 				SourceSpec::Path(path) => self
-					.repo_path(Path::new(path))
+					.source_path(Path::new(path))
 					.map(|path| SourceSpec::Path(format!("/{}", path.as_str()))),
 				SourceSpec::Pattern(pattern) => {
 					let declared = claim
@@ -209,7 +209,7 @@ impl Workspace {
 		&self,
 		argument: &ExpectationArg,
 	) -> Result<Expectation, Failure> {
-		let path = self.repo_path(&argument.path)?;
+		let path = self.source_path(&argument.path)?;
 		if path.is_root() {
 			return Err(Failure::usage(
 				"an expectation must name a file, not the repository root",
