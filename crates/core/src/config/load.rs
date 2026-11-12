@@ -4,6 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+mod sharing;
+
 use super::error::{ConfigError, ConfigErrorKind, LoadError};
 use super::parse::{self, ConfigKind, Parsed};
 use super::pattern::quote;
@@ -65,6 +67,8 @@ pub(super) struct Expanded {
 #[derive(Debug, Default)]
 struct Found {
 	repository: Option<RepoPath>,
+	/// Names owned by this project; all are parsed, even when unused.
+	own_presets: BTreeSet<String>,
 	/// Presets, by import identifier.
 	presets: BTreeMap<String, RepoPath>,
 	/// `.yml` files in the presets folder, by the identifier they would have
@@ -120,6 +124,7 @@ fn discover_inside(found: &mut Found, path: &RepoPath, inside: &str) {
 		.and_then(|rest| rest.strip_prefix('/'))
 	{
 		if let Some(name) = file_stem(preset, ".yaml") {
+			found.own_presets.insert(name.to_owned());
 			found.presets.insert(name.to_owned(), path.clone());
 		} else if let Some(name) = file_stem(preset, ".yml") {
 			found.misnamed_presets.insert(name.to_owned(), path.clone());
@@ -173,7 +178,11 @@ impl Files {
 		if let Some(path) = &found.repository {
 			files.repository = read(path, ConfigKind::Repository)?;
 		}
-		for (name, path) in &found.presets {
+		for (name, path) in found
+			.presets
+			.iter()
+			.filter(|(name, _)| found.own_presets.contains(*name))
+		{
 			if let Some(parsed) = read(path, ConfigKind::Preset)? {
 				files.presets.insert(name.clone(), parsed);
 			}
@@ -186,6 +195,25 @@ impl Files {
 		for (owner, path) in &found.remotes {
 			if let Some(parsed) = read(path, ConfigKind::Paired)? {
 				files.remotes.insert(owner.clone(), parsed);
+			}
+		}
+		let mut attempted = found.own_presets.clone();
+		loop {
+			let needed: BTreeSet<_> = files
+				.all()
+				.flat_map(|file| file.imports.iter().map(|import| import.value.clone()))
+				.filter(|name| !attempted.contains(name))
+				.collect();
+			if needed.is_empty() {
+				break;
+			}
+			for name in needed {
+				attempted.insert(name.clone());
+				if let Some(path) = found.presets.get(&name)
+					&& let Some(parsed) = read(path, ConfigKind::Preset)?
+				{
+					files.presets.insert(name, parsed);
+				}
 			}
 		}
 		Ok(files)
@@ -235,18 +263,23 @@ impl ConfigSet {
 		let paths = snapshot.paths()?;
 		let projects = super::project_roots(&paths);
 		let project = super::project_of(&projects, start);
-		let paths = paths
-			.into_iter()
+		let owned = paths
+			.iter()
 			.filter(|path| super::project_of(&projects, path) == project)
+			.cloned()
 			.collect();
-		let found = discover(paths, &project);
+		let mut found = discover(owned, &project);
+		sharing::find_presets(&mut found, &paths, &projects, &project);
 		let mut errors = Vec::new();
 		let files = Files::read(snapshot, &found, &mut errors)?;
+
+		let definitions = sharing::definitions(&files);
+		sharing::validate(&files, &definitions, &mut errors);
 
 		// Without a valid repository config, declarations are unknown, and
 		// checking against them would only repeat its own errors.
 		if found.repository.is_none() || files.repository.is_some() {
-			let declarations = Declarations::of(files.repository.as_deref());
+			let declarations = Declarations::of(&definitions);
 			for file in files.all() {
 				declarations.check(file, &mut errors);
 			}
@@ -286,8 +319,8 @@ impl ConfigSet {
 			revision: snapshot.revision().clone(),
 			version: version(repository_file),
 			time_zone: time_zone(repository_file),
-			classes: classes(repository_file),
-			contexts: contexts(repository_file),
+			classes: sharing::classes_from(&definitions),
+			contexts: sharing::contexts_from(&definitions),
 			repository,
 			directories,
 			remotes,
@@ -308,18 +341,19 @@ struct Declarations {
 impl Declarations {
 	/// The repository config's declarations, plus the built-in default
 	/// context.
-	fn of(repository: Option<&Parsed>) -> Self {
-		let define = repository.and_then(|file| file.define.as_ref());
-		let mut contexts: BTreeSet<String> = define
-			.map(|define| define.contexts.keys().cloned().collect())
-			.unwrap_or_default();
-		contexts.insert(DEFAULT_CONTEXT.to_owned());
+	fn of(definitions: &[Expanded]) -> Self {
+		let mut classes = BTreeSet::new();
+		let mut contexts = BTreeSet::from([DEFAULT_CONTEXT.to_owned()]);
+		for definition in definitions {
+			if let Some(define) = &definition.preset.define {
+				classes.extend(define.classes.keys().cloned());
+				contexts.extend(define.contexts.keys().cloned());
+			}
+		}
 		Self {
-			classes: define
-				.map(|define| define.classes.keys().cloned().collect())
-				.unwrap_or_default(),
+			classes,
 			contexts,
-			has_repository: repository.is_some(),
+			has_repository: !definitions.is_empty(),
 		}
 	}
 
@@ -340,6 +374,16 @@ impl Declarations {
 	/// Reports every class and context that `file` uses without a
 	/// declaration.
 	fn check(&self, file: &Parsed, errors: &mut Vec<ConfigError>) {
+		let own_classes: BTreeSet<_> = file
+			.define
+			.iter()
+			.flat_map(|define| define.classes.keys())
+			.collect();
+		let own_contexts: BTreeSet<_> = file
+			.define
+			.iter()
+			.flat_map(|define| define.contexts.keys())
+			.collect();
 		let undeclared_class = |class: &ClassName, setting: String, position| {
 			ConfigError::new(
 				&file.path,
@@ -353,7 +397,9 @@ impl Declarations {
 		};
 		if let Some(classes) = &file.classes {
 			for (index, class) in classes.value.iter().enumerate() {
-				if !self.classes.contains(&class.value) {
+				if !self.classes.contains(&class.value)
+					&& !own_classes.contains(&class.value)
+				{
 					errors.push(undeclared_class(
 						&class.value,
 						format!("classes[{index}]"),
@@ -363,7 +409,7 @@ impl Declarations {
 			}
 		}
 		for (context, list) in file.rules.iter().flat_map(|rules| &rules.value) {
-			if !self.contexts.contains(context) {
+			if !self.contexts.contains(context) && !own_contexts.contains(context) {
 				errors.push(
 					ConfigError::new(
 						&file.path,
@@ -378,7 +424,7 @@ impl Declarations {
 			}
 			for (index, rule) in list.value.iter().enumerate() {
 				for class in &rule.value.classes {
-					if !self.classes.contains(class) {
+					if !self.classes.contains(class) && !own_classes.contains(class) {
 						let setting = format!("rules.{context}[{index}].classes");
 						let position = file
 							.field_positions
@@ -401,7 +447,7 @@ impl Declarations {
 				.enumerate();
 			for (index, (rule, position)) in rules {
 				for class in &rule.classes {
-					if !self.classes.contains(class) {
+					if !self.classes.contains(class) && !own_classes.contains(class) {
 						let setting =
 							format!("define.contexts.{name}.rules[{index}].classes");
 						let position = file

@@ -100,13 +100,12 @@ fn a_directory_config_rejects_repository_keys() {
 }
 
 #[test]
-fn a_preset_rejects_root_inherit_version_and_define() {
+fn a_preset_rejects_root_inherit_version_and_time_zone() {
 	for (key, value) in [
 		("root", "true"),
 		("inherit", "false"),
 		("version", "1"),
 		("time-zone", "'UTC'"),
-		("define", "{}"),
 	] {
 		let error = only_error(&[
 			(REPOSITORY, BASE),

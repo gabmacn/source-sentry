@@ -5,6 +5,7 @@ mod parsing;
 mod paths;
 mod projects;
 mod resolution;
+mod sharing;
 mod validation;
 
 use super::{ConfigError, ConfigErrorKind, ConfigSet, LoadError};

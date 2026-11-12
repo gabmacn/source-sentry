@@ -131,10 +131,9 @@ fn no_context_rule_may_target_fresh() {
 }
 
 #[test]
-fn define_appears_only_in_the_repository_config() {
+fn directory_and_remote_configs_cannot_define_names() {
 	for (file, kind) in [
 		("docs/source-sentry.yaml", ConfigKind::Directory),
-		(".source-sentry/presets/shared.yaml", ConfigKind::Preset),
 		(".source-sentry/remotes/legal.yaml", ConfigKind::Paired),
 	] {
 		let error = only_error(&[

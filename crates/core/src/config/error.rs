@@ -195,6 +195,24 @@ pub enum ConfigErrorKind {
 		/// The kind of config whose rules it breaks.
 		kind: ConfigKind,
 	},
+	/// A defining preset imported from somewhere other than the project config.
+	#[error(
+		"only a project's .source-sentry/source-sentry.yaml may import the defining preset `{preset}`"
+	)]
+	DefinitionImport {
+		/// The preset that contains definitions.
+		preset: RepoPath,
+	},
+	/// A class or context declared by more than one explicit definition.
+	#[error("{kind} `{name}` is already defined in {previous}")]
+	DuplicateDefinition {
+		/// Whether this is a class or a context.
+		kind: &'static str,
+		/// The repeated name.
+		name: String,
+		/// The first definition's file.
+		previous: RepoPath,
+	},
 	/// A required key is missing.
 	#[error("`{key}` is required")]
 	MissingSetting {

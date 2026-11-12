@@ -1,6 +1,8 @@
 # A preset, at .source-sentry/presets/logs.yaml, which other configs import as
-# 'logs'. It can hold any setting a directory config can, except `root` and
-# `inherit`. Its patterns apply relative to the config that imports it.
+# 'logs'. It can hold definitions and any ordinary directory setting, except
+# `root` and `inherit`. Its patterns apply relative to the importing config.
+# A preset containing `define` may be imported only by the project's own
+# .source-sentry/source-sentry.yaml, never by another preset or directory config.
 
 # Presets can import other presets; this one needs none.
 imports: []

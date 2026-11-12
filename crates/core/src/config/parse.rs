@@ -32,7 +32,7 @@ pub enum ConfigKind {
 	/// `<directory>/source-sentry.yaml`: `root`, `inherit` and every ordinary
 	/// setting.
 	Directory,
-	/// `.source-sentry/presets/<name>.yaml`: ordinary settings only.
+	/// `.source-sentry/presets/<name>.yaml`: definitions and ordinary settings.
 	Preset,
 	/// `.source-sentry/remotes/<owner>.yaml`: only `imports`, `classes`,
 	/// `owners` and `schedule`, including through its imports.
@@ -43,7 +43,8 @@ impl ConfigKind {
 	/// Whether this kind of config may set the top-level `key`.
 	pub(super) fn allows(self, key: &str) -> bool {
 		match key {
-			"version" | "time-zone" | "define" => self == Self::Repository,
+			"version" | "time-zone" => self == Self::Repository,
+			"define" => matches!(self, Self::Repository | Self::Preset),
 			"root" | "inherit" => self == Self::Directory,
 			"imports" | "classes" | "owners" | "schedule" => true,
 			"documents" | "rules" | "series" => self != Self::Paired,
