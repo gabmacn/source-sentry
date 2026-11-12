@@ -2,163 +2,754 @@
   "documents": {
     "README.md": {
       "reviewed": {
-        "at": "2026-11-12T08:36:14Z",
-        "by": "Claude"
+        "at": "2026-11-12T22:28:21Z",
+        "by": "Sol (Codex)"
       },
       "sources": [
         {
-          "oid": "sha1:8700352850ef9734165adc6ee859bcfd59772dd6",
+          "oid": "sha1:d31fa24f1f6ec4d7f56e80ffec6d541617da5b52",
           "path": "../crates/core/src/adapters/declaration.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
-          "oid": "sha1:ace6061eafbd4c863e2ae9e38fe6289b036dbb7d",
+          "oid": "sha1:ca8af63ff2df7458ba3a1450313757ac28597640",
           "path": "../crates/core/src/adapters/lockfile/mod.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
-          "oid": "sha1:beb1d1195f401c8d8edbc9805f6ce490a91cf7f9",
+          "oid": "sha1:65e4a970be9c916c51dd445e85ec6db4d758a103",
           "path": "../crates/core/src/adapters/lockfile/shape.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
-          "oid": "sha1:ecf0a9d434e4bfbb2a27a441fec85033065ec297",
+          "oid": "sha1:0760554214369924ad0ddb9521ba0b997e6744b1",
           "path": "../crates/core/src/claims/diagnostic.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
           "oid": "sha1:573ccbc7fa9b5f7015a7c96d06f581faa7464162",
           "path": "../crates/core/src/model/identity.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
-          "oid": "sha1:ad09b8cfbd60faff9fc96c18290bfdb9f0b57e90",
+          "oid": "sha1:b6fbc538b56dc7e0085571ee7b554d63564cbd04",
           "path": "../crates/core/src/report/check.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         },
         {
-          "oid": "sha1:d0504fe186999edb5c167c2201bac160a0e84547",
+          "oid": "sha1:2ba5671285d7d5a0d665310a5212cfb7d7e499c1",
           "path": "../crates/core/src/report/common.rs",
           "reviewed": {
-            "at": "2026-11-12T08:36:14Z",
-            "by": "Claude"
+            "at": "2026-11-12T22:28:21Z",
+            "by": "Sol (Codex)"
           }
         }
       ]
     },
     "directory-config.example.yaml": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:11Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "pattern": "../crates/core/src/config/*.rs"
+          "members": [
+            {
+              "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
+              "path": "../crates/core/src/config/diagnose.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:7f930257de6d93dd9a4274c388cfb96dc56ab164",
+              "path": "../crates/core/src/config/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:045951e6dc5e174674bddf955ffa61c6157f0f92",
+              "path": "../crates/core/src/config/load.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:e2370ea8dd96d853a63851c708ab8b66e9f48ef3",
+              "path": "../crates/core/src/config/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
+              "path": "../crates/core/src/config/parse.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b02c9bbcbf67cca1022ff921381f07bcb91d777f",
+              "path": "../crates/core/src/config/pattern.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
+              "path": "../crates/core/src/config/projects.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:6dcf02c32500036d5aa41758a6a4709fe40a77fa",
+              "path": "../crates/core/src/config/resolve.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:11Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/config/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:11Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "example.yaml": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:12Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "path": "../crates/core/src/adapters/declaration.rs"
+          "oid": "sha1:d31fa24f1f6ec4d7f56e80ffec6d541617da5b52",
+          "path": "../crates/core/src/adapters/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:12Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/adapters/frontmatter/mod.rs"
+          "oid": "sha1:c19ea43a5754d9a9c9acab855f1748581e8d638d",
+          "path": "../crates/core/src/adapters/frontmatter/mod.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:12Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/evaluate/cadence.rs"
+          "oid": "sha1:a2f0e0a947548cc4ec0deb747dea540135c7b4e0",
+          "path": "../crates/core/src/evaluate/cadence.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:12Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "pattern": "../crates/core/src/evaluate/schedule/*.rs"
+          "members": [
+            {
+              "oid": "sha1:6327067f9a5e3f1a3067ee276fdca6e24c9076bc",
+              "path": "../crates/core/src/evaluate/schedule/recurrence.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:12Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:efc0cb9db05656d0b70082a87dabdccd8bc08684",
+              "path": "../crates/core/src/evaluate/schedule/tests.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:12Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:a768ab4a1910f334e8b25da9b7c7c124c79c2e01",
+              "path": "../crates/core/src/evaluate/schedule/zone.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:12Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/evaluate/schedule/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:12Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/declaration.rs"
+          "oid": "sha1:56cd5533ebd0f66cad7c8341ef9c88e23d3b4b69",
+          "path": "../crates/core/src/model/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:12Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "lockfile.example.json": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:14Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "pattern": "../crates/core/src/adapters/lockfile/*.rs"
+          "members": [
+            {
+              "oid": "sha1:ca8af63ff2df7458ba3a1450313757ac28597640",
+              "path": "../crates/core/src/adapters/lockfile/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:14Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:65e4a970be9c916c51dd445e85ec6db4d758a103",
+              "path": "../crates/core/src/adapters/lockfile/shape.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:14Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:cfcf26b903c682ec0f4f619195c448a8dce2bd3d",
+              "path": "../crates/core/src/adapters/lockfile/tests.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:14Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/adapters/lockfile/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:14Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/declaration.rs"
+          "oid": "sha1:56cd5533ebd0f66cad7c8341ef9c88e23d3b4b69",
+          "path": "../crates/core/src/model/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:14Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "preset.example.yaml": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:15Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "path": "../crates/core/src/claims/series.rs"
+          "oid": "sha1:c6a1101e87c29b41b505adb52f75df42a5050d46",
+          "path": "../crates/core/src/claims/series.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:15Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "pattern": "../crates/core/src/config/*.rs"
+          "members": [
+            {
+              "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
+              "path": "../crates/core/src/config/diagnose.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:7f930257de6d93dd9a4274c388cfb96dc56ab164",
+              "path": "../crates/core/src/config/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:045951e6dc5e174674bddf955ffa61c6157f0f92",
+              "path": "../crates/core/src/config/load.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:e2370ea8dd96d853a63851c708ab8b66e9f48ef3",
+              "path": "../crates/core/src/config/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
+              "path": "../crates/core/src/config/parse.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b02c9bbcbf67cca1022ff921381f07bcb91d777f",
+              "path": "../crates/core/src/config/pattern.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
+              "path": "../crates/core/src/config/projects.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:6dcf02c32500036d5aa41758a6a4709fe40a77fa",
+              "path": "../crates/core/src/config/resolve.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:15Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/config/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:15Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/evaluate/cadence.rs"
+          "oid": "sha1:a2f0e0a947548cc4ec0deb747dea540135c7b4e0",
+          "path": "../crates/core/src/evaluate/cadence.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:15Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/series.rs"
+          "oid": "sha1:63e222db978a495387c8ffac00a574900759b48c",
+          "path": "../crates/core/src/model/series.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:15Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "remote-config.example.yaml": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:16Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "pattern": "../crates/core/src/config/*.rs"
+          "members": [
+            {
+              "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
+              "path": "../crates/core/src/config/diagnose.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:7f930257de6d93dd9a4274c388cfb96dc56ab164",
+              "path": "../crates/core/src/config/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:045951e6dc5e174674bddf955ffa61c6157f0f92",
+              "path": "../crates/core/src/config/load.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:e2370ea8dd96d853a63851c708ab8b66e9f48ef3",
+              "path": "../crates/core/src/config/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
+              "path": "../crates/core/src/config/parse.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b02c9bbcbf67cca1022ff921381f07bcb91d777f",
+              "path": "../crates/core/src/config/pattern.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
+              "path": "../crates/core/src/config/projects.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:6dcf02c32500036d5aa41758a6a4709fe40a77fa",
+              "path": "../crates/core/src/config/resolve.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:16Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/config/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:16Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "remote-lockfile.example.json": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:17Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "pattern": "../crates/core/src/adapters/lockfile/*.rs"
+          "members": [
+            {
+              "oid": "sha1:ca8af63ff2df7458ba3a1450313757ac28597640",
+              "path": "../crates/core/src/adapters/lockfile/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:17Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:65e4a970be9c916c51dd445e85ec6db4d758a103",
+              "path": "../crates/core/src/adapters/lockfile/shape.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:17Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:cfcf26b903c682ec0f4f619195c448a8dce2bd3d",
+              "path": "../crates/core/src/adapters/lockfile/tests.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:17Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/adapters/lockfile/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:17Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/declaration.rs"
+          "oid": "sha1:56cd5533ebd0f66cad7c8341ef9c88e23d3b4b69",
+          "path": "../crates/core/src/model/declaration.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:17Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/identity.rs"
+          "oid": "sha1:573ccbc7fa9b5f7015a7c96d06f581faa7464162",
+          "path": "../crates/core/src/model/identity.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:17Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "report.example.json": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:18Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "path": "../crates/core/src/claims/diagnostic.rs"
+          "oid": "sha1:0760554214369924ad0ddb9521ba0b997e6744b1",
+          "path": "../crates/core/src/claims/diagnostic.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:18Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/evaluate/clock.rs"
+          "oid": "sha1:a8f25d4fb4c5cc56a1d6262d99153a666937875a",
+          "path": "../crates/core/src/evaluate/clock.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:18Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "pattern": "../crates/core/src/report/*.rs"
+          "members": [
+            {
+              "oid": "sha1:b6fbc538b56dc7e0085571ee7b554d63564cbd04",
+              "path": "../crates/core/src/report/check.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:2ba5671285d7d5a0d665310a5212cfb7d7e499c1",
+              "path": "../crates/core/src/report/common.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:3a0497da96b90f2aa3515f667847a6cc8bef91c9",
+              "path": "../crates/core/src/report/diff.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:25df5f90fe4512f3f67fadf9be7e16661e7a538f",
+              "path": "../crates/core/src/report/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:2f1ce618ac5734d1a6b61a136001684f69aad558",
+              "path": "../crates/core/src/report/projects.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:86a9fc71a7b5947893e93bc696d43f5ed4871c68",
+              "path": "../crates/core/src/report/tests.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:18Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/report/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:18Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     },
     "repository-config.example.yaml": {
+      "reviewed": {
+        "at": "2026-11-12T22:28:20Z",
+        "by": "Sol (Codex)"
+      },
       "sources": [
         {
-          "pattern": "../crates/core/src/config/*.rs"
+          "members": [
+            {
+              "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
+              "path": "../crates/core/src/config/diagnose.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:7f930257de6d93dd9a4274c388cfb96dc56ab164",
+              "path": "../crates/core/src/config/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:045951e6dc5e174674bddf955ffa61c6157f0f92",
+              "path": "../crates/core/src/config/load.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:e2370ea8dd96d853a63851c708ab8b66e9f48ef3",
+              "path": "../crates/core/src/config/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
+              "path": "../crates/core/src/config/parse.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b02c9bbcbf67cca1022ff921381f07bcb91d777f",
+              "path": "../crates/core/src/config/pattern.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
+              "path": "../crates/core/src/config/projects.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:6dcf02c32500036d5aa41758a6a4709fe40a77fa",
+              "path": "../crates/core/src/config/resolve.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/config/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:20Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "path": "../crates/core/src/model/rules.rs"
+          "oid": "sha1:f56271a5e9c2f8875e207343d892e407deaa2ae4",
+          "path": "../crates/core/src/model/rules.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:20Z",
+            "by": "Sol (Codex)"
+          }
         },
         {
-          "pattern": "../crates/core/src/policy/*.rs"
+          "members": [
+            {
+              "oid": "sha1:50c66b564580da47bb5bf4b39bae74e2382a06e7",
+              "path": "../crates/core/src/policy/defaults.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:3a4ccdb31d6dd93b7152473ec378ea411718f974",
+              "path": "../crates/core/src/policy/error.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
+              "path": "../crates/core/src/policy/gate.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:e0d05431c97a16d33b3fbbd1ca6d56be26e1a50e",
+              "path": "../crates/core/src/policy/judge.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:5238c691a08c4a6fe50ed25f8424fb00f2438713",
+              "path": "../crates/core/src/policy/mod.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:80de16501124a19c3e1941107fe4f1c0654df687",
+              "path": "../crates/core/src/policy/select.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:0cac05e1d5522bf395be5b05d5d6467a5be7c06d",
+              "path": "../crates/core/src/policy/tests.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            },
+            {
+              "oid": "sha1:252c89e178a7dd6a2c6df78262f8d80aa23cfbef",
+              "path": "../crates/core/src/policy/validate.rs",
+              "reviewed": {
+                "at": "2026-11-12T22:28:20Z",
+                "by": "Sol (Codex)"
+              }
+            }
+          ],
+          "pattern": "../crates/core/src/policy/*.rs",
+          "reviewed": {
+            "at": "2026-11-12T22:28:20Z",
+            "by": "Sol (Codex)"
+          }
         }
       ]
     }
