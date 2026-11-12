@@ -62,6 +62,9 @@ pub(super) struct Edits {
 	/// On-file declarations, by document: the new declaration, or `None`
 	/// to remove the `source-sentry` key.
 	documents: BTreeMap<RepoPath, Option<Declaration>>,
+	/// Former paths of carried frontmatter, whose old spellings must be
+	/// validated at their original location before replacement.
+	former_documents: BTreeMap<RepoPath, RepoPath>,
 }
 
 impl Edits {
@@ -138,6 +141,18 @@ impl Edits {
 		declaration: Option<Declaration>,
 	) {
 		self.documents.insert(document.clone(), declaration);
+	}
+
+	/// Rewrites frontmatter that travelled from `old` to `new`, validating
+	/// the existing source spellings against their original directory.
+	pub(super) fn renamed_frontmatter(
+		&mut self,
+		old: &RepoPath,
+		new: &RepoPath,
+		declaration: Declaration,
+	) {
+		self.former_documents.insert(new.clone(), old.clone());
+		self.frontmatter(new, Some(declaration));
 	}
 
 	/// Sets the declaration of `document` at `placement`, or removes it with
@@ -261,8 +276,13 @@ impl Edits {
 		}
 		for (document, declaration) in self.documents {
 			let original = repo.snapshot.read(&document)?;
-			let bytes =
-				write_frontmatter(&document, &original, declaration.as_ref())?;
+			let previous = self.former_documents.get(&document).unwrap_or(&document);
+			let bytes = write_frontmatter(
+				previous,
+				&document,
+				&original,
+				declaration.as_ref(),
+			)?;
 			if bytes != original {
 				files.insert(document, bytes);
 			}
@@ -340,6 +360,7 @@ fn write_remote(
 /// `original` with its declaration replaced by `declaration`, which must
 /// read back unchanged.
 fn write_frontmatter(
+	previous: &RepoPath,
 	document: &RepoPath,
 	original: &[u8],
 	declaration: Option<&Declaration>,
@@ -348,8 +369,13 @@ fn write_frontmatter(
 		document: document.clone(),
 		error,
 	};
-	let bytes =
-		frontmatter::write(document, original, declaration).map_err(invalid)?;
+	let bytes = match declaration {
+		Some(declaration) if previous != document => {
+			frontmatter::write_renamed(previous, document, original, declaration)
+		}
+		_ => frontmatter::write(document, original, declaration),
+	}
+	.map_err(invalid)?;
 	let reread = frontmatter::read(document, &bytes).map_err(invalid)?;
 	if reread.as_ref() == declaration {
 		Ok(bytes)

@@ -10,6 +10,7 @@ mod explain;
 mod init;
 mod migrate;
 mod records;
+mod rename;
 mod review;
 mod track;
 mod untrack;
@@ -43,6 +44,7 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 		Command::Retire(args) => records::retire(&workspace, args, printer),
 		Command::Track(args) => track::run(&workspace, args, printer),
 		Command::Untrack(args) => untrack::run(&workspace, args, printer),
+		Command::Rename(args) => rename::run(&workspace, args, printer),
 		Command::Init(args) => init::run(&workspace, args, printer),
 		Command::Migrate(args) => migrate::run(&workspace, args, printer),
 	}

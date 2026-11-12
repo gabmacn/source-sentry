@@ -1,4 +1,4 @@
-//! Mutations as write plans: attest, diff, seal, retire, track, init and
+//! Mutations as write plans: attest, diff, seal, retire, track, rename, init and
 //! migrate.
 //!
 //! Every command is a planner. It reads the repository through a
@@ -50,6 +50,7 @@ mod expectation;
 mod init;
 mod migrate;
 mod relocate;
+mod rename;
 mod repo;
 mod retire;
 mod seal;
@@ -73,6 +74,10 @@ pub use migrate::{LockfileSchema, SchemaReport, migrate};
 pub use relocate::{
 	Moved, Setting, SettingsPreview, TrackFromRequest, TrackFromSummary,
 	track_from,
+};
+pub use rename::{
+	RenameRequest, RenameSeries, RenameSourceKind, RenameSummary, RenamedSource,
+	rename,
 };
 pub use repo::Placement;
 pub use retire::{RetireRequest, RetireSummary, retire};

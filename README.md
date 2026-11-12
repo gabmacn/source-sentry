@@ -69,6 +69,7 @@ source-sentry diff docs/privacy.md      # What changed since the last review.
 source-sentry review                    # Review pending documents on a terminal.
 source-sentry attest docs/privacy.md    # Record a review.
 source-sentry explain docs/privacy.md   # Why a document is judged as it is.
+source-sentry rename docs/old.md docs/new.md # Update records after git mv.
 ```
 
 Document arguments, `init` paths, lockfile directories and `--repo` use

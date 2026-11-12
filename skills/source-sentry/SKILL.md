@@ -87,7 +87,7 @@ terminal; agents use `diff` and `attest`.
 |---|---|
 | `missing-source` | A source was deleted or renamed. Point the document at the new file with `track <document> --source <new path>`, remove the old one with `untrack <document> --source <old path>`, then review the document. |
 | `empty-pattern` | A source pattern matches no file. Correct it with `track --pattern` and `untrack --pattern`. |
-| `missing-document` | A tracked document is gone. If it was deleted on purpose, `retire` it; if it was renamed, see below. |
+| `missing-document` | A tracked document is gone. If it was deleted on purpose, `retire` it; if it was moved, run `source-sentry rename <old> <new>` after `git mv`, keeping its reviews. |
 | `broken-seal` | A record changed. Restore it from git, for example `git restore --source=<commit> -- <path>`. Never reseal it. |
 | `double-claim` | A document is declared in two places. Ask which declaration is right before removing either. |
 | `invalid-lockfile`, `invalid-declaration`, `invalid-config` | A file is malformed, usually by a hand edit or a bad merge. Restore it from git or repair the merge, then run `check`. |
@@ -109,10 +109,13 @@ every code.
 - **Deleting a document:** `source-sentry retire <document>`, then delete
   the file. For a document declared in its own frontmatter, delete the file
   instead; its declaration goes with it.
-- **Renaming a document:** there is no rename command yet. `retire` the old
-  path, `git mv` the file, `track` the new path with the same sources, and
-  review it again. Tell the person that the earlier reviews did not carry
-  over.
+- **Renaming a document:** move it with `git mv <old> <new>`, then run
+  `source-sentry rename <old> <new>`. Both paths start in the current
+  directory. The command keeps its reviews, seal and completion, re-expresses
+  relative sources and updates documents that use it as a source. Check the
+  plan, then run `check` for patterns that no longer match or changes to
+  series membership. Commit an on-file declaration before moving it, so the
+  command can verify that the declaration travelled with the file.
 - **Moving a declaration** between a lockfile, the frontmatter and another
   lockfile: `track <document> --from <placement> --to <placement>`, where a
   placement is `on-file`, `lockfile:<directory>` or `remote:<owner>`.

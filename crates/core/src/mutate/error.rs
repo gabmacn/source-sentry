@@ -20,6 +20,41 @@ use crate::ports::{BackendError, Canonical};
 /// Why a mutation command planned nothing.
 #[derive(Debug, thiserror::Error)]
 pub enum MutateError {
+	/// A rename does not satisfy its preconditions.
+	#[error("cannot rename `{old}` to `{new}`: {reason}")]
+	RenameRefused {
+		/// The old identity.
+		old: DocumentId,
+		/// The destination identity.
+		new: DocumentId,
+		/// What to correct before retrying.
+		reason: &'static str,
+	},
+	/// A source cannot retain its identity after a document rename.
+	#[error(
+		"cannot rename `{document}`: cannot re-express source `{declared}`: {error}"
+	)]
+	CannotRenameSource {
+		/// The document whose declaration changes.
+		document: DocumentId,
+		/// The source's old spelling.
+		declared: String,
+		/// Why re-expression failed.
+		#[source]
+		error: RebaseError,
+	},
+	/// A pattern already holds a review at the destination path.
+	#[error(
+		"the pattern `{pattern}` of `{document}` already reviews `{path}`. Run `diff` and review the pattern's membership before renaming; neither review was discarded"
+	)]
+	RenameMemberConflict {
+		/// The dependent document.
+		document: DocumentId,
+		/// Its declared pattern.
+		pattern: String,
+		/// The conflicting destination.
+		path: RepoPath,
+	},
 	/// A predecessor's source cannot retain its identity at the new location.
 	#[error(
 		"cannot register `{document}`: cannot inherit source `{declared}` from `{predecessor}`: {error}"

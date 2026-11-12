@@ -23,6 +23,8 @@ mod paths;
 #[cfg(test)]
 mod records;
 #[cfg(test)]
+mod rename;
+#[cfg(test)]
 mod review;
 #[cfg(test)]
 mod schedules;

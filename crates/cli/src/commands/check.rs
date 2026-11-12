@@ -3,13 +3,13 @@
 use std::fmt::Write as _;
 
 use source_sentry_core::claims::{
-	Diagnostic, Outside, discover, outside_the_index,
+	Diagnostic, DiagnosticKind, Outside, discover, outside_the_index,
 };
 use source_sentry_core::config::{ConfigSet, LoadError};
 use source_sentry_core::evaluate::{
 	Evaluation, Subject, SubjectKind, check, unloadable,
 };
-use source_sentry_core::model::{Outcome, RepoPath};
+use source_sentry_core::model::{DocumentId, Outcome, RepoPath};
 use source_sentry_core::policy::{ErrorKind, Threshold};
 use source_sentry_core::ports::Snapshot;
 use source_sentry_core::report::{CheckReport, to_json};
@@ -143,7 +143,7 @@ fn evaluate_snapshot<S: Snapshot>(
 	};
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;
-	let evaluation = check(
+	let mut evaluation = check(
 		snapshot,
 		repository,
 		&configs,
@@ -152,6 +152,28 @@ fn evaluate_snapshot<S: Snapshot>(
 		Some(context),
 	)
 	.map_err(|error| Failure::backend(&error))?;
+	for diagnostic in &mut evaluation.diagnostics {
+		if diagnostic.kind == DiagnosticKind::MissingDocument
+			&& let Some(DocumentId::Local(old)) = &diagnostic.document
+		{
+			let path = workspace.display_path(old);
+			let path = if path.starts_with('-')
+				|| matches!(
+					crate::cli::parse_document(&path),
+					Ok(crate::cli::DocumentArg::Remote(_))
+				) {
+				format!("./{path}")
+			} else {
+				path
+			};
+			let _ = write!(
+				diagnostic.message,
+				". If it was renamed, run `{} rename {} <new>` after moving the file with `git mv`",
+				workspace.command_prefix(),
+				super::shell_word(&path)
+			);
+		}
+	}
 	Ok((evaluation, Some(configs)))
 }
 

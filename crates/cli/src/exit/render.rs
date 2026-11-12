@@ -52,6 +52,28 @@ fn diagnostics(workspace: &Workspace, diagnostics: &[Diagnostic]) -> String {
 /// A planner refusal whose diagnostic locations belong to this invocation.
 pub(super) fn mutation(workspace: &Workspace, error: &MutateError) -> String {
 	match error {
+		MutateError::RenameRefused { old, new, reason } => format!(
+			"cannot rename `{}` to `{}`: {reason}",
+			workspace.display_document(old),
+			workspace.display_document(new)
+		),
+		MutateError::CannotRenameSource {
+			document,
+			declared,
+			error,
+		} => format!(
+			"cannot rename `{}`: cannot re-express source `{declared}`: {error}",
+			workspace.display_document(document)
+		),
+		MutateError::RenameMemberConflict {
+			document,
+			pattern,
+			path,
+		} => format!(
+			"the pattern `{pattern}` of `{}` already reviews `{}`. Run `diff` and review the pattern's membership before renaming; neither review was discarded",
+			workspace.display_document(document),
+			workspace.display_path(path)
+		),
 		MutateError::DocumentHasErrors {
 			document,
 			diagnostics: errors,

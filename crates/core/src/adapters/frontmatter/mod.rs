@@ -231,6 +231,35 @@ pub fn write(
 	bytes: &[u8],
 	declaration: Option<&Declaration>,
 ) -> Result<Vec<u8>, FrontmatterError> {
+	write_at(document, document, bytes, declaration)
+}
+
+/// Rewrites a carried declaration after its document was renamed.
+///
+/// The existing declaration is validated relative to `old`, where its
+/// spellings were written; the replacement is validated relative to `new`.
+/// All other bytes are preserved with the same guarantees as [`write()`].
+///
+/// # Errors
+///
+/// Fails as [`write()`] does, using the appropriate directory for each parse.
+pub fn write_renamed(
+	old: &RepoPath,
+	new: &RepoPath,
+	bytes: &[u8],
+	declaration: &Declaration,
+) -> Result<Vec<u8>, FrontmatterError> {
+	write_at(old, new, bytes, Some(declaration))
+}
+
+/// Validates old and new spellings in their respective directories while
+/// preserving other frontmatter keys and document bytes.
+fn write_at(
+	previous: &RepoPath,
+	document: &RepoPath,
+	bytes: &[u8],
+	declaration: Option<&Declaration>,
+) -> Result<Vec<u8>, FrontmatterError> {
 	if let Some(declaration) = declaration {
 		validate(
 			declaration,
@@ -272,7 +301,7 @@ pub fn write(
 			(insert_at..insert_at, emit::block(declaration, eol))
 		}
 		(Located::Present { block, line, eol }, declaration) => {
-			let existing = parse(document, bytes, block.clone(), line)?;
+			let existing = parse(previous, bytes, block.clone(), line)?;
 			match declaration {
 				Some(declaration) if *declaration == existing => {
 					return Ok(bytes.to_vec());

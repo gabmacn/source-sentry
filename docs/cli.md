@@ -268,6 +268,7 @@ source-sentry track <document> [--on-file | --lockfile [<directory>] | --remote 
                     [--dry-run] [--yes]
 source-sentry track <document>... --from <placement> --to <placement> [--dry-run] [--yes]
 source-sentry untrack <document> [--source <path>]... [--pattern <glob>]... [--dry-run] [--yes]
+source-sentry rename <old> <new> [--dry-run] [--yes]
 source-sentry init [<path>... | --all] [--class <name>]... [--owner <id>]... [--dry-run] [--yes]
 source-sentry migrate [--dry-run] [--yes]
 ```
@@ -321,6 +322,37 @@ source-sentry migrate [--dry-run] [--yes]
   by its declared spelling or `/`-rooted form. The other sources
   keep their reviews. To stop tracking a document altogether, `retire` it;
   for an on-file document, delete its `source-sentry` key instead.
+- **`rename`** updates Source Sentry's records after you move a document:
+
+  ```sh
+  git mv docs/old.md docs/new.md
+  source-sentry rename docs/old.md docs/new.md
+  ```
+
+  Both arguments are filesystem paths from the current directory, or
+  absolute paths. The old file must be absent and have a live declaration;
+  the new file must exist, be tracked by git (including intent-to-add), and
+  have no independent declaration. Remote identities are refused.
+
+  A lockfile entry moves to the nearest lockfile above the new path, or a
+  new lockfile in its directory if none exists. Old tombstones stay where
+  they are. An on-file declaration travels with the file; its declaration
+  must match the old path's committed frontmatter, so commit an on-file
+  declaration before moving it. Relative source paths, patterns and reviewed
+  members are re-expressed for the new directory; `/`-rooted spellings stay.
+
+  Every source review, the document's `reviewed`, its seal and `completed`
+  are kept. Other documents' path sources follow the new path and retain
+  their reviews. A reviewed pattern member follows only when the pattern
+  also matches the new path; otherwise the pattern stays unchanged and
+  `check` reports the membership change. Conflicting destination member
+  reviews are refused. A changed sealed record is refused; other content
+  changes are reported against the retained review oids by `check`.
+
+  The plan shows source rewrites and changes to series membership or
+  version. A rename that would introduce configuration or integrity errors
+  is refused. Use `--dry-run` to preview, or `--yes` to confirm without a
+  terminal, as for other changes.
 - **A placement** is written `on-file`, `lockfile:<directory>` or
   `remote:<owner>`. A lockfile directory is relative to the current
   directory, or an absolute filesystem path.

@@ -7,6 +7,7 @@ mod expectation;
 mod init;
 mod migrate;
 mod relocate;
+mod rename;
 mod retire;
 mod seal;
 mod succession;

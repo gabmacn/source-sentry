@@ -126,6 +126,10 @@ pub(crate) enum Command {
 	/// other sources' attestations.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
 	Untrack(UntrackArgs),
+	/// Update declarations after moving a document with `git mv`, keeping its
+	/// reviews, seal and completion.
+	#[command(after_long_help = MUTATION_EXIT_CODES)]
+	Rename(RenameArgs),
 	/// Preview adoption: roots, claims and candidates. With paths or `--all`,
 	/// register candidates as unattested.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
@@ -303,6 +307,20 @@ pub(crate) struct RecordArgs {
 	/// Who seals or retires it. By default, git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) by: Option<String>,
+	#[command(flatten)]
+	pub(crate) confirm: ConfirmArgs,
+}
+
+/// `rename`: both arguments are filesystem paths, with remote identities
+/// parsed so that the command can explain their refusal.
+#[derive(Debug, Args)]
+pub(crate) struct RenameArgs {
+	/// The former document path. Move the file first with `git mv`.
+	#[arg(value_name = "OLD", value_parser = parse_document)]
+	pub(crate) old: DocumentArg,
+	/// The new path, which must exist and be tracked by git.
+	#[arg(value_name = "NEW", value_parser = parse_document)]
+	pub(crate) new: DocumentArg,
 	#[command(flatten)]
 	pub(crate) confirm: ConfirmArgs,
 }

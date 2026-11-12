@@ -15,6 +15,8 @@ fn invalid_usage_exits_64() {
 		&["check", "--format", "xml"],
 		&["--color", "sometimes", "check"],
 		&["attest"],
+		&["rename"],
+		&["rename", "docs/guide.md"],
 		&["attest", "docs/guide.md", "--expect", "src/a.rs"],
 		&["attest", "docs/guide.md", "--expect", "src/a.rs@sha1:xyz"],
 		// Reviews cannot be backdated.
@@ -64,6 +66,7 @@ fn help_and_version_exit_0() {
 		&["help"],
 		&["check", "--help"],
 		&["help", "track"],
+		&["rename", "--help"],
 		&["--version"],
 		&["-V"],
 	] {
