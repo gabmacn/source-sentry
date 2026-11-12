@@ -193,6 +193,7 @@ impl SubjectReport {
 				DocumentReport::new(subject, document, facts, judgement),
 			)),
 			SubjectKind::Unclaimed(file) => Self::Unclaimed(UnclaimedReport {
+				inherit_from: file.inherit_from.as_ref().map(ToString::to_string),
 				facts,
 				judgement,
 				outcome,
@@ -523,6 +524,9 @@ impl From<&evaluate::SourceReport> for SourceReport {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct UnclaimedReport {
+	/// The predecessor registration would inherit, omitted when absent.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub inherit_from: Option<String>,
 	/// Its facts: `unclaimed`.
 	pub facts: Vec<Fact>,
 	/// Each fact's judgement, or `null` when it was not judged.

@@ -14,12 +14,27 @@ use crate::adapters::lockfile::LockfileError;
 use crate::claims::{Diagnostic, Location};
 use crate::config::ConfigError;
 use crate::evaluate::schedule::ScheduleError;
-use crate::model::{ClassName, DocumentId, PathError, RepoPath};
+use crate::model::{ClassName, DocumentId, PathError, RebaseError, RepoPath};
 use crate::ports::{BackendError, Canonical};
 
 /// Why a mutation command planned nothing.
 #[derive(Debug, thiserror::Error)]
 pub enum MutateError {
+	/// A predecessor's source cannot retain its identity at the new location.
+	#[error(
+		"cannot register `{document}`: cannot inherit source `{declared}` from `{predecessor}`: {error}"
+	)]
+	CannotInherit {
+		/// The new entry.
+		document: DocumentId,
+		/// The declared earlier entry.
+		predecessor: RepoPath,
+		/// The source spelling in the predecessor.
+		declared: String,
+		/// Why re-expression failed.
+		#[source]
+		error: RebaseError,
+	},
 	/// The repository could not be read, so the command could not complete
 	/// (exit 4).
 	#[error(transparent)]

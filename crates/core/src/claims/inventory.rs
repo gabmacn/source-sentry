@@ -110,6 +110,23 @@ impl Inventory {
 				.map(|member| (series, member))
 		})
 	}
+
+	/// The newest strictly earlier member of `path`'s series with a live
+	/// declaration. Sealed declarations qualify; tombstones do not.
+	#[must_use]
+	pub fn predecessor(&self, path: &RepoPath) -> Option<&Claim> {
+		let (series, member) = self.series_of(path)?;
+		series
+			.members
+			.iter()
+			.rev()
+			.filter(|earlier| earlier.version < member.version)
+			.find_map(|earlier| {
+				self
+					.claims_of(&DocumentId::Local(earlier.path.clone()))
+					.next()
+			})
+	}
 }
 
 /// The local lockfile among `lockfiles` whose directory is the nearest that
@@ -367,6 +384,8 @@ pub struct Unclaimed {
 	pub path: RepoPath,
 	/// The root whose scan found it, which supplies its default classes.
 	pub root: RepoPath,
+	/// The predecessor whose declaration registration would inherit, if any.
+	pub inherit_from: Option<RepoPath>,
 }
 
 /// A series and its members, ordered by version.

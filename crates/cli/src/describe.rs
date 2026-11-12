@@ -86,6 +86,38 @@ pub(crate) fn subject_name(subject: &Subject) -> String {
 	}
 }
 
+/// The command to register an unclaimed successor and its predecessor.
+pub(crate) fn inheritance_hint(
+	workspace: &crate::workspace::Workspace,
+	subject: &Subject,
+) -> Option<String> {
+	let SubjectKind::Unclaimed(file) = &subject.kind else {
+		return None;
+	};
+	let predecessor = file.inherit_from.as_ref()?;
+	let mut command = vec!["source-sentry".to_owned()];
+	if let Some(repo) = workspace.repo_argument() {
+		command.extend(["--repo".to_owned(), repo.display().to_string()]);
+	}
+	let path = workspace.display_path(&file.path);
+	command.extend([
+		"track".to_owned(),
+		if path.starts_with('-') {
+			format!("./{path}")
+		} else {
+			path
+		},
+	]);
+	let command = command
+		.iter()
+		.map(|word| crate::commands::shell_word(word))
+		.collect::<Vec<_>>()
+		.join(" ");
+	Some(format!(
+		"Run `{command}` to inherit the declaration of `{predecessor}`"
+	))
+}
+
 /// A subject's facts, as one line: `stale, overdue (due 2026-11-03)`.
 /// `fresh` is left out, so a passing subject reads `fresh`.
 pub(crate) fn facts(subject: &Subject) -> String {

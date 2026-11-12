@@ -68,7 +68,7 @@ pub(super) fn run(
 				}
 				_ => Vec::new(),
 			};
-			printer.print(&render(&evaluation, threshold, &outside));
+			printer.print(&render(workspace, &evaluation, threshold, &outside));
 		}
 	}
 	Ok(evaluation.exit_code(threshold).code())
@@ -147,6 +147,7 @@ fn evaluate_snapshot<S: Snapshot>(
 /// it, and it is listed for them even when it passes, so that a passing
 /// line never hides an error about the same document.
 pub(super) fn render(
+	workspace: &Workspace,
 	evaluation: &Evaluation,
 	threshold: Threshold,
 	outside: &[(RepoPath, Outside)],
@@ -171,7 +172,10 @@ pub(super) fn render(
 				}
 			}
 		}
-		if outcome != Outcome::Pass || !own.is_empty() {
+		if outcome != Outcome::Pass
+			|| !own.is_empty()
+			|| matches!(&subject.kind, SubjectKind::Unclaimed(file) if file.inherit_from.is_some())
+		{
 			listed.push((subject, outcome, own));
 		}
 	}
@@ -203,6 +207,9 @@ pub(super) fn render(
 			.chain(describe::deciding_rules(evaluation, subject));
 		for detail in details {
 			let _ = writeln!(text, "      {}", output::dim(&detail));
+		}
+		if let Some(hint) = describe::inheritance_hint(workspace, subject) {
+			let _ = writeln!(text, "      {hint}");
 		}
 		for diagnostic in own {
 			let _ = writeln!(text, "      {}", diagnostic_line(diagnostic));

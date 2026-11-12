@@ -14,6 +14,12 @@ series:
     pattern: 'log-(?P<version>\d+)\.md'
     version-kind: integer
     lifecycle: records-only
+    # Registering a successor with `track`, or `init` with paths or `--all`,
+    # copies the newest earlier entry's live declaration, even if sealed.
+    # Classes, owners, schedule and sources copy; relative source spellings
+    # are re-expressed for the successor's directory. Reviews, the seal and
+    # `completed` do not copy. Retired entries have no declaration to copy.
+    # This also applies to `living` series. The plan shows the inheritance.
     # A new sealed log is due every Monday, with three days of grace.
     # Each window runs after the previous due date through this due date plus
     # grace, inclusive; the first has no lower bound. An entry credits at most

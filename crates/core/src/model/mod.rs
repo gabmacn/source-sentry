@@ -10,6 +10,7 @@ mod declaration;
 mod identity;
 mod oid;
 mod path;
+mod rebase;
 mod rules;
 mod series;
 
@@ -20,6 +21,7 @@ pub use declaration::{
 pub use identity::{DocumentId, IdentityError, RemoteIdentity, Service};
 pub use oid::{CommitId, HashAlgorithm, ObjectId, OidError};
 pub use path::{PathError, RepoPath, resolve_rooted, resolve_source};
+pub use rebase::{RebaseError, rebase_path, rebase_pattern};
 pub use rules::{ClassName, ClassNameError, Context, Fact, Outcome, Rule};
 pub use series::{Lifecycle, VersionKind};
 

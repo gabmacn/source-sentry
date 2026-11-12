@@ -13,6 +13,8 @@ mod records;
 mod track;
 mod untrack;
 
+pub(crate) use diff::shell_word;
+
 use chrono::{DateTime, SubsecRound as _, Utc};
 
 use crate::cli::{Cli, Command};

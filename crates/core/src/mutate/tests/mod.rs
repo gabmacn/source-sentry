@@ -9,6 +9,7 @@ mod migrate;
 mod relocate;
 mod retire;
 mod seal;
+mod succession;
 mod track;
 
 use chrono::{DateTime, Utc};

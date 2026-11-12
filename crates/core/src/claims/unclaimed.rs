@@ -44,6 +44,7 @@ pub(super) fn scan(
 		};
 		if directories.of(path).eligibility(path).is_eligible() {
 			unclaimed.push(Unclaimed {
+				inherit_from: None,
 				path: path.clone(),
 				root,
 			});

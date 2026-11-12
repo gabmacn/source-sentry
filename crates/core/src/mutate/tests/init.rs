@@ -34,10 +34,12 @@ fn the_preview_lists_roots_claims_and_candidates() {
 		preview.candidates,
 		[
 			Unclaimed {
+				inherit_from: None,
 				path: path("docs/a.md"),
 				root: path("docs"),
 			},
 			Unclaimed {
+				inherit_from: None,
 				path: path("docs/guides/b.md"),
 				root: path("docs"),
 			},

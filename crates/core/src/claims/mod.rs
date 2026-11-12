@@ -82,7 +82,7 @@ pub use read::{FRONTMATTER_FIELD, entry_field};
 pub use version::{Version, VersionError};
 
 use crate::config::{ConfigSet, DirectorySettings};
-use crate::model::RepoPath;
+use crate::model::{DocumentId, RepoPath};
 use crate::ports::{BackendError, Snapshot};
 use crate::{CONFIG_NAME, DIR_NAME, LOCKFILE_NAME};
 
@@ -155,7 +155,7 @@ pub fn discover<S: Snapshot>(
 
 	diagnostics.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
 	diagnostics.dedup();
-	Ok(Inventory {
+	let mut inventory = Inventory {
 		revision: snapshot.revision().clone(),
 		lockfiles,
 		claims,
@@ -164,7 +164,17 @@ pub fn discover<S: Snapshot>(
 		unclaimed,
 		series,
 		diagnostics,
-	})
+	};
+	for index in 0..inventory.unclaimed.len() {
+		let predecessor = inventory
+			.predecessor(&inventory.unclaimed[index].path)
+			.and_then(|claim| match &claim.document {
+				DocumentId::Local(path) => Some(path.clone()),
+				DocumentId::Remote(_) => None,
+			});
+		inventory.unclaimed[index].inherit_from = predecessor;
+	}
+	Ok(inventory)
 }
 
 /// Each directory's effective settings, computed once per discovery.

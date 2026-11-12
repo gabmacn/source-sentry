@@ -96,6 +96,8 @@ pub fn init_preview(configs: &ConfigSet, inventory: &Inventory) -> InitPreview {
 /// covers it, into a new lockfile at the root whose scan found it, so that a
 /// root's candidates share one lockfile. With no candidate to register, the
 /// plan is empty.
+/// Series entries inherit through the same planner as `track`, using the
+/// declarations present in the input inventory.
 ///
 /// # Errors
 ///

@@ -279,7 +279,7 @@ fn plain_hunks(old: &str, new: &str) -> String {
 ///   or ends a double-quoted word with: `$`, `` ` ``, `\`, `!`, or a double
 ///   quotation mark, typographic ones included;
 /// - otherwise in the POSIX form `'it'\''s'`, which PowerShell cannot read.
-pub(super) fn shell_word(word: &str) -> String {
+pub(crate) fn shell_word(word: &str) -> String {
 	const SINGLE: [char; 5] =
 		['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 	const IN_DOUBLE: [char; 8] =

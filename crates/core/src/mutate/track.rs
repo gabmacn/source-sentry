@@ -11,7 +11,7 @@ use super::repo::{
 };
 use super::select::declared;
 use super::verify::verify;
-use super::{MutateError, Planned};
+use super::{Inherited, MutateError, Planned};
 use crate::adapters::Adapter;
 use crate::claims::{
 	Claim, FRONTMATTER_FIELD, Inventory, Location, Mode, ResolvedSource,
@@ -118,6 +118,8 @@ pub struct TrackSummary {
 /// One registered document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registered {
+	/// The predecessor and declaration copied before command-line additions.
+	pub inherited: Option<Inherited>,
 	/// The document.
 	pub document: DocumentId,
 	/// Where its declaration lives.
@@ -160,6 +162,9 @@ pub struct CarriedTombstone {
 /// Plans registering a document as unattested: its declared sources carry
 /// no oids and no reviews, and the document has no `reviewed`.
 /// Classes, owners and a schedule are optional.
+/// A new series entry starts with the newest earlier declared entry's
+/// settings and rebased sources, without reviews, seal or completion.
+/// Options add to that declaration as they do when extending a document.
 ///
 /// The declaration goes in the document's frontmatter, in a local lockfile,
 /// or in a remote owner's lockfile, as [`Target`] describes. A missing
@@ -187,6 +192,7 @@ pub struct CarriedTombstone {
 ///   nothing ([`MutateError::EmptyPattern`]);
 /// - an undeclared class, an empty owner, an invalid owner name or an
 ///   invalid schedule;
+/// - an inherited source that cannot be re-expressed or registered;
 /// - a change that would introduce any other configuration or integrity
 ///   error, such as a dependency cycle.
 ///
@@ -216,6 +222,8 @@ pub fn track<S: Snapshot>(
 /// A registration planned in [`Edits`], to confirm once discovery has seen
 /// the result.
 pub(super) struct Pending {
+	/// The declaration copied before command-line additions.
+	inherited: Option<Inherited>,
 	document: DocumentId,
 	placement: Placement,
 	declared_in: Location,
@@ -292,11 +300,20 @@ pub(super) fn register<S: Snapshot>(
 			});
 		}
 	};
-	let declaration = declaration(repo, configs, request)?;
+	let addition = declaration(repo, configs, request)?;
+	let inherited = super::succession::inherit(repo, document)?;
+	let declaration = if let Some(inherited) = &inherited {
+		let mut declaration = inherited.declaration.clone();
+		add(document, &mut declaration, addition)?;
+		declaration
+	} else {
+		addition
+	};
 	let declared_in = location(document, &placement)?;
 	let new_patterns = patterns_of(&declaration.sources);
 	edits.place(repo, document, &placement, Some(declaration))?;
 	Ok(Pending {
+		inherited,
 		document: document.clone(),
 		placement,
 		declared_in,
@@ -366,6 +383,28 @@ fn extend<S: Snapshot>(
 	let addition = declaration(repo, configs, request)?;
 	let new_patterns = patterns_of(&addition.sources);
 	let mut declaration = claim.declaration.clone();
+	add(document, &mut declaration, addition)?;
+	let declared_in = claim.location();
+	edits.place(repo, document, &placement, Some(declaration))?;
+	Ok(Pending {
+		inherited: None,
+		document: document.clone(),
+		placement,
+		declared_in,
+		created: false,
+		extended: true,
+		new_patterns,
+	})
+}
+
+/// Adds sources and settings with the same rules for extension and succession.
+/// Duplicate sources are refused; classes and owners are added once, and
+/// grace and cadence replace only the fields supplied.
+fn add(
+	document: &DocumentId,
+	declaration: &mut Declaration,
+	addition: Declaration,
+) -> Result<(), MutateError> {
 	for source in addition.sources {
 		if let Some(first) = declaration
 			.sources
@@ -413,16 +452,7 @@ fn extend<S: Snapshot>(
 	if addition.url.is_some() {
 		declaration.url = addition.url;
 	}
-	let declared_in = claim.location();
-	edits.place(repo, document, &placement, Some(declaration))?;
-	Ok(Pending {
-		document: document.clone(),
-		placement,
-		declared_in,
-		created: false,
-		extended: true,
-		new_patterns,
-	})
+	Ok(())
 }
 
 /// Whether `existing` and `added` declare the same source of `document`:
@@ -485,6 +515,7 @@ pub(super) fn confirm(
 		}
 	}
 	Ok(Registered {
+		inherited: pending.inherited,
 		document: pending.document,
 		placement: pending.placement,
 		declared_in: pending.declared_in,
@@ -861,7 +892,7 @@ fn declaration<S: Snapshot>(
 /// file; and with [`MutateError::SubmoduleSource`] for a path, or a new
 /// pattern's match, that is a submodule. A pattern that does not compile is
 /// left to discovery, whose diagnostic names the problem.
-fn sources<S: Snapshot>(
+pub(super) fn sources<S: Snapshot>(
 	repo: &Repo<'_, S>,
 	document: &DocumentId,
 	specs: &[SourceSpec],

@@ -5,11 +5,13 @@ use std::fmt::Write as _;
 
 use chrono::NaiveDate;
 use source_sentry_core::model::{
-	Cadence, CadenceSetting, ClassName, DocumentId, Schedule, SourceDecl,
+	Cadence, CadenceSetting, ClassName, Declaration, DocumentId, Schedule,
+	SourceDecl,
 };
 use source_sentry_core::mutate::{
-	CarriedTombstone, Placement, Registered, Setting, Target, TrackFromRequest,
-	TrackFromSummary, TrackRequest, TrackSummary, track, track_from,
+	CarriedTombstone, PatternMatches, Placement, Registered, Setting, Target,
+	TrackFromRequest, TrackFromSummary, TrackRequest, TrackSummary, track,
+	track_from,
 };
 use source_sentry_core::report;
 
@@ -207,15 +209,31 @@ pub(super) fn registration(text: &mut String, registered: &Registered) {
 			describe::location(&registered.declared_in)
 		);
 	}
-	let declaration = &registered.declaration;
+	if let Some(inherited) = &registered.inherited {
+		let _ = writeln!(
+			text,
+			"  Inherit from {} without reviews, seal or completion:",
+			inherited.predecessor,
+		);
+		declaration_fields(text, &inherited.declaration, &registered.matches);
+		text.push_str("  Result after command options:\n");
+	}
+	declaration_fields(text, &registered.declaration, &registered.matches);
+}
+
+/// Declared sources and explicit settings, shared by inherited and final values.
+fn declaration_fields(
+	text: &mut String,
+	declaration: &Declaration,
+	patterns: &[PatternMatches],
+) {
 	for source in &declaration.sources {
 		match source {
 			SourceDecl::Path(path) => {
 				let _ = writeln!(text, "  source   {}", path.path);
 			}
 			SourceDecl::Pattern(pattern) => {
-				let matches = registered
-					.matches
+				let matches = patterns
 					.iter()
 					.find(|found| found.pattern == pattern.pattern)
 					.map_or(0, |found| found.matches.len());

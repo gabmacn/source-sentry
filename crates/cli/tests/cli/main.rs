@@ -25,6 +25,8 @@ mod review;
 #[cfg(test)]
 mod schedules;
 #[cfg(test)]
+mod succession;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod track;

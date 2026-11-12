@@ -96,6 +96,11 @@ A diagnostic about a document, such as a missing source, is shown under that
 document, which is then listed even when it passes. Other diagnostics follow
 the subjects.
 
+For an unclaimed series entry with a declared predecessor, `check` and
+`explain` show the `source-sentry track <path>` command and the predecessor
+whose declaration it would inherit. The JSON unclaimed subject adds
+`inherit-from` with that predecessor's repository path.
+
 `check` reads the files that git tracks: a new document or config counts
 once it is added with `git add`, even if it is not committed. On the working
 tree, a note names the files that would count but that git does not track
@@ -188,6 +193,20 @@ source-sentry migrate [--dry-run] [--yes]
   Existing reviews are kept. A source already declared is refused, and so
   are a source inside or naming a submodule and a placement option that
   names another placement.
+- **`track` on an unclaimed series entry** starts with the newest earlier
+  entry, ordered by parsed version, that still has a declaration. A sealed
+  predecessor qualifies; a retired entry has no declaration to copy. Both
+  series lifecycles use this rule. Without a declared predecessor,
+  registration proceeds as usual.
+
+  It copies the declared classes, owners, grace, cadence and sources.
+  Relative source paths and patterns are re-expressed for the new document's
+  directory; `/`-rooted spellings stay unchanged. Attestations, the document's
+  `reviewed`, its seal and `completed` are never copied. Options add sources,
+  classes and owners, and override grace or cadence, as when extending a
+  tracked document. Placement follows the usual rules. The plan names the
+  predecessor and shows the copied declaration before the options apply.
+  A source that cannot be re-expressed or registered refuses the whole plan.
 - **`--from` and `--to`** move declarations with their reviews and
   tombstones. A move between lockfiles must include every entry whose
   nearest lockfile changes, and a lockfile left empty is deleted. Only a
@@ -205,6 +224,10 @@ source-sentry migrate [--dry-run] [--yes]
   paths, or `--all`, it registers them as unattested. It never creates a
   root: `track` a first document, or add a directory config with
   `root: true`.
+
+  Series entries inherit as with `track`, using the declarations present
+  when the command starts. Classes and owners given to `init` add to the
+  copied declaration. The plan shows each predecessor and what is copied.
 - **`migrate`** upgrades lockfiles to the current schema. Schema 1 is the
   only one so far, so it confirms that every lockfile is current, and refuses
   a schema it does not know.

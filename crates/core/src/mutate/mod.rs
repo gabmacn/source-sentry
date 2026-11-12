@@ -54,6 +54,7 @@ mod repo;
 mod retire;
 mod seal;
 mod select;
+mod succession;
 mod track;
 mod untrack;
 mod verify;
@@ -77,6 +78,7 @@ pub use repo::Placement;
 pub use retire::{RetireRequest, RetireSummary, retire};
 pub use seal::{SealRequest, SealSummary, seal};
 pub use select::Selection;
+pub use succession::Inherited;
 pub use track::{
 	CarriedTombstone, PatternMatches, Registered, SourceSpec, Target,
 	TrackRequest, TrackSummary, track,

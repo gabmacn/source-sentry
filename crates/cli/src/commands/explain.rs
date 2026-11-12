@@ -52,7 +52,7 @@ pub(super) fn run(
 					Severity::Operational => exit::OPERATIONAL,
 				});
 			}
-			let mut text = explain(&evaluation, subject);
+			let mut text = explain(workspace, &evaluation, subject);
 			if !own.is_empty() {
 				heading(&mut text, "Diagnostics");
 				for diagnostic in own {
@@ -138,7 +138,11 @@ fn find<'a>(
 }
 
 /// One subject in full.
-fn explain(evaluation: &Evaluation, subject: &Subject) -> String {
+fn explain(
+	workspace: &Workspace,
+	evaluation: &Evaluation,
+	subject: &Subject,
+) -> String {
 	let mut text = output::bold(&describe::subject_name(subject));
 	text.push('\n');
 	text.push_str(&output::dim(&describe::header(evaluation)));
@@ -175,6 +179,9 @@ fn explain(evaluation: &Evaluation, subject: &Subject) -> String {
 			.map_or_else(|| "none: no clock runs".to_owned(), describe::deadline),
 	));
 	table(&mut text, &rows);
+	if let Some(hint) = describe::inheritance_hint(workspace, subject) {
+		let _ = writeln!(text, "\n{hint}");
+	}
 
 	heading(&mut text, "Settings");
 	let settings = &subject.settings;

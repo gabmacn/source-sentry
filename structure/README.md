@@ -57,6 +57,27 @@ explains how committed completion and seal markers credit series windows.
 Keys are sorted alphabetically and every value sits on its own line, so two
 people's changes rarely touch the same lines.
 
+## Series registration
+
+Series patterns group files by parsed version, as `preset.example.yaml`
+shows. Registering an unclaimed entry with `track`, or with `init` using
+paths or `--all`, copies the newest earlier entry's live declaration.
+Sealed predecessors qualify, while retired entries have no declaration to
+copy. This applies to `living` and `records-only` series.
+
+The new declaration copies explicit classes, owners, grace, cadence and
+source paths and patterns. Relative sources are re-expressed for the new
+document's directory, with patterns rebased by their literal prefix;
+`/`-rooted spellings stay unchanged. Source attestations and pattern members,
+the document's `reviewed`, its seal and `completed` are absent. Registration
+options add to these values using the ordinary `track` rules. The plan shows
+the predecessor and copied values before confirmation. The new declaration
+uses normal placement, independently of the predecessor's placement.
+
+Without a declared earlier entry, registration is unchanged. `init` uses
+the declarations present when it starts for all entries in its plan. A
+source that cannot be re-expressed or registered refuses registration.
+
 ## Remote lockfiles
 
 A remote lockfile tracks documents that live outside the repository. There is
@@ -107,6 +128,11 @@ format for tools that read it, such as CI jobs.
 Other JSON variants:
 
 - An unjudged subject has `judgement: null` and `outcome: null`.
+- Unclaimed series entries add `inherit-from`, the repository path of the
+  newest earlier entry with a live declaration that registration would
+  copy. The field is omitted when there is no such predecessor. Human
+  `check` and `explain` output also name the `source-sentry track <path>`
+  command to register the entry.
 - Documents may add `record` (seal check), `awaiting-seal` (series reference),
   `stale-upstreams` (direct upstream documents) or `unattested` (review
   clock).
