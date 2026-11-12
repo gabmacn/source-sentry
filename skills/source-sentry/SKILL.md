@@ -48,14 +48,20 @@ git. A source path that starts with `/` is read from the repository root.
 ## When `check` reports problems
 
 ```sh
-source-sentry check                    # Exit 0: nothing to do.
+source-sentry check                    # Read outcomes and diagnostics.
 source-sentry explain <document>       # Why a document is judged as it is.
 ```
 
-`check` exits 0 when nothing needs attention, 1 for warnings, 2 for
-failures, 3 for a configuration or integrity error, and 4 when the
-evaluation could not complete. Handle errors (3 and 4) first, then each
-listed document by its facts:
+`check` exits 0 when no subject reaches `--fail-on` (default: `warn`),
+1 for a subject's `warn` outcome at the `warn` threshold, 2 for a `fail`
+outcome, 3 for a configuration or integrity error, and 4 when the evaluation
+could not complete.
+
+A diagnostic of severity `warning`, such as `empty-pattern`, never changes
+the exit code. Exit 0 can still accompany diagnostic warnings or outcomes
+below the selected threshold; read the report before deciding what needs
+attention. Handle errors (3 and 4) first, then each listed document by its
+facts:
 
 - **stale** or **overdue**: a source changed since the last review. Review
   it as described below. Overdue means the deadline has passed; the remedy
@@ -81,11 +87,11 @@ listed document by its facts:
 `source-sentry review` walks the same steps interactively, but it needs a
 terminal; agents use `diff` and `attest`.
 
-### Errors
+### Diagnostics
 
 | Code | What to do |
 |---|---|
-| `missing-source` | A source was deleted or renamed. Point the document at the new file with `track <document> --source <new path>`, remove the old one with `untrack <document> --source <old path>`, then review the document. |
+| `missing-source` | A source was deleted or renamed. Remove the missing source first with `untrack <document> --source <old path>`, then add its replacement with `track <document> --source <new path>`, then review the document. |
 | `empty-pattern` | A source pattern matches no file. Correct it with `track --pattern` and `untrack --pattern`. |
 | `missing-document` | A tracked document is gone. If it was deleted on purpose, `retire` it; if it was moved, run `source-sentry rename <old> <new>` after `git mv`, keeping its reviews. |
 | `broken-seal` | A record changed. Restore it from git, for example `git restore --source=<commit> -- <path>`. Never reseal it. |

@@ -66,7 +66,9 @@ The exit code is:
 | 64 | Invalid command-line usage |
 
 A diagnostic of severity `warning`, such as a pattern that matches nothing,
-is reported but never changes the exit code.
+is reported but never changes the exit code. Exit 0 can still accompany
+diagnostic warnings or outcomes below the selected threshold; read the
+report even when the gate passes.
 
 Every written cadence is validated when its config or declaration loads,
 including unused presets, overridden settings and sealed records. An invalid
