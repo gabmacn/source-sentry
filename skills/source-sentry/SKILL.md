@@ -98,7 +98,7 @@ terminal; agents use `diff` and `attest`.
 
 | Code | What to do |
 |---|---|
-| `missing-source` | A source was deleted or renamed. Remove the missing source first with `untrack <document> --source <old path>`, then add its replacement with `track <document> --source <new path>`, then review the document. |
+| `missing-source` | Restore the source if its deletion was accidental. If it is a tracked document that moved, run `rename <old> <new>` after `git mv` to preserve its reviews and update dependent sources. Otherwise remove the obsolete source with `untrack <document> --source <old path>`, add any replacement with `track <document> --source <new path>`, then review the document. |
 | `empty-pattern` | A source pattern matches no file. Correct it with `track --pattern` and `untrack --pattern`. |
 | `missing-document` | A tracked document is gone. If it was deleted on purpose, `retire` it; if it was moved, run `source-sentry rename <old> <new>` after `git mv`, keeping its reviews. |
 | `broken-seal` | A record changed. Restore it from git, for example `git restore --source=<commit> -- <path>`. Never reseal it. |
@@ -131,7 +131,10 @@ every code.
   command can verify that the declaration travelled with the file.
 - **Moving a declaration** between a lockfile, the frontmatter and another
   lockfile: `track <document> --from <placement> --to <placement>`, where a
-  placement is `on-file`, `lockfile:<directory>` or `remote:<owner>`.
+  placement is `on-file`, `lockfile:<directory>`, `remote:<owner>` or
+  `remote:<owner>@<project-directory>`. A local declaration stays in its
+  document's project; use `rename` after moving the document between projects.
+  The qualified remote placement selects an owner in another project.
 - **Sealing a record:** `source-sentry seal <document>`, only when the person
   asks for it: a sealed document can never change again.
 

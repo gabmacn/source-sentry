@@ -12,7 +12,7 @@ version: 1
 # 'Europe/Madrid'.
 time-zone: 'UTC'
 
-# Every class and context used anywhere in the project is declared here.
+# Declare every class and context here or in a preset imported directly here.
 # Class, context and series names use lowercase ASCII letters and digits,
 # separated by single hyphens, with none at either end. Owner identifiers
 # need only be nonblank.

@@ -37,7 +37,9 @@ project root and `:/` means the repository root: `/src/a.rs` names
 `src/a.rs` inside that project, while `:/src/a.rs` names the repository's
 `src/a.rs`. Sources may leave a project, using parents or `:/`, but may never
 leave the repository. Remote documents use the project containing their
-owner lockfile and require rooted source spellings.
+owner lockfile. Their declarations require rooted sources; relative
+command-line input is resolved from the effective starting directory and
+stored rooted.
 
 Human output displays paths relative to the effective starting directory,
 including diagnostic locations and commands printed for copying. Paths are
@@ -142,7 +144,7 @@ the subjects.
 For an unclaimed series entry with a declared predecessor, `check` and
 `explain` show the `source-sentry track <path>` command and the predecessor
 whose declaration it would inherit. The JSON unclaimed subject adds
-`inherit-from` with that predecessor's repository path.
+`inherit-from` with that predecessor's project-relative path.
 
 `check` reads the files that git tracks: a new document or config counts
 once it is added with `git add`, even if it is not committed. On the working
@@ -189,7 +191,8 @@ whether or not anything changed.
   It can be attested again, including with `--reread`.
 - **`--source`** selects a path source by the file it resolves to from the
   current directory, from the document's project root with `/`, or from the
-  repository root with `:/`. A pattern is selected by its exact declared spelling or its `/`- or `:/`-rooted form. A value
+  repository root with `:/`. A pattern is selected by its exact declared
+  spelling or its `/`- or `:/`-rooted form. A value
   that selects both a path and a pattern is refused, naming both.
 - **`--expect`** takes a path from the current directory, or a `/`- or
   `:/`-rooted path, followed by `@oid` or `@absent`. Parent components are accepted;
@@ -335,9 +338,9 @@ source-sentry migrate [--dry-run] [--yes]
   It copies the declared classes, owners, grace, cadence and sources.
   Relative source paths and patterns are re-expressed for the new document's
   directory; `/`-rooted spellings stay unchanged. Attestations, the document's
-  `reviewed`, its seal, `completed` and `renamed` are never copied. Options add sources,
-  classes and owners, and override grace or cadence, as when extending a
-  tracked document. Placement follows the usual rules. The plan names the
+  `reviewed`, its seal, `completed` and `renamed` are never copied. Options
+  add sources, classes and owners, and override grace or cadence, as when
+  extending a tracked document. Placement follows the usual rules. The plan names the
   predecessor and shows the copied declaration before the options apply.
   A source that cannot be re-expressed or registered refuses the whole plan.
 - **`--source` and `--pattern`** name files and globs from the current
@@ -354,6 +357,10 @@ source-sentry migrate [--dry-run] [--yes]
 - **`--lockfile <directory>`** names a directory from the current directory,
   or by an absolute filesystem path; the flag alone chooses the nearest
   lockfile.
+- **`--cadence`** requires a valid date and recurrence rule. A malformed date
+  is invalid usage (exit 64); a parsed cadence that violates the schedule
+  rules is refused (exit 2). Invalid cadences already written in configs or
+  declarations remain configuration errors (exit 3).
 - **`--from` and `--to`** move declarations with their reviews and
   every tombstone of each moved key. A move between lockfiles must include
   every entry whose nearest lockfile changes, and a lockfile left empty is
@@ -361,9 +368,9 @@ source-sentry migrate [--dry-run] [--yes]
   or a source of another document. The plan shows any settings that change
   with the move, such as an owner's defaults.
 - **`untrack`** removes the declared sources it names. A path is matched by
-  the file it resolves to from the current directory or `/`, and a pattern
-  by its declared spelling or `/`-rooted form. The other sources
-  keep their reviews. To stop tracking a document altogether, `retire` it;
+  the file it resolves to from the current directory, `/` or `:/`, and a
+  pattern by its declared spelling or `/`- or `:/`-rooted form. The other
+  sources keep their reviews. To stop tracking a document altogether, `retire` it;
   for an on-file document, delete its `source-sentry` key instead.
 - **`rename`** updates Source Sentry's records after you move a document:
 

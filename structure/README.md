@@ -146,24 +146,13 @@ people's changes rarely touch the same lines.
 ## Series registration
 
 Series patterns group files by parsed version, as `preset.example.yaml`
-shows. Registering an unclaimed entry with `track`, or with `init` using
-paths or `--all`, copies the newest earlier entry's live declaration.
-Sealed predecessors qualify, while retired entries have no declaration to
-copy. This applies to `living` and `records-only` series.
+shows. A registered successor stores an ordinary declaration with its
+inherited settings and re-expressed sources. It starts without source
+attestations, pattern reviews or members, `reviewed`, `seal`, `completed`
+or `renamed`; there is no inheritance link in the file format.
 
-The new declaration copies explicit classes, owners, grace, cadence and
-source paths and patterns. Relative sources are re-expressed for the new
-document's directory, with patterns rebased by their literal prefix;
-`/`-rooted spellings stay unchanged. Source attestations, pattern reviews and
-members, the document's `reviewed`, its seal, `completed` and `renamed` are absent.
-Registration options add to these values using the ordinary `track` rules.
-The plan shows the predecessor and copied values before confirmation. The
-new declaration uses normal placement, independently of the predecessor's
-placement.
-
-Without a declared earlier entry, registration is unchanged. `init` uses
-the declarations present when it starts for all entries in its plan. A
-source that cannot be re-expressed or registered refuses registration.
+See [`docs/cli.md`](../docs/cli.md#tracking) for predecessor selection,
+registration options and the behaviour of `track` and `init`.
 
 ## Remote lockfiles
 

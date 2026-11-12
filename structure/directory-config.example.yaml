@@ -1,11 +1,11 @@
 # A directory config, at <directory>/source-sentry.yaml. It applies to this
-# directory and to everything below it.
+# directory and to everything below it within the same project.
 
 # Scans this directory for documents. A directory with a lockfile is scanned
 # by default; set `root: false` to stop that. Not inherited by subdirectories.
 root: true
-# Ignores every setting from parent directories. The project config still
-# applies. Not inherited by subdirectories.
+# Cuts parent directory settings for this directory and its descendants.
+# The project config still applies; the flag itself is local to this config.
 inherit: false
 
 # Presets from .source-sentry/presets/, applied in order before this file's
