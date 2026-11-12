@@ -13,6 +13,8 @@
 #[cfg(test)]
 mod check;
 #[cfg(test)]
+mod diff;
+#[cfg(test)]
 mod explain;
 #[cfg(test)]
 mod history;

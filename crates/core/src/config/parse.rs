@@ -141,6 +141,8 @@ pub(super) struct Located<T> {
 #[derive(Clone, Debug)]
 pub(super) struct Parsed {
 	pub(super) path: RepoPath,
+	/// Field positions retained for checks that need other config files.
+	pub(super) field_positions: BTreeMap<String, Position>,
 	pub(super) version: Option<Located<u32>>,
 	pub(super) time_zone: Option<Located<String>>,
 	pub(super) define: Option<Define>,
@@ -578,6 +580,10 @@ impl Converter<'_> {
 			documents,
 			rules,
 			series,
+			field_positions: std::mem::take(&mut self.lines)
+				.into_iter()
+				.map(|(field, (line, column))| (field, Position { line, column }))
+				.collect(),
 		}
 	}
 
@@ -694,7 +700,9 @@ impl Converter<'_> {
 			let mut positions = Vec::with_capacity(context.value.rules.len());
 			for (index, Item(rule)) in context.value.rules.into_iter().enumerate() {
 				if rule.value.facts.contains(&Fact::Fresh) {
-					self.fresh(&format!("{setting}.rules[{index}].facts"), rule.position);
+					let field = format!("{setting}.rules[{index}].facts");
+					let position = self.position_of(&field).unwrap_or(rule.position);
+					self.fresh(&field, position);
 				}
 				positions.push(rule.position);
 				rules.push(rule.value);
@@ -867,15 +875,19 @@ impl Converter<'_> {
 			let mut kept = Vec::with_capacity(list.value.len());
 			for (index, Item(rule)) in list.value.into_iter().enumerate() {
 				if rule.value.facts.contains(&Fact::Fresh) {
-					self.fresh(&format!("{setting}[{index}].facts"), rule.position);
+					let field = format!("{setting}[{index}].facts");
+					let position = self.position_of(&field).unwrap_or(rule.position);
+					self.fresh(&field, position);
 				}
 				// A context's own rules get this check when the context is
 				// validated; scoped rules only here.
 				if rule.value.facts.is_empty() {
+					let field = format!("{setting}[{index}].facts");
+					let position = self.position_of(&field).unwrap_or(rule.position);
 					self.report(
 						ConfigErrorKind::NoFacts,
-						&format!("{setting}[{index}].facts"),
-						rule.position,
+						&field,
+						position,
 						Some("List the facts the rule applies to".to_owned()),
 					);
 				}

@@ -352,7 +352,12 @@ impl Declarations {
 				for class in &rule.value.classes {
 					if !self.classes.contains(class) {
 						let setting = format!("rules.{context}[{index}].classes");
-						errors.push(undeclared_class(class, setting, rule.position));
+						let position = file
+							.field_positions
+							.get(&setting)
+							.copied()
+							.unwrap_or(rule.position);
+						errors.push(undeclared_class(class, setting, position));
 					}
 				}
 			}
@@ -371,7 +376,12 @@ impl Declarations {
 					if !self.classes.contains(class) {
 						let setting =
 							format!("define.contexts.{name}.rules[{index}].classes");
-						errors.push(undeclared_class(class, setting, *position));
+						let position = file
+							.field_positions
+							.get(&setting)
+							.copied()
+							.unwrap_or(*position);
+						errors.push(undeclared_class(class, setting, position));
 					}
 				}
 			}

@@ -212,6 +212,89 @@ fn invalid_configs_still_give_a_json_report() {
 	);
 }
 
+/// Rule diagnostics locate the named field in both report formats.
+fn assert_rule_field_locations(config: &str, expected: &[(&str, u64)]) {
+	let repo = TestRepo::init();
+	let file = ".source-sentry/source-sentry.yaml";
+	repo.write(file, config);
+	repo.commit_at("2026-10-01T10:00:00Z");
+	for revision in [&[][..], &["--rev", "HEAD"][..]] {
+		let mut args = vec!["check", "--at", AT, "--format", "json"];
+		args.extend_from_slice(revision);
+		let run = repo.run(&args);
+		run.expect_code(3);
+		let report = run.json();
+		let diagnostics = report["diagnostics"].as_array().unwrap();
+		assert_eq!(diagnostics.len(), expected.len(), "{report:#}");
+		for (field, line) in expected {
+			let diagnostic = diagnostics
+				.iter()
+				.find(|diagnostic| diagnostic["location"]["field"] == *field)
+				.unwrap_or_else(|| panic!("no diagnostic for {field}: {report:#}"));
+			assert_eq!(diagnostic["location"]["file"], file);
+			assert_eq!(diagnostic["location"]["line"], *line, "{diagnostic:#}");
+		}
+	}
+	let run = repo.run(&["check", "--at", AT]);
+	run.expect_code(3);
+	for (_, line) in expected {
+		assert!(
+			run.stderr.contains(&format!("{file}:{line}:")),
+			"{}",
+			run.stderr
+		);
+	}
+}
+
+/// Scoped rules retain each classes field, including later rules and flow YAML.
+#[test]
+fn scoped_rule_class_errors_point_at_their_classes_fields() {
+	assert_rule_field_locations(
+		"version: 1\ndefine: {}\nrules:\n  default:\n    - facts: [stale]\n      \
+		 outcome: fail\n      classes:\n        - missing\n    - facts: [stale]\n      \
+		 outcome: warn\n      classes: [other]\n    - {facts: [stale], classes: [last], outcome: warn}\n",
+		&[
+			("rules.default[0].classes", 7),
+			("rules.default[1].classes", 11),
+			("rules.default[2].classes", 12),
+		],
+	);
+}
+
+/// Context definitions retain the classes fields independently of rule starts.
+#[test]
+fn context_rule_class_errors_point_at_their_classes_fields() {
+	assert_rule_field_locations(
+		"version: 1\ndefine:\n  contexts:\n    production:\n      fallback: pass\n      \
+		 rules:\n        - facts: [stale]\n          outcome: fail\n          classes:\n            \
+		 - missing\n        - facts: [stale]\n          outcome: warn\n          classes: [other]\n",
+		&[
+			("define.contexts.production.rules[0].classes", 9),
+			("define.contexts.production.rules[1].classes", 13),
+		],
+	);
+}
+
+/// Reordering a scoped rule does not move a facts error onto its classes.
+#[test]
+fn scoped_rule_fact_errors_point_at_their_facts_fields() {
+	assert_rule_field_locations(
+		"version: 1\nrules:\n  default:\n    - classes: []\n      outcome: fail\n      \
+		 facts: [fresh]\n    - classes: []\n      outcome: fail\n      facts: []\n",
+		&[("rules.default[0].facts", 6), ("rules.default[1].facts", 9)],
+	);
+}
+
+/// A context rule's fresh-fact error also names its own facts field.
+#[test]
+fn context_rule_fact_errors_point_at_their_facts_fields() {
+	assert_rule_field_locations(
+		"version: 1\ndefine:\n  contexts:\n    production:\n      fallback: pass\n      \
+		 rules:\n        - classes: []\n          outcome: fail\n          facts: [fresh]\n",
+		&[("define.contexts.production.rules[0].facts", 9)],
+	);
+}
+
 #[test]
 fn a_context_rule_points_at_its_own_line() {
 	let repo = TestRepo::init();

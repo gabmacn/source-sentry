@@ -351,7 +351,7 @@ fn plain_hunks(old: &str, new: &str) -> String {
 /// `word` as one shell word that POSIX shells and PowerShell read alike:
 ///
 /// - bare, when it is made only of characters that no common shell treats
-///   specially;
+///   specially, and does not begin with PowerShell's `@` expression marker;
 /// - single-quoted, when it holds no single quotation mark. PowerShell also
 ///   reads the typographic marks `‘ ’ ‚ ‛` as one;
 /// - double-quoted, when it holds one, but nothing that either shell expands
@@ -364,8 +364,9 @@ pub(crate) fn shell_word(word: &str) -> String {
 	const IN_DOUBLE: [char; 8] =
 		['$', '`', '\\', '!', '"', '\u{201C}', '\u{201D}', '\u{201E}'];
 	let bare = !word.is_empty()
+		&& !word.starts_with('@')
 		&& word.chars().all(|character| {
-			character.is_ascii_alphanumeric() || "-_./:@%+=,".contains(character)
+			character.is_ascii_alphanumeric() || "-_./:@%+=".contains(character)
 		});
 	if bare {
 		word.to_owned()
@@ -381,6 +382,33 @@ pub(crate) fn shell_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::{plain_hunks, shell_word};
+
+	/// PowerShell treats leading at signs as expression or splatting syntax.
+	#[test]
+	fn leading_at_signs_are_quoted() {
+		for word in ["@doc.md", "@source.rs@sha1:9c1185a5", "@@doc.md"] {
+			assert_eq!(shell_word(word), format!("'{word}'"));
+		}
+	}
+
+	/// Leading comments and redirections must remain literal file names.
+	#[test]
+	fn leading_comment_and_redirection_characters_are_quoted() {
+		for word in ["#doc.md", "<doc.md", ">doc.md"] {
+			assert_eq!(shell_word(word), format!("'{word}'"));
+		}
+		for word in ["+doc.md", "=doc.md", "%doc.md", ":doc.md"] {
+			assert_eq!(shell_word(word), word);
+		}
+	}
+
+	/// PowerShell rejects initial, consecutive and trailing unquoted commas.
+	#[test]
+	fn commas_are_quoted() {
+		for word in [",doc.md", "doc,,name.md", "doc.md,"] {
+			assert_eq!(shell_word(word), format!("'{word}'"));
+		}
+	}
 
 	#[test]
 	fn words_are_quoted_only_when_needed() {
