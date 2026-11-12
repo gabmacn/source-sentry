@@ -8,9 +8,9 @@ use source_sentry_core::model::{
 	Cadence, CadenceSetting, ClassName, Declaration, Schedule, SourceDecl,
 };
 use source_sentry_core::mutate::{
-	CarriedTombstone, PatternMatches, Placement, Registered, Setting, Target,
-	TrackFromRequest, TrackFromSummary, TrackRequest, TrackSummary, track,
-	track_from,
+	CarriedTombstone, PatternMatches, Placement, Registered, Setting,
+	SettingsPreview, Target, TrackFromRequest, TrackFromSummary, TrackRequest,
+	TrackSummary, track, track_from,
 };
 
 use crate::cli::{DocumentArg, PlacementArg, TrackArgs};
@@ -18,6 +18,35 @@ use crate::describe;
 use crate::exit::Failure;
 use crate::output::{self, Printer};
 use crate::workspace::{Workspace, load};
+
+/// Resolves an owner placement's project, refusing a directory inside a project.
+fn remote_project(
+	workspace: &Workspace,
+	directory: Option<&std::path::Path>,
+) -> Result<source_sentry_core::model::RepoPath, Failure> {
+	let path = directory.map_or_else(
+		|| {
+			Ok(source_sentry_core::config::project_of(
+				&workspace.projects,
+				&workspace.scope,
+			))
+		},
+		|directory| workspace.repo_path(directory),
+	)?;
+	if !workspace.projects.contains(&path) {
+		let nearest =
+			source_sentry_core::config::project_of(&workspace.projects, &path);
+		return Err(Failure::new(
+			crate::exit::REFUSED,
+			format!(
+				"`{}` is not a project root; the nearest project root is `{}`",
+				workspace.display_path(&path),
+				workspace.display_path(&nearest)
+			),
+		));
+	}
+	Ok(path)
+}
 
 /// Runs `track` on the working tree.
 ///
@@ -35,7 +64,6 @@ pub(super) fn run(
 		.repository
 		.working_tree_snapshot()
 		.map_err(|error| Failure::backend(&error))?;
-	let (configs, inventory) = load(workspace, &snapshot)?;
 	let (plan, summary) = if let (Some(from), Some(to)) = (&args.from, &args.to) {
 		let request = TrackFromRequest {
 			documents: args
@@ -46,10 +74,20 @@ pub(super) fn run(
 			from: placement(workspace, from)?,
 			to: target(workspace, to)?,
 		};
+		let source = match &request.from {
+			Placement::Remote { project, .. } => project.clone(),
+			Placement::Lockfile { directory } => {
+				source_sentry_core::config::project_of(&workspace.projects, directory)
+			}
+			Placement::OnFile => workspace.scope.clone(),
+		};
+		let (configs, inventory) =
+			crate::workspace::load_project(workspace, &snapshot, &source)?;
 		let planned = track_from(&snapshot, &configs, &inventory, &request)
 			.map_err(|error| Failure::mutate(workspace, &error))?;
 		(planned.plan, moved_summary(workspace, &planned.summary))
 	} else {
+		let (configs, inventory) = load(workspace, &snapshot)?;
 		let request = register_request(workspace, args)?;
 		let planned = track(&snapshot, &configs, &inventory, &request)
 			.map_err(|error| Failure::mutate(workspace, &error))?;
@@ -89,6 +127,10 @@ fn register_request(
 		}
 	} else if let Some(owner) = &args.remote {
 		Target::Remote {
+			project: source_sentry_core::config::project_of(
+				&workspace.projects,
+				&workspace.scope,
+			),
 			owner: owner.clone(),
 		}
 	} else if let DocumentArg::Remote(identity) = document {
@@ -162,7 +204,8 @@ fn placement(
 		PlacementArg::Lockfile(directory) => Placement::Lockfile {
 			directory: workspace.repo_path(directory)?,
 		},
-		PlacementArg::Remote(owner) => Placement::Remote {
+		PlacementArg::Remote { owner, project } => Placement::Remote {
+			project: remote_project(workspace, project.as_deref())?,
 			owner: owner.clone(),
 		},
 	})
@@ -178,7 +221,8 @@ fn target(
 		PlacementArg::Lockfile(directory) => Target::Lockfile {
 			directory: Some(workspace.repo_path(directory)?),
 		},
-		PlacementArg::Remote(owner) => Target::Remote {
+		PlacementArg::Remote { owner, project } => Target::Remote {
+			project: remote_project(workspace, project.as_deref())?,
 			owner: owner.clone(),
 		},
 	})
@@ -302,7 +346,9 @@ pub(super) fn placement_name(
 		Placement::Lockfile { directory } => {
 			format!("lockfile:{}", workspace.display_path(directory))
 		}
-		Placement::Remote { owner } => format!("remote:{owner}"),
+		Placement::Remote { project, owner } => {
+			format!("remote:{owner}@{}", workspace.display_path(project))
+		}
 	}
 }
 
@@ -339,35 +385,14 @@ fn moved_summary(workspace: &Workspace, summary: &TrackFromSummary) -> String {
 			describe::location(workspace, &moved.from),
 			describe::location(workspace, &moved.to)
 		);
-		let preview = &moved.settings;
-		if preview.changed.is_empty() {
-			text.push_str("  its effective settings stay the same\n");
-		}
-		for setting in &preview.changed {
-			let (name, before, after) = match setting {
-				Setting::Classes => (
-					"classes",
-					class_names(&preview.before.classes.value),
-					class_names(&preview.after.classes.value),
-				),
-				Setting::Owners => (
-					"owners",
-					names(&preview.before.owners.value),
-					names(&preview.after.owners.value),
-				),
-				Setting::Grace => (
-					"grace",
-					describe::count(preview.before.grace.value as usize, "day", "days"),
-					describe::count(preview.after.grace.value as usize, "day", "days"),
-				),
-				Setting::Cadence => (
-					"cadence",
-					cadence(preview.before.cadence.value.as_ref()),
-					cadence(preview.after.cadence.value.as_ref()),
-				),
-			};
-			let _ = writeln!(text, "  {name} changes: {before} → {after}");
-		}
+		let _ = writeln!(
+			text,
+			"  projects: {} -> {}",
+			workspace.display_path(&moved.project_before),
+			workspace.display_path(&moved.project_after)
+		);
+		settings_preview(&mut text, &moved.settings);
+		super::rename::source_changes(workspace, &mut text, &moved.sources);
 	}
 	carried(workspace, &mut text, &summary.carried);
 	text
@@ -397,4 +422,43 @@ fn cadence(cadence: Option<&Cadence>) -> String {
 		|| "none".to_owned(),
 		|cadence| format!("{} from {}", cadence.rrule, cadence.dtstart),
 	)
+}
+
+/// Prints every effective setting whose value changes in a move.
+pub(super) fn settings_preview(text: &mut String, preview: &SettingsPreview) {
+	if preview.changed.is_empty() && preview.configuration.is_empty() {
+		text.push_str("  its effective settings stay the same\n");
+	}
+	for setting in &preview.changed {
+		let (name, before, after) = match setting {
+			Setting::Classes => (
+				"classes",
+				class_names(&preview.before.classes.value),
+				class_names(&preview.after.classes.value),
+			),
+			Setting::Owners => (
+				"owners",
+				names(&preview.before.owners.value),
+				names(&preview.after.owners.value),
+			),
+			Setting::Grace => (
+				"grace",
+				describe::count(preview.before.grace.value as usize, "day", "days"),
+				describe::count(preview.after.grace.value as usize, "day", "days"),
+			),
+			Setting::Cadence => (
+				"cadence",
+				cadence(preview.before.cadence.value.as_ref()),
+				cadence(preview.after.cadence.value.as_ref()),
+			),
+		};
+		let _ = writeln!(text, "  {name} changes: {before} → {after}");
+	}
+	for change in &preview.configuration {
+		let _ = writeln!(
+			text,
+			"  {} changes: {} -> {}",
+			change.setting, change.before, change.after
+		);
+	}
 }

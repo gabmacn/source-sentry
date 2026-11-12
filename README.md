@@ -72,12 +72,21 @@ source-sentry explain docs/privacy.md   # Why a document is judged as it is.
 source-sentry rename docs/old.md docs/new.md # Update records after git mv.
 ```
 
-Document arguments, `init` paths, lockfile directories and `--repo` use
-filesystem paths: relative to the current directory, as in git, or absolute
-in the platform's native form. Source paths and patterns, including
-`--expect` paths, start in the current directory; a leading `/` means the
-repository root. Human output uses the current directory too. JSON paths
-remain relative to the repository root, where its `attest` array runs.
+Projects nest: a tracked `.source-sentry/source-sentry.yaml` marks a project
+root, and the repository root is always a project. A path belongs to its
+nearest project. Each project uses its own configs, sharing only by explicit
+preset imports. `check` and `init` cover the starting project; `review`
+traverses its nested projects. Document commands use the document's project.
+
+Use `source-sentry -C <path> check` to run from another directory, as in git.
+Document and lockfile arguments are filesystem paths from that effective
+starting directory, or native absolute paths. Relative source arguments
+start there too; in declarations they are relative to the document. In all
+source spellings, `/` means the document's project root and `:/` means the
+repository root. Sources may leave their project but never the repository.
+JSON subjects and diagnostic locations carry `project` (`.` for the
+repository project), with paths relative to that project. A JSON `attest`
+command runs from its document's project root.
 
 A source counts as changed when its content does, as git would store it:
 git's own conversions, such as line endings, apply. Files in Git LFS are

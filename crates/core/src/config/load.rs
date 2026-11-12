@@ -165,6 +165,15 @@ impl Files {
 		errors: &mut Vec<ConfigError>,
 	) -> Result<Self, BackendError> {
 		let mut read = |path: &RepoPath, kind| -> Result<_, BackendError> {
+			if kind == ConfigKind::Paired
+				&& path.file_name().is_some_and(|name| name.contains('@'))
+			{
+				errors.push(ConfigError::new(path, ConfigErrorKind::InvalidName {
+					name: path.file_name().unwrap_or_default().to_owned(),
+					what: "remote owner name",
+				}).correct("Remote owner names cannot contain `@`; rename the paired config and its owner lockfile"));
+				return Ok(None);
+			}
 			let bytes = snapshot.read(path)?;
 			Ok(match parse::parse(path, kind, &bytes) {
 				Ok(parsed) => Some(Arc::new(parsed)),

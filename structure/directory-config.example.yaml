@@ -4,12 +4,13 @@
 # Scans this directory for documents. A directory with a lockfile is scanned
 # by default; set `root: false` to stop that. Not inherited by subdirectories.
 root: true
-# Ignores every setting from parent directories. The repository config still
+# Ignores every setting from parent directories. The project config still
 # applies. Not inherited by subdirectories.
 inherit: false
 
 # Presets from .source-sentry/presets/, applied in order before this file's
-# own settings. 'logs' means presets/logs.yaml.
+# own settings. 'logs' means presets/logs.yaml, using the nearest project
+# that supplies it. A directory config cannot import a defining preset.
 imports: ['logs']
 
 # Defaults for documents in this directory, including files nothing tracks
@@ -24,7 +25,7 @@ documents:
     - 'scratch/'
     - '!scratch/keep.md'
 
-# Extra rules for a context declared in the repository config. They apply only
+# Extra rules for a context declared in the project config. They apply only
 # to documents in this directory.
 rules:
   production:

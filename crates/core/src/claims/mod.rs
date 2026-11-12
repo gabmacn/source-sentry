@@ -65,6 +65,7 @@ mod pattern;
 mod read;
 mod series;
 mod sources;
+mod stranded;
 mod unclaimed;
 mod validate;
 mod version;
@@ -129,6 +130,7 @@ pub fn discover<S: Snapshot>(
 		&mut found,
 		&mut diagnostics,
 	)?;
+	stranded::read(snapshot, configs, &tracked, &mut found)?;
 	let read::Found {
 		lockfiles,
 		mut claims,
@@ -152,7 +154,7 @@ pub fn discover<S: Snapshot>(
 		configs,
 		&mut diagnostics,
 	);
-	sources::resolve(&mut claims, &tracked, configs.project(), &mut diagnostics);
+	sources::resolve(&mut claims, &tracked, configs.projects(), &mut diagnostics);
 	let dependencies = graph::dependencies(&claims, &mut diagnostics);
 	let unclaimed = unclaimed::scan(&owned, &claims, configs, &mut directories);
 	let series = series::membership(

@@ -110,3 +110,24 @@ fn source_roots_and_globs_use_the_document_project() {
 		path("src/a.rs")
 	);
 }
+
+/// The placement separator cannot be part of an owner loaded from disk either.
+#[test]
+fn remote_owner_filenames_cannot_contain_at_signs() {
+	let paired =
+		snapshot(&[(".source-sentry/remotes/team@other.yaml", "owners: [team]\n")]);
+	assert!(
+		matches!(ConfigSet::load(&paired), Err(crate::config::LoadError::Invalid(errors)) if errors.iter().any(|error| error.to_string().contains("cannot contain `@`")))
+	);
+	let remote = snapshot(&[(
+		".source-sentry/remotes/team@other.lock",
+		r#"{"schema":1,"documents":{},"retired":{}}"#,
+	)]);
+	let configs = ConfigSet::load(&remote).unwrap();
+	let inventory = discover(&remote, &configs).unwrap();
+	assert!(inventory.diagnostics.iter().any(|diagnostic| {
+		diagnostic
+			.message
+			.contains("owner names cannot contain `@`")
+	}));
+}

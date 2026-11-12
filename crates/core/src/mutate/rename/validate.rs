@@ -75,3 +75,36 @@ pub(super) fn integrity<S: Snapshot>(
 		Err(MutateError::WouldIntroduce { diagnostics })
 	}
 }
+
+/// Checks the filesystem identities and git membership before planning a rename.
+pub(super) fn paths<'a, S: Snapshot>(
+	snapshot: &S,
+	request: &'a super::RenameRequest,
+) -> Result<(&'a RepoPath, &'a RepoPath), MutateError> {
+	let (DocumentId::Local(old), DocumentId::Local(new)) =
+		(&request.old, &request.new)
+	else {
+		return Err(super::refused(
+			request,
+			"remote identities cannot be renamed; name two filesystem paths",
+		));
+	};
+	let tracked: std::collections::BTreeSet<_> =
+		snapshot.paths()?.into_iter().collect();
+	if tracked.contains(old) {
+		return Err(super::refused(
+			request,
+			"the old file still exists; move the file first with `git mv <old> <new>`",
+		));
+	}
+	if !tracked.contains(new) {
+		return Err(super::refused(
+			request,
+			"the new file is absent or not tracked by git; move the file first with `git mv`, or add its path with `git add -N`",
+		));
+	}
+	if crate::mutate::repo::is_own_file(new) {
+		return Err(MutateError::NotADocument { path: new.clone() });
+	}
+	Ok((old, new))
+}

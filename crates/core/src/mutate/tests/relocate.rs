@@ -397,9 +397,11 @@ fn between_owners_with_a_preview() {
 		&request(
 			std::slice::from_ref(&document),
 			Placement::Remote {
+				project: crate::model::RepoPath::ROOT,
 				owner: "legal".to_owned(),
 			},
 			Target::Remote {
+				project: crate::model::RepoPath::ROOT,
 				owner: "marketing".to_owned(),
 			},
 		),

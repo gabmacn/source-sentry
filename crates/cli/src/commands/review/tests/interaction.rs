@@ -206,10 +206,10 @@ fn configuration_errors_refuse_before_the_first_prompt() {
 	let other = Repo::new(json!({"docs/a.md": {}}));
 	assert_eq!(
 		State::load(&other.workspace(), "missing")
-			.err()
 			.unwrap()
-			.code,
-		3
+			.fallbacks
+			.len(),
+		1
 	);
 }
 

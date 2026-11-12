@@ -12,7 +12,7 @@ use crate::adapters::Adapter;
 use crate::adapters::frontmatter::FrontmatterError;
 use crate::adapters::lockfile::LockfileError;
 use crate::claims::{Diagnostic, Location};
-use crate::config::ConfigError;
+use crate::config::{ConfigError, LoadError};
 use crate::evaluate::schedule::ScheduleError;
 use crate::model::{ClassName, DocumentId, PathError, RebaseError, RepoPath};
 use crate::ports::{BackendError, Canonical};
@@ -20,6 +20,29 @@ use crate::ports::{BackendError, Canonical};
 /// Why a mutation command planned nothing.
 #[derive(Debug, thiserror::Error)]
 pub enum MutateError {
+	/// A local declaration cannot be placed outside the document's own project.
+	#[error(
+		"`{document}` belongs to project {project}, so its declaration cannot be placed in {destination}. To move the document, use `git mv` followed by `source-sentry rename`"
+	)]
+	OutsideProject {
+		/// The document that stays in place.
+		document: DocumentId,
+		/// Its owning project.
+		project: RepoPath,
+		/// The refused placement.
+		destination: RepoPath,
+	},
+	/// A destination project lacks an explicitly assigned class.
+	#[error(
+		"destination project {project} does not define class `{class}`; declare or import the class before moving the declaration"
+	)]
+	DestinationClass {
+		/// The missing class.
+		class: ClassName,
+		/// The destination project.
+		project: RepoPath,
+	},
+
 	/// A rename does not satisfy its preconditions.
 	#[error("cannot rename `{old}` to `{new}`: {reason}")]
 	RenameRefused {
@@ -523,9 +546,9 @@ pub enum MutateError {
 		/// The document.
 		document: DocumentId,
 		/// Where the command said it is.
-		expected: Placement,
+		expected: Box<Placement>,
 		/// Where it is.
-		actual: Placement,
+		actual: Box<Placement>,
 	},
 	/// `track --from` to where the document already is.
 	#[error("`{document}` is already tracked {placement}")]
@@ -722,4 +745,14 @@ fn lines<T: fmt::Display>(items: &[T]) -> String {
 		.map(|item| format!("  - {item}"))
 		.collect::<Vec<_>>()
 		.join("\n")
+}
+
+/// Converts project configuration failures into ordinary mutation refusals.
+impl From<LoadError> for MutateError {
+	fn from(error: LoadError) -> Self {
+		match error {
+			LoadError::Backend(error) => Self::Backend(error),
+			LoadError::Invalid(errors) => Self::InvalidConfigs { errors },
+		}
+	}
 }

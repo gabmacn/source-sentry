@@ -10,7 +10,55 @@ use source_sentry_core::model::{
 use source_sentry_core::policy::Threshold;
 
 use crate::exit::{self, Failure};
-use crate::workspace::{Workspace, load};
+use crate::workspace::{Workspace, load_project};
+use source_sentry_core::config::{project_of, project_roots};
+use source_sentry_core::ports::Snapshot;
+
+/// A document identity qualified by its owning project.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct Key {
+	/// The document's path or remote identity.
+	pub(super) document: DocumentId,
+	/// Its project root in the repository.
+	pub(super) project: RepoPath,
+}
+
+impl Key {
+	/// Qualifies a local path by ownership and a remote identity by selection.
+	pub(super) fn new(
+		document: DocumentId,
+		roots: &BTreeSet<RepoPath>,
+		selected: &RepoPath,
+	) -> Self {
+		let project = match &document {
+			DocumentId::Local(path) => project_of(roots, path),
+			DocumentId::Remote(_) => project_of(roots, selected),
+		};
+		Self { document, project }
+	}
+
+	/// Displays a remote project's name when needed to disambiguate identities.
+	pub(super) fn display(&self, workspace: &Workspace) -> String {
+		let shown = workspace.display_document(&self.document);
+		if matches!(self.document, DocumentId::Remote(_)) && !self.project.is_root()
+		{
+			format!(
+				"{shown} (project {})",
+				workspace.display_path(&self.project)
+			)
+		} else {
+			shown
+		}
+	}
+}
+
+/// Allows ordinary document I/O to use the underlying identity explicitly.
+impl std::ops::Deref for Key {
+	type Target = DocumentId;
+	fn deref(&self) -> &DocumentId {
+		&self.document
+	}
+}
 
 /// The current canonical states of every source, including pattern removals.
 type Sources = BTreeMap<RepoPath, Option<ObjectId>>;
@@ -35,15 +83,17 @@ pub(super) struct Document {
 	/// The evidence for suppressing unchanged repeat questions.
 	pub(super) stamp: Stamp,
 	/// Every transitive upstream, used to order equal outcomes.
-	ancestors: BTreeSet<DocumentId>,
+	ancestors: BTreeSet<Key>,
 }
 
 /// The live documents of a fresh evaluation. Sealed records never enter it.
 pub(super) struct State {
+	/// Projects ordered by their default because the requested context is absent.
+	pub(super) fallbacks: Vec<RepoPath>,
 	/// Live documents, sorted by repository identity.
-	pub(super) documents: BTreeMap<DocumentId, Document>,
+	pub(super) documents: BTreeMap<Key, Document>,
 	/// Every tracked identity, including records that cannot be queued.
-	pub(super) tracked: BTreeSet<DocumentId>,
+	pub(super) tracked: BTreeSet<Key>,
 }
 
 impl State {
@@ -57,9 +107,51 @@ impl State {
 			.repository
 			.working_tree_snapshot()
 			.map_err(|error| Failure::backend(&error))?;
-		let (configs, inventory) = load(workspace, &snapshot)?;
+		let roots = project_roots(
+			&snapshot.paths().map_err(|error| Failure::backend(&error))?,
+		);
+		let start = project_of(&roots, &workspace.scope);
+		let mut state = Self {
+			fallbacks: Vec::new(),
+			documents: BTreeMap::new(),
+			tracked: BTreeSet::new(),
+		};
+		for project in roots.iter().filter(|project| project.starts_with(&start)) {
+			let one = Self::project(workspace, &snapshot, context, project)?;
+			state.fallbacks.extend(one.fallbacks);
+			state.documents.extend(one.documents);
+			state.tracked.extend(one.tracked);
+		}
+		let edges: BTreeMap<_, _> = state
+			.documents
+			.iter()
+			.map(|(key, document)| (key.clone(), document.ancestors.clone()))
+			.collect();
+		for document in state.documents.values_mut() {
+			let mut visit: Vec<_> = document.ancestors.iter().cloned().collect();
+			while let Some(next) = visit.pop() {
+				for upstream in edges.get(&next).into_iter().flatten() {
+					if document.ancestors.insert(upstream.clone()) {
+						visit.push(upstream.clone());
+					}
+				}
+			}
+		}
+		Ok(state)
+	}
+
+	/// Evaluates one project's live documents under its own declared context.
+	fn project<S: Snapshot>(
+		workspace: &Workspace,
+		snapshot: &S,
+		requested: &str,
+		project: &RepoPath,
+	) -> Result<Self, Failure> {
+		let (configs, inventory) = load_project(workspace, snapshot, project)?;
+		let fallback = !configs.is_declared_context(requested);
+		let context = if fallback { "default" } else { requested };
 		let evaluation = check(
-			&snapshot,
+			snapshot,
 			&workspace.repository,
 			&configs,
 			&inventory,
@@ -67,25 +159,7 @@ impl State {
 			Some(context),
 		)
 		.map_err(|error| Failure::backend(&error))?;
-		let code = evaluation.exit_code(Threshold::Warn).code();
-		if code >= exit::CONFIGURATION {
-			let mut message = String::from("cannot review this working tree:");
-			for diagnostic in evaluation
-				.diagnostics
-				.iter()
-				.filter(|diagnostic| diagnostic.severity().is_fatal())
-			{
-				let _ = write!(
-					message,
-					"\n  {}:{}: {}: {}",
-					workspace.display_path(&diagnostic.location.file),
-					diagnostic.location.line.unwrap_or(1),
-					diagnostic.kind.code(),
-					diagnostic.message
-				);
-			}
-			return Err(Failure::new(code, message));
-		}
+		valid(workspace, &evaluation)?;
 		let mut documents = BTreeMap::new();
 		for subject in &evaluation.subjects {
 			let Some(document) = subject.document() else {
@@ -114,7 +188,11 @@ impl State {
 				}
 			}
 			documents.insert(
-				document.document.clone(),
+				Key::new(
+					document.document.clone(),
+					configs.projects(),
+					configs.project(),
+				),
 				Document {
 					outcome,
 					pending: subject.facts.iter().any(|fact| {
@@ -140,16 +218,33 @@ impl State {
 							.collect(),
 						upstreams: live.stale_upstreams.clone(),
 					},
-					ancestors,
+					ancestors: ancestors
+						.into_iter()
+						.chain(live.stale_upstreams.iter().cloned().map(DocumentId::Local))
+						.map(|document| {
+							Key::new(document, configs.projects(), configs.project())
+						})
+						.collect(),
 				},
 			);
 		}
 		Ok(Self {
+			fallbacks: if fallback {
+				vec![project.clone()]
+			} else {
+				Vec::new()
+			},
 			documents,
 			tracked: inventory
 				.claims
 				.iter()
-				.map(|claim| claim.document.clone())
+				.map(|claim| {
+					Key::new(
+						claim.document.clone(),
+						configs.projects(),
+						configs.project(),
+					)
+				})
 				.collect(),
 		})
 	}
@@ -158,9 +253,9 @@ impl State {
 	/// within each outcome, taking the first available path at each step.
 	pub(super) fn queue(
 		&self,
-		selected: &BTreeSet<DocumentId>,
-		answered: &BTreeMap<DocumentId, Checkpoint>,
-	) -> Result<Vec<DocumentId>, Failure> {
+		selected: &BTreeSet<Key>,
+		answered: &BTreeMap<Key, Checkpoint>,
+	) -> Result<Vec<Key>, Failure> {
 		let mut rest: BTreeSet<_> = self
 			.documents
 			.iter()
@@ -226,4 +321,31 @@ pub(super) fn changed_sources(
 		.filter(|path| old.get(*path) != new.get(*path))
 		.cloned()
 		.collect()
+}
+
+/// Refuses fatal diagnostics before a project contributes to the review queue.
+fn valid(
+	workspace: &Workspace,
+	evaluation: &source_sentry_core::evaluate::Evaluation,
+) -> Result<(), Failure> {
+	let code = evaluation.exit_code(Threshold::Warn).code();
+	if code >= exit::CONFIGURATION {
+		let mut message = String::from("cannot review this working tree:");
+		for diagnostic in evaluation
+			.diagnostics
+			.iter()
+			.filter(|diagnostic| diagnostic.severity().is_fatal())
+		{
+			let _ = write!(
+				message,
+				"\n  {}:{}: {}: {}",
+				workspace.display_path(&diagnostic.location.file),
+				diagnostic.location.line.unwrap_or(1),
+				diagnostic.kind.code(),
+				diagnostic.message
+			);
+		}
+		return Err(Failure::new(code, message));
+	}
+	Ok(())
 }

@@ -58,7 +58,7 @@ pub(super) struct Edits {
 	/// Local lockfiles, by directory.
 	locals: BTreeMap<RepoPath, Loaded<LocalLockfile>>,
 	/// Remote owner lockfiles, by owner.
-	remotes: BTreeMap<String, Loaded<RemoteLockfile>>,
+	remotes: BTreeMap<(RepoPath, String), Loaded<RemoteLockfile>>,
 	/// On-file declarations, by document: the new declaration, or `None`
 	/// to remove the `source-sentry` key.
 	documents: BTreeMap<RepoPath, Option<Declaration>>,
@@ -89,7 +89,7 @@ impl Edits {
 					let bytes = repo.snapshot.read(&path)?;
 					Some(
 						LocalLockfile::parse_in_project(
-							&repo.inventory.project,
+							&crate::config::project_of(&repo.inventory.projects, directory),
 							directory,
 							&bytes,
 						)
@@ -116,16 +116,17 @@ impl Edits {
 	pub(super) fn remote<S: Snapshot>(
 		&mut self,
 		repo: &Repo<'_, S>,
+		project: &RepoPath,
 		owner: &str,
 	) -> Result<&mut RemoteLockfile, MutateError> {
-		match self.remotes.entry(owner.to_owned()) {
+		match self.remotes.entry((project.clone(), owner.to_owned())) {
 			Entry::Occupied(entry) => Ok(&mut entry.into_mut().current),
 			Entry::Vacant(entry) => {
-				let path = remote_lockfile_path(&repo.inventory.project, owner)?;
+				let path = remote_lockfile_path(project, owner)?;
 				let original = if repo.tracked.contains(&path) {
 					let bytes = repo.snapshot.read(&path)?;
 					Some(
-						RemoteLockfile::parse_in_project(&repo.inventory.project, &bytes)
+						RemoteLockfile::parse_in_project(project, &bytes)
 							.map_err(|error| MutateError::InvalidLockfile { path, error })?,
 					)
 				} else {
@@ -189,8 +190,8 @@ impl Edits {
 					}
 				}
 			}
-			(DocumentId::Remote(identity), Placement::Remote { owner }) => {
-				let documents = &mut self.remote(repo, owner)?.documents;
+			(DocumentId::Remote(identity), Placement::Remote { project, owner }) => {
+				let documents = &mut self.remote(repo, project, owner)?.documents;
 				match declaration {
 					Some(declaration) => {
 						documents.insert(identity.clone(), declaration);
@@ -259,20 +260,24 @@ impl Edits {
 			match loaded.fate(empty) {
 				Fate::Keep => {}
 				Fate::Write => {
-					let bytes = write_local(&repo.inventory.project, &path, lockfile)?;
+					let bytes = write_local(
+						&crate::config::project_of(&repo.inventory.projects, &path),
+						&path,
+						lockfile,
+					)?;
 					files.insert(path, bytes);
 				}
 				Fate::Delete => deleted.push(path),
 			}
 		}
-		for (owner, loaded) in self.remotes {
-			let path = remote_lockfile_path(&repo.inventory.project, &owner)?;
+		for ((project, owner), loaded) in self.remotes {
+			let path = remote_lockfile_path(&project, &owner)?;
 			let lockfile = &loaded.current;
 			let empty = lockfile.documents.is_empty() && lockfile.retired.is_empty();
 			match loaded.fate(empty) {
 				Fate::Keep => {}
 				Fate::Write => {
-					let bytes = write_remote(&repo.inventory.project, &path, lockfile)?;
+					let bytes = write_remote(&project, &path, lockfile)?;
 					files.insert(path, bytes);
 				}
 				Fate::Delete => deleted.push(path),
@@ -282,7 +287,8 @@ impl Edits {
 			let original = repo.snapshot.read(&document)?;
 			let previous = self.former_documents.get(&document).unwrap_or(&document);
 			let bytes = write_frontmatter(
-				&repo.inventory.project,
+				&crate::config::project_of(&repo.inventory.projects, previous),
+				&crate::config::project_of(&repo.inventory.projects, &document),
 				previous,
 				&document,
 				&original,
@@ -369,6 +375,7 @@ fn write_remote(
 /// `original` with its declaration replaced by `declaration`, which must
 /// read back unchanged.
 fn write_frontmatter(
+	previous_project: &RepoPath,
 	project: &RepoPath,
 	previous: &RepoPath,
 	document: &RepoPath,
@@ -382,7 +389,7 @@ fn write_frontmatter(
 	let bytes = match declaration {
 		Some(declaration) if previous != document => {
 			frontmatter::write_in_projects(
-				project,
+				previous_project,
 				project,
 				previous,
 				document,

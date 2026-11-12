@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::MutateError;
 use super::repo::Repo;
 use crate::claims::{Diagnostic, DiagnosticKind, Inventory, discover};
-use crate::config::{ConfigSet, LoadError};
+use crate::config::ConfigSet;
 use crate::model::{DocumentId, RepoPath};
 use crate::ports::{
 	BackendError, BackendErrorKind, Canonical, Revision, Snapshot, WritePlan,
@@ -102,12 +102,26 @@ pub(super) fn verify<S: Snapshot>(
 			.collect(),
 		deleted: plan.deletes.iter().map(|delete| &delete.path).collect(),
 	};
-	let configs = ConfigSet::load_project(&overlay, &repo.inventory.project)
-		.map_err(|error| match error {
-			LoadError::Backend(error) => MutateError::Backend(error),
-			LoadError::Invalid(errors) => MutateError::InvalidConfigs { errors },
-		})?;
-	let after = discover(&overlay, &configs)?;
+	let mut projects: BTreeSet<_> = plan
+		.writes
+		.iter()
+		.map(|write| {
+			crate::config::project_of(&repo.inventory.projects, &write.path)
+		})
+		.chain(plan.deletes.iter().map(|delete| {
+			crate::config::project_of(&repo.inventory.projects, &delete.path)
+		}))
+		.collect();
+	projects.insert(repo.inventory.project.clone());
+	let configs = ConfigSet::load_project(&overlay, &repo.inventory.project)?;
+	let mut after = discover(&overlay, &configs)?;
+	for project in projects
+		.iter()
+		.filter(|project| *project != &repo.inventory.project)
+	{
+		let configs = ConfigSet::load_project(&overlay, project)?;
+		after.extend(discover(&overlay, &configs)?);
+	}
 	let introduced = introduced(repo.inventory, &after);
 	if introduced.is_empty() {
 		Ok(after)

@@ -237,6 +237,7 @@ fn a_remote_document_goes_to_its_owner_lockfile() {
 	let mut request = request(
 		remote("abstract:video"),
 		Target::Remote {
+			project: crate::model::RepoPath::ROOT,
 			owner: "legal".to_owned(),
 		},
 		vec![source("/src/a.rs")],
@@ -329,6 +330,7 @@ fn sources_must_resolve() {
 	};
 	let video = || remote("abstract:video");
 	let legal = || Target::Remote {
+		project: crate::model::RepoPath::ROOT,
 		owner: "legal".to_owned(),
 	};
 
@@ -539,6 +541,7 @@ fn other_refusals() {
 	let error = attempt(&request(
 		remote("abstract:video"),
 		Target::Remote {
+			project: crate::model::RepoPath::ROOT,
 			owner: "../legal".to_owned(),
 		},
 		Vec::new(),

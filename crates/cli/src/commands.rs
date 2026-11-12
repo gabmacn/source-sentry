@@ -18,6 +18,7 @@ mod untrack;
 pub(crate) use diff::shell_word;
 
 use chrono::{DateTime, SubsecRound as _, Utc};
+use source_sentry_core::ports::Snapshot as _;
 
 use crate::cli::{Cli, Command};
 use crate::exit::Failure;
@@ -47,9 +48,7 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 		workspace.scope = workspace.repo_path(path)?;
 	}
 	if let Command::Explain(args) = &cli.command
-		&& let Ok(crate::cli::DocumentArg::Path(path)) =
-			crate::cli::parse_document(&args.subject)
-		&& let Ok(path) = workspace.repo_path(&path)
+		&& let Some(path) = explain_path(&workspace, args)?
 	{
 		workspace.scope = path;
 	}
@@ -67,6 +66,42 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 		Command::Init(args) => init::run(&workspace, args, printer),
 		Command::Migrate(args) => migrate::run(&workspace, args, printer),
 	}
+}
+
+/// A document selects its project; a series name that also names a directory
+/// stays in the starting project, including when inspecting a committed tree.
+fn explain_path(
+	workspace: &Workspace,
+	args: &crate::cli::ExplainArgs,
+) -> Result<Option<source_sentry_core::model::RepoPath>, Failure> {
+	let Ok(crate::cli::DocumentArg::Path(path)) =
+		crate::cli::parse_document(&args.subject)
+	else {
+		return Ok(None);
+	};
+	let Ok(path) = workspace.repo_path(&path) else {
+		return Ok(None);
+	};
+	let paths = if let Some(revision) = &args.evaluation.rev {
+		workspace
+			.repository
+			.commit_snapshot(revision)
+			.map_err(|error| Failure::backend(&error))?
+			.paths()
+	} else {
+		workspace
+			.repository
+			.working_tree_snapshot()
+			.map_err(|error| Failure::backend(&error))?
+			.paths()
+	}
+	.map_err(|error| Failure::backend(&error))?;
+	Ok(
+		(!paths
+			.iter()
+			.any(|candidate| candidate != &path && candidate.starts_with(&path)))
+		.then_some(path),
+	)
 }
 
 /// The current instant, to the second: the evaluation instant of `check`

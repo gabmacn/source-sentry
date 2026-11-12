@@ -2,9 +2,10 @@
 //!
 //! # Files
 //!
-//! [`ConfigSet::load`] reads every config of a snapshot:
+//! [`ConfigSet::load_project`] reads one project, excluding nested projects:
+//! [`ConfigSet::load`] selects the repository project. It reads:
 //!
-//! - the repository config, `.source-sentry/source-sentry.yaml`;
+//! - the project config, `.source-sentry/source-sentry.yaml`;
 //! - every preset, `.source-sentry/presets/<name>.yaml`, where `<name>` may
 //!   contain subfolders;
 //! - every paired config, `.source-sentry/remotes/<owner>.yaml`;

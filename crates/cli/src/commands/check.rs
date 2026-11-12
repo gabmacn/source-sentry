@@ -178,28 +178,7 @@ fn evaluate_snapshot<S: Snapshot>(
 		Some(context),
 	)
 	.map_err(|error| Failure::backend(&error))?;
-	for diagnostic in &mut evaluation.diagnostics {
-		if diagnostic.kind == DiagnosticKind::MissingDocument
-			&& let Some(DocumentId::Local(old)) = &diagnostic.document
-		{
-			let path = workspace.display_path(old);
-			let path = if path.starts_with('-')
-				|| matches!(
-					crate::cli::parse_document(&path),
-					Ok(crate::cli::DocumentArg::Remote(_))
-				) {
-				format!("./{path}")
-			} else {
-				path
-			};
-			let _ = write!(
-				diagnostic.message,
-				". If it was renamed, run `{} rename {} <new>` after moving the file with `git mv`",
-				workspace.command_prefix(),
-				super::shell_word(&path)
-			);
-		}
-	}
+	add_hints(workspace, &configs, &mut evaluation);
 	Ok((evaluation, Some(configs)))
 }
 
@@ -398,4 +377,71 @@ fn summary(evaluation: &Evaluation, threshold: Threshold) -> String {
 	}
 	parts.push(format!("exit {}", evaluation.exit_code(threshold).code()));
 	parts.join(" · ")
+}
+
+/// Makes recovery commands relative to the effective directory and preserves `-C`.
+fn add_hints(
+	workspace: &Workspace,
+	configs: &ConfigSet,
+	evaluation: &mut Evaluation,
+) {
+	for diagnostic in &mut evaluation.diagnostics {
+		let Some(DocumentId::Local(path)) = &diagnostic.document else {
+			continue;
+		};
+		let argument = document_argument(workspace, path);
+		if diagnostic.kind == DiagnosticKind::MissingDocument {
+			let _ = write!(
+				diagnostic.message,
+				". If it was renamed, run `{} rename {} <new>` after moving the file with `git mv`",
+				workspace.command_prefix(),
+				super::shell_word(&argument)
+			);
+		} else if diagnostic.kind == DiagnosticKind::OutsideAuthority
+			&& diagnostic
+				.location
+				.field
+				.as_deref()
+				.is_some_and(|field| field.starts_with("documents["))
+		{
+			let project =
+				source_sentry_core::config::project_of(configs.projects(), path);
+			if source_sentry_core::config::project_of(
+				configs.projects(),
+				&diagnostic.location.file,
+			) == project
+			{
+				continue;
+			}
+			let from = diagnostic.location.file.parent().unwrap_or(RepoPath::ROOT);
+			diagnostic.message = format!(
+				"`{}` is declared outside its project. Run `{} track {} --from {} --to {}` to move the declaration into its project",
+				workspace.display_path(path),
+				workspace.command_prefix(),
+				super::shell_word(&argument),
+				super::shell_word(&format!(
+					"lockfile:{}",
+					workspace.display_path(&from)
+				)),
+				super::shell_word(&format!(
+					"lockfile:{}",
+					workspace.display_path(&project)
+				))
+			);
+		}
+	}
+}
+
+/// Prevents a local argument from being read as an option or remote identity.
+fn document_argument(workspace: &Workspace, path: &RepoPath) -> String {
+	let path = workspace.display_path(path);
+	if path.starts_with('-')
+		|| matches!(
+			crate::cli::parse_document(&path),
+			Ok(crate::cli::DocumentArg::Remote(_))
+		) {
+		format!("./{path}")
+	} else {
+		path
+	}
 }

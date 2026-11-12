@@ -28,7 +28,7 @@ pub fn to_project_json<T: Serialize>(
 
 /// Re-expresses a canonical repository path relative to a project.
 fn relative(value: &str, project: &RepoPath) -> String {
-	if value.contains(':') {
+	if value.parse::<crate::model::RemoteIdentity>().is_ok() {
 		return value.to_owned();
 	}
 	rebase_path(value, &RepoPath::ROOT, project)

@@ -42,8 +42,15 @@ command.
 6. **Read refusals.** Every error says what is wrong and what to do. `--yes`
    only answers the confirmation question; it never overrides a refusal.
 
-Paths typed on the command line are read from the current directory, as in
-git. A source path that starts with `/` is read from the repository root.
+Paths typed on the command line start in the effective current directory;
+`-C <path>` changes it, as in git. Source spellings use `/` for the
+document's project root and `:/` for the repository root. Relative sources
+in declarations start beside the document. Sources can leave their project
+but never the repository. A tracked `.source-sentry/source-sentry.yaml`
+marks a project root; the repository root always counts. `check` and `init`
+cover only the starting project, document commands use the document's project,
+and `review` traverses nested projects. Check each affected project with
+`source-sentry -C <project> check`; an enclosing check excludes it.
 
 ## When `check` reports problems
 

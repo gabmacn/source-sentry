@@ -103,32 +103,14 @@ fn summary(workspace: &Workspace, summary: &RenameSummary) -> String {
 		describe::location(workspace, &summary.from),
 		describe::location(workspace, &summary.to)
 	);
-	for source in &summary.sources {
-		let document = workspace.display_document(&source.document);
-		match source.kind {
-			RenameSourceKind::UnmatchedPattern => {
-				let _ = writeln!(
-					text,
-					"  {document}: pattern `{}` no longer matches the renamed member; leave it unchanged for `check`",
-					source.before
-				);
-			}
-			kind => {
-				let label = match kind {
-					RenameSourceKind::Path => "path",
-					RenameSourceKind::Pattern | RenameSourceKind::UnmatchedPattern => {
-						"pattern"
-					}
-					RenameSourceKind::Member => "reviewed member (keep review)",
-				};
-				let _ = writeln!(
-					text,
-					"  {document}: {label} `{}` -> `{}`",
-					source.before, source.after
-				);
-			}
-		}
-	}
+	let _ = writeln!(
+		text,
+		"  projects: {} -> {}",
+		workspace.display_path(&summary.project_before),
+		workspace.display_path(&summary.project_after)
+	);
+	super::track::settings_preview(&mut text, &summary.settings);
+	source_changes(workspace, &mut text, &summary.sources);
 	if summary.series_before != summary.series_after {
 		if let (Some(before), Some(after)) =
 			(&summary.series_before, &summary.series_after)
@@ -158,4 +140,38 @@ fn summary(workspace: &Workspace, summary: &RenameSummary) -> String {
 		}
 	}
 	text
+}
+
+/// Lists every rewritten source and reviewed member before confirmation.
+pub(super) fn source_changes(
+	workspace: &Workspace,
+	text: &mut String,
+	sources: &[source_sentry_core::mutate::RenamedSource],
+) {
+	for source in sources {
+		let document = workspace.display_document(&source.document);
+		match source.kind {
+			RenameSourceKind::UnmatchedPattern => {
+				let _ = writeln!(
+					text,
+					"  {document}: pattern `{}` no longer matches the renamed member; leave it unchanged for `check`",
+					source.before
+				);
+			}
+			kind => {
+				let label = match kind {
+					RenameSourceKind::Path => "path",
+					RenameSourceKind::Pattern | RenameSourceKind::UnmatchedPattern => {
+						"pattern"
+					}
+					RenameSourceKind::Member => "reviewed member (keep review)",
+				};
+				let _ = writeln!(
+					text,
+					"  {document}: {label} `{}` -> `{}`",
+					source.before, source.after
+				);
+			}
+		}
+	}
 }

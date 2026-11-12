@@ -28,8 +28,8 @@ use crate::ports::{Canonical, Snapshot};
 /// One source to declare.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceSpec {
-	/// A single file: a leading `/` means the repository root, and any other
-	/// path is relative to the document.
+	/// A single file: `/` means the document project and `:/` the repository
+	/// root. Other paths are relative to the document.
 	Path(String),
 	/// A glob, every match of which is a source.
 	Pattern(String),
@@ -52,6 +52,8 @@ pub enum Target {
 	/// In the owner lockfile `.source-sentry/remotes/<owner>.lock`, which is
 	/// created when missing. Only for remote documents.
 	Remote {
+		/// The project that holds this remote owner.
+		project: RepoPath,
 		/// The owner.
 		owner: String,
 	},
@@ -70,7 +72,8 @@ impl fmt::Display for Target {
 				directory: directory.clone(),
 			}
 			.fmt(formatter),
-			Self::Remote { owner } => Placement::Remote {
+			Self::Remote { project, owner } => Placement::Remote {
+				project: project.clone(),
 				owner: owner.clone(),
 			}
 			.fmt(formatter),
@@ -281,12 +284,13 @@ pub(super) fn register<S: Snapshot>(
 				prepare_lockfile(repo, edits, path, &directory, &moving, carried)?;
 			(Placement::Lockfile { directory }, created)
 		}
-		(DocumentId::Remote(_), Target::Remote { owner }) => {
+		(DocumentId::Remote(_), Target::Remote { project, owner }) => {
 			unclaimed(repo, document)?;
-			let path = remote_lockfile_path(&repo.inventory.project, owner)?;
+			let path = remote_lockfile_path(project, owner)?;
 			let created = !repo.tracked.contains(&path);
 			(
 				Placement::Remote {
+					project: project.clone(),
 					owner: owner.clone(),
 				},
 				created,
@@ -313,7 +317,7 @@ pub(super) fn register<S: Snapshot>(
 	} else {
 		addition
 	};
-	let declared_in = location(&repo.inventory.project, document, &placement)?;
+	let declared_in = location(document, &placement)?;
 	let new_patterns = patterns_of(&declaration.sources);
 	edits.place(repo, document, &placement, Some(declaration))?;
 	Ok(Pending {
@@ -349,9 +353,13 @@ fn names(target: &Target, placement: &Placement) -> bool {
 			},
 			Placement::Lockfile { directory },
 		) => named == directory,
-		(Target::Remote { owner: named }, Placement::Remote { owner }) => {
-			named == owner
-		}
+		(
+			Target::Remote {
+				project: named_project,
+				owner: named,
+			},
+			Placement::Remote { project, owner },
+		) => named == owner && named_project == project,
 		_ => false,
 	}
 }
@@ -559,7 +567,9 @@ pub(super) fn rediscovered<'a>(
 	let claims: Vec<&'a Claim> = after
 		.claims
 		.iter()
-		.filter(|claim| &claim.document == document)
+		.filter(|claim| {
+			&claim.document == document && Placement::of(claim) == *placement
+		})
 		.collect();
 	match claims.as_slice() {
 		[claim] if Placement::of(claim) == *placement => Ok(claim),
@@ -666,6 +676,16 @@ pub(super) fn lockfile_directory<S: Snapshot>(
 	requested: Option<&RepoPath>,
 	moving: &BTreeSet<DocumentId>,
 ) -> Result<RepoPath, MutateError> {
+	let project = crate::config::project_of(&repo.inventory.projects, document);
+	if let Some(directory) = requested
+		&& crate::config::project_of(&repo.inventory.projects, directory) != project
+	{
+		return Err(MutateError::OutsideProject {
+			document: DocumentId::Local(document.clone()),
+			project,
+			destination: directory.clone(),
+		});
+	}
 	let nearest = repo.nearest_lockfile(document);
 	let Some(directory) = requested else {
 		return Ok(
@@ -827,7 +847,6 @@ fn carry_tombstones<S: Snapshot>(
 /// Fails with [`MutateError::TargetMismatch`] when the placement does not
 /// fit the document's kind, and with [`MutateError::InvalidOwnerName`].
 pub(super) fn location(
-	project: &RepoPath,
 	document: &DocumentId,
 	placement: &Placement,
 ) -> Result<Location, MutateError> {
@@ -842,7 +861,7 @@ pub(super) fn location(
 				entry_field("documents", key),
 			))
 		}
-		(DocumentId::Remote(identity), Placement::Remote { owner }) => {
+		(DocumentId::Remote(identity), Placement::Remote { project, owner }) => {
 			Ok(Location::field(
 				remote_lockfile_path(project, owner)?,
 				entry_field("documents", &identity.to_string()),

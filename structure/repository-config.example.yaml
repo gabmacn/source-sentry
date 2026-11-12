@@ -1,4 +1,4 @@
-# The repository config, at .source-sentry/source-sentry.yaml.
+# The project config, at .source-sentry/source-sentry.yaml.
 
 # Config, preset and frontmatter YAML must each contain one document. Use
 # true/false for booleans; duplicate keys, merge keys and unsupported tags are
@@ -6,13 +6,13 @@
 
 # This file is optional. Without it: version 1, UTC, no declared classes and
 # only the built-in default context. If present, it must set integer version 1.
-# Only this file sets the format version for the whole repository.
+# Only this file sets the format version for the whole project.
 version: 1
 # Due dates end at midnight in this time zone. Use an IANA name, such as
 # 'Europe/Madrid'.
 time-zone: 'UTC'
 
-# Every class and context used anywhere in the repository is declared here.
+# Every class and context used anywhere in the project is declared here.
 # Class, context and series names use lowercase ASCII letters and digits,
 # separated by single hyphens, with none at either end. Owner identifiers
 # need only be nonblank.
@@ -59,7 +59,8 @@ define:
           outcome: fail
 
 # Settings that every directory inherits, unless it overrides them.
-# Presets come from .source-sentry/presets/; this config needs none.
+# Presets resolve in this project, then in enclosing projects; this one needs none.
+# Only this project config may import a preset containing `define`.
 imports: []
 documents:
   # include/ignore select unclaimed scan candidates. Existing on-file claims
@@ -67,7 +68,7 @@ documents:
   # read independently of ignores.
   # Config patterns use gitignore syntax: slashless patterns match at any
   # depth; a leading or internal `/` anchors at this config's directory (the
-  # repository root here), and a trailing `/` matches directories. Only ignore
+  # project root here), and a trailing `/` matches directories. Only ignore
   # patterns allow `!` exceptions; the last match wins. Source globs use a
   # different language, described in example.yaml.
   # include replaces the inherited list; adapters appends, and the last

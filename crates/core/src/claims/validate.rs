@@ -30,14 +30,14 @@ pub(super) fn validate(
 	authority(lockfiles, claims, tombstones, diagnostics);
 	for claim in claims {
 		if let DocumentId::Local(path) = &claim.document
-			&& !configs.owns(path)
+			&& (!configs.owns(path) || !configs.owns(&claim.declared_in))
 		{
-			diagnostics.push(Diagnostic::new(DiagnosticKind::OutsideAuthority, claim.location(), format!("`{path}` belongs to another project. Move its declaration into that project")).about(claim.document.clone()));
+			diagnostics.push(Diagnostic::new(DiagnosticKind::OutsideAuthority, claim.location(), format!("`{path}` is declared outside its project. From the repository root, run `source-sentry track {path} --from lockfile:{} --to lockfile:{}` to move the declaration into its project", crate::report::directory(&claim.declared_in.parent().unwrap_or(crate::model::RepoPath::ROOT)), crate::report::directory(&crate::config::project_of(configs.projects(), path)))).about(claim.document.clone()));
 		}
 	}
 	for tombstone in tombstones {
 		if let DocumentId::Local(path) = &tombstone.document
-			&& !configs.owns(path)
+			&& (!configs.owns(path) || !configs.owns(&tombstone.lockfile))
 		{
 			diagnostics.push(Diagnostic::new(DiagnosticKind::OutsideAuthority, Location::field(tombstone.lockfile.clone(), tombstone.field.clone()), format!("`{path}` belongs to another project. Move its tombstone into that project")).about(tombstone.document.clone()));
 		}

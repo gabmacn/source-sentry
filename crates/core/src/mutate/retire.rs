@@ -109,14 +109,14 @@ pub fn retire<S: Snapshot>(
 			);
 			lockfile_path(directory)
 		}
-		(DocumentId::Remote(identity), Placement::Remote { owner }) => {
-			let lockfile = edits.remote(&repo, owner)?;
+		(DocumentId::Remote(identity), Placement::Remote { project, owner }) => {
+			let lockfile = edits.remote(&repo, project, owner)?;
 			lockfile.documents.remove(identity);
 			insert_tombstone(
 				lockfile.retired.entry(identity.clone()).or_default(),
 				tombstone.clone(),
 			);
-			remote_lockfile_path(&repo.inventory.project, owner)?
+			remote_lockfile_path(project, owner)?
 		}
 		(document, placement) => {
 			return Err(MutateError::TargetMismatch {

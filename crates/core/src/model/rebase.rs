@@ -32,7 +32,7 @@ pub fn rebase_path(
 	from: &RepoPath,
 	to: &RepoPath,
 ) -> Result<String, RebaseError> {
-	if declared.starts_with('/') {
+	if declared.starts_with('/') || declared.starts_with(":/") {
 		return Ok(declared.to_owned());
 	}
 	if declared.is_empty() {
@@ -56,7 +56,7 @@ pub fn rebase_pattern(
 	from: &RepoPath,
 	to: &RepoPath,
 ) -> Result<String, RebaseError> {
-	if declared.starts_with('/') {
+	if declared.starts_with('/') || declared.starts_with(":/") {
 		return Ok(declared.to_owned());
 	}
 	// Validate characters before interpreting the glob components.

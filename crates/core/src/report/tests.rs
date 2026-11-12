@@ -19,6 +19,42 @@ use crate::testing::{FakeHistory, FakeSnapshot, fake_oid, path};
 /// The approved example of the check report.
 const EXAMPLE: &str = include_str!("../../../../structure/report.example.json");
 
+/// Project-relative serialization preserves colons in ordinary local filenames.
+#[test]
+fn nested_report_paths_are_relative_to_their_project() {
+	let snapshot = FakeSnapshot::working_tree(None)
+		.with_file("app/.source-sentry/source-sentry.yaml", b"version: 1\n")
+		.with_file("app/source-sentry.lock", br#"{"schema":1,"documents":{"a.md":{"sources":[{"path":"/note:2026.md"}]}},"retired":{}}"#)
+		.with_file("app/a.md", b"# Guide\n")
+		.with_file("app/note:2026.md", b"# Source\n");
+	let configs = ConfigSet::load_project(&snapshot, &path("app")).unwrap();
+	let inventory = discover(&snapshot, &configs).unwrap();
+	let evaluation = check(
+		&snapshot,
+		&FakeHistory::new(),
+		&configs,
+		&inventory,
+		instant("2026-11-07T18:00:00Z"),
+		None,
+	)
+	.unwrap();
+	let report = CheckReport::new(&evaluation, Threshold::Warn);
+	let json: Value = serde_json::from_str(
+		&super::to_project_json(&report, configs.project(), configs.projects())
+			.unwrap(),
+	)
+	.unwrap();
+	let document = json["subjects"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|subject| subject["document"] == "a.md")
+		.unwrap();
+	assert_eq!(document["project"], "app");
+	assert_eq!(document["declared-in"], "source-sentry.lock");
+	assert_eq!(document["sources"][0]["path"], "note:2026.md");
+}
+
 /// The repository config: the example's `production` context, which blocks
 /// privacy documents.
 const REPOSITORY: &str = "\

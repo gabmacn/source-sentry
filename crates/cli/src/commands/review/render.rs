@@ -20,6 +20,9 @@ pub(super) fn document(workspace: &Workspace, view: &View) -> String {
 		workspace.display_document(&view.compared.document),
 		view.facts
 	);
+	if !view.project.is_root() {
+		let _ = writeln!(text, "Project {}", workspace.display_path(&view.project));
+	}
 	if let Some(reason) = &view.reason {
 		let _ = writeln!(text, "{reason}");
 	}

@@ -1,13 +1,14 @@
 # Command-line interface
 
 ```
-source-sentry [--repo <path>] [--color <auto|always|never>] [--quiet] <command>
+source-sentry [-C <path>] [--color <auto|always|never>] [--quiet] <command>
 source-sentry help [<command>]
 ```
 
-- `--repo` names the repository; by default, the current directory, searching
-  upward as git does. Relative repository locations start in the current
-  directory; absolute filesystem paths are accepted.
+- `-C <path>` runs as if started in that directory, as in git. Relative
+  arguments and project selection start there. Relative and absolute
+  filesystem paths are accepted. Without it, use the current directory,
+  searching upward for the repository as git does.
 - `--color` defaults to `auto`, which respects `NO_COLOR` and redirected
   output.
 - `--quiet` prints only errors and what was asked for: the JSON of
@@ -20,22 +21,37 @@ Documents are named by path or by remote identity: `abstract:onboarding-video`,
 `google-drive:1a2B3c4D5e6F7g8H9i0J`.
 
 Document arguments, `init` paths, `--lockfile` directories,
-`lockfile:<directory>` placements and `--repo` are filesystem paths. Relative
+`lockfile:<directory>` placements and `-C` are filesystem paths. Relative
 paths start in the current directory, as in git. Absolute paths use the
 platform's native form: `/home/me/project/docs/guide.md` on Unix, or
 `C:\project\docs\guide.md` on Windows. A leading `/` has its filesystem
-meaning. `--repo` selects the repository without changing the current
-directory.
+meaning. `-C` changes the effective starting directory for every relative
+argument.
 
 Source spellings, given to `--source` or `--pattern` of `track`, `untrack`,
 `diff` and `attest`, and the path of `--expect`, start in the current
-directory when relative. A leading `/` means the repository root, as in
-source declarations: `/src/a.rs` names `src/a.rs` in the selected repository.
+directory when relative. In source spellings, `/` means the document's
+project root and `:/` means the repository root: `/src/a.rs` names
+`src/a.rs` inside that project, while `:/src/a.rs` names the repository's
+`src/a.rs`. Sources may leave a project, using parents or `:/`, but may never
+leave the repository. Remote documents use the project containing their
+owner lockfile and require rooted source spellings.
 
-Human output displays repository paths relative to the current directory,
-including diagnostic locations and commands printed for copying. Quoted
-source declarations retain their declared spelling. JSON keeps paths
-relative to the repository root.
+Human output displays paths relative to the effective starting directory,
+including diagnostic locations and commands printed for copying. Paths are
+absolute when the current directory lies outside the working tree. Quoted
+source declarations retain their spelling. JSON subjects and diagnostic
+locations include `project`, the repository path of the project root (`.`
+for the repository project), and paths relative to that project. A source
+outside its project uses a relative parent path in the report.
+
+A directory containing a tracked `.source-sentry/source-sentry.yaml` starts
+a project. The repository root is always a project. The nearest project
+owns a path, and enclosing configs do not apply inside a nested project.
+Document commands select the document's project; remote identities select
+the project containing the effective starting directory. See
+[`structure/README.md`](../structure/README.md#projects) for configuration
+sharing through explicit preset imports.
 
 ## Checking
 
@@ -53,6 +69,12 @@ source-sentry check [--context <name>] [--fail-on <warn|fail>]
 | `--at` | The evaluation instant, in RFC 3339 | now |
 | `--no-cache` | Reserved: no cache exists yet, so it changes nothing | |
 | `--format` | `human`, or `json` as in `structure/report.example.json` | `human` |
+
+`check` evaluates the project containing the effective starting directory,
+using its own configs and contexts. Nested projects are excluded, and human
+output names them in a note. Run `source-sentry -C <project> check` for each.
+A source document in another project contributes its freshness under that
+project's own declarations and schedules, without applying its contexts.
 
 The exit code is:
 
@@ -164,22 +186,22 @@ whether or not anything changed.
   without becoming `unattested` or regaining its declaration deadline.
   It can be attested again, including with `--reread`.
 - **`--source`** selects a path source by the file it resolves to from the
-  current directory, or from the repository root with `/`. A pattern is
-  selected by its exact declared spelling or its `/`-rooted form. A value
+  current directory, from the document's project root with `/`, or from the
+  repository root with `:/`. A pattern is selected by its exact declared spelling or its `/`- or `:/`-rooted form. A value
   that selects both a path and a pattern is refused, naming both.
-- **`--expect`** takes a path from the current directory, or a `/`-rooted
-  path, followed by `@oid` or `@absent`. Parent components are accepted;
+- **`--expect`** takes a path from the current directory, or a `/`- or
+  `:/`-rooted path, followed by `@oid` or `@absent`. Parent components are accepted;
   the last `@` separates the path from its state.
 - **`--format json`** prints one object: its `schema`, the `document` and
   `revision`, each of the `sources` with every file's `baseline`,
   `current`, `changed` and `diff`, the `expectations`, and the `attest`
-  command as a list of arguments to run from the repository root. The
-  document uses its repository path without a leading `/`; path-source and
-  expectation arguments are `/`-rooted, and declared pattern selectors keep
-  their spelling. Repository selection is implicit in that directory, so
-  the array omits `--repo`.
-  The report's other path fields retain their repository-relative form
-  without a leading `/`.
+  command as a list of arguments to run from the document's project root,
+  named by `project`. The document uses
+  its project-relative path; source and expectation arguments use rooted
+  spellings, with `:/` for repository paths outside a nested project.
+  Declared pattern selectors keep their spelling. The array omits `-C`
+  because its starting directory is explicit. Other paths are relative to
+  the document's project.
   Each source also carries its own `reviewed` (`at` and `by`) when present;
   a pattern's review is independent of its files' baselines.
 
@@ -195,10 +217,14 @@ that the document was reviewed, but does not attest new matches or record a
 whole-document reread. Member oids still determine source changes, and
 stored review timestamps never date deadlines.
 
-`review` walks the live documents whose facts include `stale`, `overdue`,
+`review` traverses the starting project and every project nested inside it,
+using each project's configs. It walks the live documents whose facts
+include `stale`, `overdue`,
 `unattested` or `upstream-stale`. `--context` defaults to `default` and
-decides their order: worst outcome first, then upstream documents before
-their dependents within an outcome, then path. Named documents limit the
+decides their order. A project lacking that context uses its own `default`,
+and the session announces the fallback when it starts. The queue puts the
+worst outcome first, then upstream documents before their dependents within
+an outcome, then path. Named documents limit the
 queue to those that need review. Sealed records are never queued. A
 configuration or integrity error refuses the session before its first
 question.
@@ -313,7 +339,8 @@ source-sentry migrate [--dry-run] [--yes]
   predecessor and shows the copied declaration before the options apply.
   A source that cannot be re-expressed or registered refuses the whole plan.
 - **`--source` and `--pattern`** name files and globs from the current
-  directory, or from the repository root with `/`. A relative input is
+  directory, from the document's project root with `/`, or from the
+  repository root with `:/`. A relative input is
   stored relative to the document's directory: from the root,
   `track docs/cli.md --source crates/cli/src/cli.rs` writes
   `../crates/cli/src/cli.rs`. A `/`-rooted input is stored as given.
@@ -321,7 +348,7 @@ source-sentry migrate [--dry-run] [--yes]
   component. Invalid glob syntax, `..` after a glob component, and directory
   names containing glob metacharacters are refused with a usage error
   explaining why they cannot be rebased safely. A remote document's sources
-  are stored `/`-rooted because it has no directory.
+  are stored with `/` or `:/` because it has no directory.
 - **`--lockfile <directory>`** names a directory from the current directory,
   or by an absolute filesystem path; the flag alone chooses the nearest
   lockfile.
@@ -353,7 +380,10 @@ source-sentry migrate [--dry-run] [--yes]
   they are. An on-file declaration travels with the file; its declaration
   must match the old path's committed frontmatter, so commit an on-file
   declaration before moving it. Relative source paths, patterns and reviewed
-  members are re-expressed for the new directory; `/`-rooted spellings stay.
+  members are re-expressed for the new directory and project. A `/` source
+  outside the destination project becomes `:/`; `:/` sources retain their
+  repository target. The destination must define every class explicitly
+  used by the declaration.
 
   Every source review, the document's `reviewed`, its seal and `completed`
   are kept. Other documents' path sources follow the new path and retain
@@ -363,14 +393,29 @@ source-sentry migrate [--dry-run] [--yes]
   reviews are refused. A changed sealed record is refused; other content
   changes are reported against the retained review oids by `check`.
 
-  The plan shows source rewrites and changes to series membership or
-  version. A rename that would introduce configuration or integrity errors
+  The plan shows every source rewrite, effective setting change and change
+  to series membership or version. A rename that would introduce configuration or integrity errors
   is refused. Use `--dry-run` to preview, or `--yes` to confirm without a
   terminal, as for other changes.
-- **A placement** is written `on-file`, `lockfile:<directory>` or
-  `remote:<owner>`. A lockfile directory is relative to the current
-  directory, or an absolute filesystem path.
-- **`init`** registers the documents that a root's scan finds and nothing
+- **A placement** is written `on-file`, `lockfile:<directory>`,
+  `remote:<owner>` or `remote:<owner>@<project-directory>`. Directories are
+  filesystem paths resolved from the effective starting directory, or
+  absolute paths. An unqualified remote owner belongs to the starting
+  project. An explicit remote directory must be a tracked project root
+  (the repository root counts); a refusal names the nearest project root.
+  Owner identifiers cannot contain `@`. Plans show resolved projects.
+
+  A local document's declaration must stay in its own project. To move the
+  document between projects, use `git mv` followed by `source-sentry rename`.
+  Adding a project marker can strand declarations in an outer lockfile;
+  `check` names the repair command. Move those declarations with
+  `--from lockfile:<outer> --to lockfile:<inner>`, or `--to on-file`.
+  The plan re-expresses sources for the new project and shows every changed
+  setting; the destination must define the declaration's explicit classes.
+  Remote declarations can move between projects' owner lockfiles with the
+  qualified placement spelling and the same preview and class checks.
+- **`init`** scans the starting project and registers the documents that a
+  root's scan finds and nothing
   claims. Without paths it only previews roots, claims and candidates. With
   paths, or `--all`, it registers them as unattested. Candidate paths start
   at the current directory, or are absolute filesystem paths. It never

@@ -89,7 +89,7 @@ fn preview(workspace: &Workspace, preview: &InitPreview) -> String {
 			Placement::Lockfile { directory } => {
 				format!("lockfile:{}", workspace.display_path(directory))
 			}
-			Placement::Remote { owner } => format!("remote:{owner}"),
+			Placement::Remote { owner, .. } => format!("remote:{owner}"),
 		};
 		*placements.entry(placement).or_default() += 1;
 	}

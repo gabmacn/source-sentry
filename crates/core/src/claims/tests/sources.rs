@@ -579,7 +579,7 @@ fn a_source_path_that_does_not_resolve_is_a_configuration_error() {
 	resolve(
 		&mut claims,
 		&tracked,
-		&crate::model::RepoPath::ROOT,
+		&std::collections::BTreeSet::from([crate::model::RepoPath::ROOT]),
 		&mut diagnostics,
 	);
 	let found: Vec<_> = diagnostics

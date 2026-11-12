@@ -278,7 +278,16 @@ pub(crate) fn load<S: Snapshot>(
 	workspace: &Workspace,
 	snapshot: &S,
 ) -> Result<(ConfigSet, Inventory), Failure> {
-	let configs = ConfigSet::load_project(snapshot, &workspace.scope)
+	load_project(workspace, snapshot, &workspace.scope)
+}
+
+/// Loads a particular project for a document or placement operation.
+pub(crate) fn load_project<S: Snapshot>(
+	workspace: &Workspace,
+	snapshot: &S,
+	project: &RepoPath,
+) -> Result<(ConfigSet, Inventory), Failure> {
+	let configs = ConfigSet::load_project(snapshot, project)
 		.map_err(|error| Failure::load(workspace, &error))?;
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;

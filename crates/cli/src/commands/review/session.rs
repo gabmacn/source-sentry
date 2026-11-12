@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use source_sentry_core::model::DocumentId;
+use super::state::Key as DocumentId;
 use source_sentry_core::mutate::{
 	AttestRequest, DocumentDiff, Expectation, MutateError, Selection, attest,
 	diff,
@@ -14,7 +14,7 @@ use super::state::{Checkpoint, State, changed_sources};
 use super::{Answer, Interface, View};
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
-use crate::workspace::{Workspace, load};
+use crate::workspace::{Workspace, load_project};
 
 /// Mutable session history; the working tree remains the source of truth.
 struct Session<'a> {
@@ -52,13 +52,17 @@ impl<'a> Session<'a> {
 		let selected: BTreeSet<_> = args
 			.documents
 			.iter()
-			.map(|argument| workspace.document(argument))
+			.map(|argument| {
+				workspace.document(argument).map(|document| {
+					DocumentId::new(document, &workspace.projects, &workspace.scope)
+				})
+			})
 			.collect::<Result<_, _>>()?;
 		for id in &selected {
 			if !state.tracked.contains(id) {
 				return Err(Failure::new(
 					exit::REFUSED,
-					format!("`{}` is not tracked", workspace.display_document(id)),
+					format!("`{}` is not tracked", id.display(workspace)),
 				));
 			}
 		}
@@ -150,7 +154,7 @@ impl<'a> Session<'a> {
 			.repository
 			.working_tree_snapshot()
 			.map_err(|error| Failure::backend(&error))?;
-		let (_, inventory) = load(self.workspace, &snapshot)?;
+		let (_, inventory) = load_project(self.workspace, &snapshot, &id.project)?;
 		diff(
 			&snapshot,
 			&self.workspace.repository,
@@ -165,6 +169,7 @@ impl<'a> Session<'a> {
 	/// and requests another prompt with a new comparison.
 	fn record(
 		&mut self,
+		id: &DocumentId,
 		compared: &DocumentDiff,
 		reread: bool,
 		ui: &mut impl Interface,
@@ -175,7 +180,7 @@ impl<'a> Session<'a> {
 			.repository
 			.working_tree_snapshot()
 			.map_err(|error| Failure::backend(&error))?;
-		let (_, inventory) = load(self.workspace, &snapshot)?;
+		let (_, inventory) = load_project(self.workspace, &snapshot, &id.project)?;
 		let planned = match attest(
 			&snapshot,
 			&inventory,
@@ -201,7 +206,7 @@ impl<'a> Session<'a> {
 			.repository
 			.apply(&planned.plan)
 			.map_err(|error| Failure::apply(self.workspace, &error))?;
-		self.recorded.push((compared.document.clone(), reread));
+		self.recorded.push((id.clone(), reread));
 		self.finished += 1;
 		ui.message(&format!(
 			"Recorded {}{}.",
@@ -209,13 +214,12 @@ impl<'a> Session<'a> {
 			if reread { " (reread)" } else { "" }
 		));
 		self.refresh()?;
-		if let Some(document) = self.state.documents.get(&compared.document)
+		if let Some(document) = self.state.documents.get(id)
 			&& document.pending
 		{
-			self.answered.insert(
-				compared.document.clone(),
-				Checkpoint::Reviewed(document.stamp.clone()),
-			);
+			self
+				.answered
+				.insert(id.clone(), Checkpoint::Reviewed(document.stamp.clone()));
 		}
 		Ok(true)
 	}
@@ -229,20 +233,25 @@ impl<'a> Session<'a> {
 		queue: &[DocumentId],
 		ui: &mut impl Interface,
 	) -> Result<bool, Failure> {
+		let current = DocumentId {
+			document: view.compared.document.clone(),
+			project: view.project.clone(),
+		};
 		let comparisons: Vec<_> = queue
 			.iter()
 			.map(|id| {
-				if id == &view.compared.document {
+				let compared = if id == &current {
 					Ok(view.compared.clone())
 				} else {
 					self.compare(id)
-				}
+				}?;
+				Ok((id.clone(), compared))
 			})
-			.collect::<Result<_, _>>()?;
+			.collect::<Result<_, Failure>>()?;
 		let unseen = comparisons
 			.iter()
-			.filter(|compared| {
-				self.seen.get(&compared.document) != Some(&compared.expectations)
+			.filter(|(id, compared)| {
+				self.seen.get(id) != Some(&compared.expectations)
 			})
 			.count();
 		match ui.confirm_all(queue.len(), unseen)? {
@@ -250,9 +259,9 @@ impl<'a> Session<'a> {
 			Some(false) => return Ok(true),
 			Some(true) => {}
 		}
-		for compared in comparisons {
-			if self.queue()?.contains(&compared.document)
-				&& !self.record(&compared, false, ui)?
+		for (id, compared) in comparisons {
+			if self.queue()?.contains(&id)
+				&& !self.record(&id, &compared, false, ui)?
 			{
 				break;
 			}
@@ -271,7 +280,7 @@ impl<'a> Session<'a> {
 			let _ = writeln!(
 				text,
 				"  {}{}",
-				self.workspace.display_document(id),
+				id.display(self.workspace),
 				if *reread { " (reread)" } else { "" }
 			);
 		}
@@ -292,12 +301,8 @@ impl<'a> Session<'a> {
 			}
 		);
 		for (id, document) in remaining {
-			let _ = write!(
-				text,
-				"  {}: {}",
-				self.workspace.display_document(id),
-				document.facts
-			);
+			let _ =
+				write!(text, "  {}: {}", id.display(self.workspace), document.facts);
 			if !self.initial.contains(id) {
 				text.push_str("; started needing review during this session");
 			}
@@ -323,6 +328,9 @@ pub(super) fn run(
 	ui: &mut impl Interface,
 ) -> Result<(), Failure> {
 	let mut session = Session::new(workspace, args)?;
+	for project in &session.state.fallbacks {
+		ui.message(&format!("Project {} does not declare context `{}`; ordering its documents by its own `default`.", workspace.display_path(project), args.context));
+	}
 	let mut retry = None;
 	'session: loop {
 		let mut queue = session.queue()?;
@@ -338,6 +346,7 @@ pub(super) fn run(
 			break;
 		};
 		let view = View {
+			project: id.project.clone(),
 			compared: session.compare(&id)?,
 			position: session.finished + 1,
 			total: session.finished + queue.len(),
@@ -379,7 +388,7 @@ pub(super) fn run(
 				Some(answer @ (Answer::Yes | Answer::Reread)) => {
 					// These variants share the expectation-bound write path.
 					let reread = answer == Answer::Reread;
-					if !session.record(&view.compared, reread, ui)? {
+					if !session.record(&id, &view.compared, reread, ui)? {
 						retry = Some(id.clone());
 					}
 					break;

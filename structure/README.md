@@ -25,6 +25,58 @@ local lockfile show two ways to track a document, and a document uses only
 one. To try them, add the documents and sources they name; the made-up oids
 then show as stale sources or a broken seal.
 
+## Projects
+
+A tracked `.source-sentry/source-sentry.yaml` marks its containing directory
+as a project root. The repository root is always a project, even without
+that file. Projects can nest, and each path belongs to its nearest project.
+Configs, document scans, roots, series and unclaimed files stop at nested
+project boundaries. A project's own `.source-sentry/` supplies its version,
+time zone, classes, contexts, presets and remote documents. Enclosing
+configs supply no inherited settings.
+
+`check` and `init` cover the project containing the effective starting
+directory. Document commands use the document's project. `review` traverses
+the starting project and its nested projects, each under its own configs;
+a project missing the selected context uses its own `default`, announced
+at the start of the session. Use `-C <directory>` to change the starting
+directory, as in git.
+
+Source spellings have two roots: `/` means the document's project root,
+and `:/` means the repository root. Relative declarations start beside
+the document. Sources can leave their project, but never the repository.
+Remote documents belong to the project containing their owner lockfile,
+and use rooted sources. A source document in another project contributes
+freshness from its own declarations and schedules, without applying its
+contexts.
+
+Projects share settings only through explicit preset imports. An import
+`common` resolves first to the project's `.source-sentry/presets/common.yaml`,
+then to each enclosing project's preset directory, outwards. The nearest
+file wins. Preset patterns are anchored at the importing config.
+
+A preset can contain `define` for classes and contexts, as well as ordinary
+settings. Only a project's own `.source-sentry/source-sentry.yaml` may import
+a defining preset directly. Directory configs, paired remote configs and
+other presets cannot import one. Two explicit definitions of the same class
+or context are an error naming both files; nothing silently overrides a
+definition. One explicit `default` context replaces the built-in default.
+
+Local declarations must live inside the project containing their document.
+After `git mv` across a project boundary, `rename` previews every source
+rewrite and effective setting change. A `/` source left outside the new
+project becomes `:/`, and reviews are preserved. If a new marker leaves
+declarations in an outer lockfile, `check` names a `track --from/--to` repair
+command. The destination must define the declaration's explicit classes.
+Remote owners in another project can be selected with
+`remote:<owner>@<project-directory>`; the directory must be a project root.
+
+JSON subjects and diagnostic locations carry `project`, the repository
+path of their project root. The repository project is written `.`. Paths
+inside each subject or diagnostic location are relative to that project;
+external sources use `../`. Each related diagnostic location identifies
+its own project independently. The report schema remains 1.
+
 ## Lockfiles
 
 Source Sentry writes lockfiles, so you should not need to edit them. They are
@@ -114,8 +166,8 @@ differences:
 - **`seal` and `completed` are forbidden**, including in every tombstone:
   remote documents cannot be records or series members.
 
-Sources of remote documents must start with `/`, because a remote document
-has no directory to be relative to.
+Sources of remote documents must start with `/` or `:/`, because a remote
+document has no directory to be relative to.
 
 ## The JSON report
 
@@ -152,7 +204,7 @@ format for tools that read it, such as CI jobs.
 Other JSON variants:
 
 - An unjudged subject has `judgement: null` and `outcome: null`.
-- Unclaimed series entries add `inherit-from`, the repository path of the
+- Unclaimed series entries add `inherit-from`, the project-relative path of the
   newest earlier entry with a live declaration that registration would
   copy. The field is omitted when there is no such predecessor. Human
   `check` and `explain` output also name the `source-sentry track <path>`
@@ -160,7 +212,7 @@ Other JSON variants:
 - Documents may add `record` (seal check), `awaiting-seal` (series reference),
   `stale-upstreams` (direct upstream documents) or `unattested` (review
   clock).
-  Pattern members add `pattern`, resolved against the repository root.
+  Pattern members add `pattern`, resolved against their project's root.
 - A clock is `{commit, since}` when started, `null` when idle, `"not-started"`
   for working-tree-only changes, `"unknown"` when the attested oid never
   appears in history, or `"failed"` when dating fails.

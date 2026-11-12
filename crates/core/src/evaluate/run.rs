@@ -124,6 +124,13 @@ fn check_local<S: Snapshot, H: History>(
 		inventory
 			.claims
 			.iter()
+			.filter(|claim| {
+				configs.owns(&claim.declared_in)
+					&& match &claim.document {
+						DocumentId::Local(path) => configs.owns(path),
+						DocumentId::Remote(_) => true,
+					}
+			})
 			.map(|claim| planner.document(claim))
 			.collect()
 	};

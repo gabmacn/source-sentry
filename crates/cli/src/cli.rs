@@ -352,7 +352,8 @@ pub(crate) struct TrackArgs {
 	/// A link to a remote document, which never changes its identity.
 	#[arg(long, value_name = "URL")]
 	pub(crate) url: Option<String>,
-	/// A source file, relative to the current directory, or `/`-rooted.
+	/// A source file, relative to the current directory, or rooted at `/`
+	/// (the document project) or `:/` (the repository).
 	#[arg(long = "source", value_name = "PATH")]
 	pub(crate) sources: Vec<String>,
 	/// A glob from the current directory, `/` or `:/`, whose every match is a source.
@@ -379,7 +380,7 @@ pub(crate) struct TrackArgs {
 	#[arg(long)]
 	pub(crate) no_cadence: bool,
 	/// Move the documents from this placement: `on-file`,
-	/// `lockfile:<directory>` or `remote:<owner>`.
+	/// `lockfile:<directory>` or `remote:<owner>` or `remote:<owner>@<project-directory>`.
 	#[arg(
 		long,
 		value_name = "PLACEMENT",
@@ -497,15 +498,20 @@ pub(crate) enum PlacementArg {
 	OnFile,
 	/// `lockfile:<directory>`, the directory relative to the current one.
 	Lockfile(PathBuf),
-	/// `remote:<owner>`.
-	Remote(String),
+	/// `remote:<owner>` or `remote:<owner>@<project-directory>`.
+	Remote {
+		/// The owner identifier, which cannot contain `@`.
+		owner: String,
+		/// An explicit project root relative to the effective starting directory.
+		project: Option<PathBuf>,
+	},
 }
 
 fn parse_placement(value: &str) -> Result<PlacementArg, String> {
 	let invalid = || {
 		format!(
 			"`{value}` is not a placement; write `on-file`, \
-			 `lockfile:<directory>` or `remote:<owner>`"
+			 `lockfile:<directory>` or `remote:<owner>` or `remote:<owner>@<project-directory>`"
 		)
 	};
 	if value == "on-file" {
@@ -516,7 +522,22 @@ fn parse_placement(value: &str) -> Result<PlacementArg, String> {
 			Ok(PlacementArg::Lockfile(PathBuf::from(directory)))
 		}
 		Some(("remote", owner)) if !owner.is_empty() => {
-			Ok(PlacementArg::Remote(owner.to_owned()))
+			let (owner, project) = owner
+				.split_once('@')
+				.map_or((owner, None), |(owner, project)| {
+					(owner, Some(PathBuf::from(project)))
+				});
+			if owner.is_empty()
+				|| project
+					.as_ref()
+					.is_some_and(|path| path.as_os_str().is_empty())
+			{
+				return Err(invalid());
+			}
+			Ok(PlacementArg::Remote {
+				owner: owner.to_owned(),
+				project,
+			})
 		}
 		_ => Err(invalid()),
 	}
@@ -604,7 +625,10 @@ mod tests {
 		);
 		assert_eq!(
 			parse_placement("remote:legal"),
-			Ok(PlacementArg::Remote("legal".to_owned()))
+			Ok(PlacementArg::Remote {
+				owner: "legal".to_owned(),
+				project: None
+			})
 		);
 		for invalid in ["lockfile", "lockfile:", "remote:", "elsewhere"] {
 			assert!(parse_placement(invalid).is_err(), "{invalid}");

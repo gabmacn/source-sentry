@@ -1,14 +1,25 @@
-# Source Sentry tracks its own documentation with this directory config and
-# the lockfile beside it. Every setting is written out, including those that
-# repeat the built-in defaults, so the file can also be copied as a starting
-# point. structure/directory-config.example.yaml explains each key.
+# Source Sentry tracks its own documentation with this project config and
+# the lockfiles inside the project. Every setting is written out, including
+# built-in defaults, so this file is also a complete starting point.
+# structure/repository-config.example.yaml explains each key.
+# A project uses its own configs independently of enclosing projects.
 
-# Scans this directory for documents. The lockfile beside this file already
-# makes it a root; this line says so explicitly.
-root: true
-# Ignores the settings of parent directories, so Source Sentry is checked the
-# same way wherever its folder lives.
-inherit: false
+version: 1
+time-zone: UTC
+
+define:
+  classes: {}
+  # The built-in default: missed series entries are notices; other findings warn.
+  contexts:
+    default:
+      fallback: warn
+      rules:
+        - facts: ['missed']
+          outcome: notice
+
+imports: []
+classes: []
+owners: []
 
 documents:
   include:
@@ -50,3 +61,9 @@ documents:
 schedule:
   # The built-in default: documents must follow their sources at once.
   grace: 0
+  # No recurring reread deadline unless a document declares one.
+  cadence: null
+
+# No additional scoped context rules or versioned series.
+rules: {}
+series: {}

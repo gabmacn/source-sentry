@@ -20,7 +20,7 @@ use crate::ports::Revision;
 pub enum Scope {
 	/// The built-in defaults, which apply everywhere.
 	BuiltIn,
-	/// The repository config, which applies to the whole repository.
+	/// The project config, which applies to the whole project.
 	Repository,
 	/// The directory config of this directory, which applies to the
 	/// directory and everything below it.

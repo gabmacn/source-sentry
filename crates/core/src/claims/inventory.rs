@@ -50,6 +50,60 @@ pub struct Inventory {
 }
 
 impl Inventory {
+	/// Combines inventories for one atomic operation spanning projects. Repeated
+	/// stranded declarations and diagnostics are retained only once.
+	pub fn extend(&mut self, other: Self) {
+		self.lockfiles.extend(other.lockfiles);
+		self
+			.lockfiles
+			.sort_by(|left, right| left.path.cmp(&right.path));
+		self
+			.lockfiles
+			.dedup_by(|left, right| left.path == right.path);
+		self.claims.extend(other.claims);
+		self.claims.sort_by(|left, right| {
+			(&left.document, &left.declared_in, &left.field).cmp(&(
+				&right.document,
+				&right.declared_in,
+				&right.field,
+			))
+		});
+		self.claims.dedup_by(|left, right| {
+			left.document == right.document
+				&& left.declared_in == right.declared_in
+				&& left.field == right.field
+		});
+		self.tombstones.extend(other.tombstones);
+		self.tombstones.sort_by(|left, right| {
+			(&left.document, &left.lockfile, &left.field).cmp(&(
+				&right.document,
+				&right.lockfile,
+				&right.field,
+			))
+		});
+		self.tombstones.dedup();
+		self.dependencies.extend(other.dependencies);
+		self.dependencies.sort();
+		self.dependencies.dedup();
+		self.unclaimed.extend(other.unclaimed);
+		self.unclaimed.sort();
+		self.unclaimed.dedup();
+		self.series.extend(other.series);
+		self.series.sort_by(|left, right| {
+			(&left.series.anchor, &left.series.name, &left.series.scope).cmp(&(
+				&right.series.anchor,
+				&right.series.name,
+				&right.series.scope,
+			))
+		});
+		self.series.dedup();
+		self.diagnostics.extend(other.diagnostics);
+		self
+			.diagnostics
+			.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+		self.diagnostics.dedup();
+	}
+
 	/// Whether any diagnostic is a configuration or integrity error, which
 	/// exits 3.
 	#[must_use]
@@ -96,7 +150,23 @@ impl Inventory {
 	/// list `path`. `None` when no local lockfile contains it.
 	#[must_use]
 	pub fn lockfile_for(&self, path: &RepoPath) -> Option<&LockfileInfo> {
-		nearest_lockfile(&self.lockfiles, path)
+		self
+			.lockfiles
+			.iter()
+			.filter(|lockfile| {
+				crate::config::project_of(&self.projects, &lockfile.path)
+					== crate::config::project_of(&self.projects, path)
+			})
+			.filter_map(|lockfile| match &lockfile.kind {
+				LockfileKind::Local { directory }
+					if path != directory && path.starts_with(directory) =>
+				{
+					Some((directory.components().count(), lockfile))
+				}
+				LockfileKind::Local { .. } | LockfileKind::Remote { .. } => None,
+			})
+			.max_by_key(|(depth, _)| *depth)
+			.map(|(_, lockfile)| lockfile)
 	}
 
 	/// The series that `path` belongs to, with its membership, when it is a

@@ -93,6 +93,17 @@ pub(super) fn lockfiles<S: Snapshot>(
 		else {
 			continue;
 		};
+		if let LockfileKind::Remote { owner } = &kind
+			&& owner.contains('@')
+		{
+			diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidLockfile, Location::file(path.clone()), format!("remote owner `{owner}` contains `@`, which separates an owner from its project directory in placements. Rename the owner lockfile; owner names cannot contain `@`")));
+			found.lockfiles.push(LockfileInfo {
+				path: path.clone(),
+				kind,
+				parsed: false,
+			});
+			continue;
+		}
 		let bytes = snapshot.read(path)?;
 		let parsed = match &kind {
 			LockfileKind::Local { directory } => LocalLockfile::parse_in_project(

@@ -25,6 +25,8 @@ pub enum Placement {
 	},
 	/// In the remote owner lockfile `.source-sentry/remotes/<owner>.lock`.
 	Remote {
+		/// The project whose remotes directory holds this owner.
+		project: RepoPath,
 		/// The owner, which names the lockfile and its paired config.
 		owner: String,
 	},
@@ -40,6 +42,12 @@ impl Placement {
 				directory: claim.declared_in.parent().unwrap_or(RepoPath::ROOT),
 			},
 			Mode::RemoteLockfile { owner } => Self::Remote {
+				project: claim
+					.declared_in
+					.parent()
+					.and_then(|path| path.parent())
+					.and_then(|path| path.parent())
+					.unwrap_or(RepoPath::ROOT),
 				owner: owner.clone(),
 			},
 		}
@@ -56,8 +64,11 @@ impl fmt::Display for Placement {
 			Self::Lockfile { directory } => {
 				write!(formatter, "in {directory}/{LOCKFILE_NAME}")
 			}
-			Self::Remote { owner } => {
-				write!(formatter, "in the owner lockfile of `{owner}`")
+			Self::Remote { project, owner } => {
+				write!(
+					formatter,
+					"in the owner lockfile of `{owner}` in project {project}"
+				)
 			}
 		}
 	}

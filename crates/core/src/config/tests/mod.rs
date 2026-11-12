@@ -1,6 +1,7 @@
 //! Tests of config parsing, validation and resolution, against in-memory
 //! snapshots.
 
+mod own_defaults;
 mod parsing;
 mod paths;
 mod projects;

@@ -31,8 +31,9 @@ source-sentry:
       # calendar produces a date-out-of-range operational error.
       rrule: 'FREQ=MONTHLY;INTERVAL=2'
   sources:
-    # A leading `/` starts at the repository root. Any other path is relative
-    # to this document.
+    # A leading `/` starts at the project root. Any other path is relative
+    # to this document. `:/` starts at the repository root, even in a nested
+    # project. Sources may leave a project but never the repository.
     - path: '/src/models/user.rs'
       # Written by `attest`: the version of the source that was reviewed, and
       # who reviewed it, and when. `oid` and `reviewed` must appear together,

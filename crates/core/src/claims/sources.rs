@@ -27,13 +27,14 @@ use crate::model::{
 pub(super) fn resolve(
 	claims: &mut [Claim],
 	tracked: &BTreeSet<RepoPath>,
-	project: &RepoPath,
+	projects: &BTreeSet<RepoPath>,
 	diagnostics: &mut Vec<Diagnostic>,
 ) {
 	for claim in claims {
+		let project = crate::config::project_of(projects, &claim.declared_in);
 		let sources = Resolver {
 			claim,
-			project,
+			project: &project,
 			tracked,
 			diagnostics: &mut *diagnostics,
 		}

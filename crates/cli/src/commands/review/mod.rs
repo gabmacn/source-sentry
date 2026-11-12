@@ -56,6 +56,8 @@ impl Answer {
 /// A displayed comparison and its position in the current queue. The
 /// expectations remain unchanged until this document is shown again.
 struct View {
+	/// The project owning this comparison.
+	project: source_sentry_core::model::RepoPath,
 	/// The comparison approved by `y` or `r`.
 	compared: DocumentDiff,
 	/// The document's position, starting at one.
