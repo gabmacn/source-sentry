@@ -106,7 +106,7 @@ jobs:
             || { echo "$name.tar.gz does not match $pin, so it was not extracted." >&2; exit 1; }
           tar -xzf "$name.tar.gz"
           "$name/source-sentry" --version \
-            || { echo "The binary does not run here. It needs glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
+            || { echo "The binary does not run here. Use a system with glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
           # Artifacts drop the executable bit; a tar archive keeps it.
           tar -cf /tmp/source-sentry.tar -C "$name" source-sentry
 

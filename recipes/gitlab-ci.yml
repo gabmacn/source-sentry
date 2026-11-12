@@ -48,7 +48,7 @@ variables:
   GIT_STRATEGY: clone
 
 # Debian with git, curl and CA certificates: what installing and checking
-# need. Source Sentry's binaries need glibc 2.36 or newer, so musl-based
+# need. Use glibc 2.36 or newer for the release binaries; musl-based
 # images such as Alpine do not work.
 default:
   image: buildpack-deps:trixie-scm
@@ -108,7 +108,7 @@ source-sentry-install:
         || { echo "$name.tar.gz does not match $pin, so it was not extracted." >&2; exit 1; }
       tar -xzf "$download/$name.tar.gz" -C "$download"
       "$download/$name/source-sentry" --version \
-        || { echo "The binary does not run here. It needs glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
+        || { echo "The binary does not run here. Use a system with glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
       mkdir -p .source-sentry-install/bin
       cp "$download/$name/source-sentry" .source-sentry-install/bin/
   artifacts:

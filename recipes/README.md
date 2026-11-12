@@ -474,8 +474,10 @@ describes: each holds one folder of the archive's name, with the binary,
   label that names one. Woodpecker shares no files between workflows, so
   each of its three workflows downloads and checks the archive itself; with
   the same pins, they run the same bytes on agents of one architecture.
-- **Requirements.** The binaries are built on Debian Bookworm, so they need
-  glibc 2.36 or newer; musl-based images, such as Alpine, are not supported.
+- **Requirements.** Use glibc 2.36 or newer for the Debian Bookworm builds.
+  Older systems depend on the release binary's actual symbol requirements;
+  the build image alone does not guarantee compatibility. Musl-based images,
+  such as Alpine, are not supported.
   Installing needs `curl`, `tar`, `sha256sum` and CA certificates, and
   checking needs `git` on the `PATH`. No Rust toolchain or C
   compiler is needed. The images used here provide all of these:

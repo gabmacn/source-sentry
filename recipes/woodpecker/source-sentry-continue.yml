@@ -102,7 +102,7 @@ steps:
           || { echo "$${name}.tar.gz does not match $${pin}, so it was not extracted." >&2; exit 1; }
         tar -xzf "$${download}/$${name}.tar.gz" -C "$${download}"
         "$${download}/$${name}/source-sentry" --version \
-          || { echo "The binary does not run here. It needs glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
+          || { echo "The binary does not run here. Use a system with glibc 2.36 or newer; musl-based images such as Alpine are not supported." >&2; exit 1; }
         mkdir -p /woodpecker/source-sentry/bin
         cp "$${download}/$${name}/source-sentry" /woodpecker/source-sentry/bin/
 
