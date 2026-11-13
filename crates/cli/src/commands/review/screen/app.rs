@@ -9,7 +9,9 @@ use std::rc::Rc;
 use ratatui::layout::{Position, Rect};
 
 use source_sentry_core::model::{DocumentId, Outcome};
-use source_sentry_core::mutate::{DocumentDiff, Selection, SourceSpec};
+use source_sentry_core::mutate::{
+	Baseline, Current, DocumentDiff, Selection, SourceSpec,
+};
 
 use super::super::changes::{self, Entry, Row};
 use super::super::closing::Closing;
@@ -89,10 +91,44 @@ pub(super) enum Target {
 	/// The screen around an open box. A click there closes the box, as
 	/// Escape does.
 	Outside,
+	/// A row of the box that lists every source, by its place.
+	Listed(usize),
+}
+
+/// What became of a source file since its review.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kept {
+	/// It is as it was reviewed.
+	Unchanged,
+	/// Its content differs.
+	Changed,
+	/// It was never reviewed: a new source, or a new match of a pattern.
+	New,
+	/// It is gone.
+	Removed,
+}
+
+/// A row of the box that lists every source of the document on display.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Listed {
+	/// The file's path, or the pattern as declared on a pattern's own row.
+	pub(super) name: String,
+	/// The piece of bracket that hangs a file under its pattern.
+	pub(super) joint: Option<&'static str>,
+	/// What became of the file; `None` on a pattern's own row.
+	pub(super) kept: Option<Kept>,
+	/// Its place among the changed files, when it is one of them.
+	pub(super) changed: Option<usize>,
+	/// When it came to differ, or when its source was last reviewed and by
+	/// whom.
+	pub(super) detail: String,
 }
 
 /// The rows one notch of the wheel scrolls.
 const WHEEL: usize = 3;
+/// The rows a page key moves in the list of every source: fewer than the
+/// smallest screen shows of it, so that no row is jumped over unseen.
+const LISTED_PAGE: usize = 10;
 /// How many of the other documents are read ahead, after the cursor.
 const AHEAD: usize = 2;
 
@@ -193,6 +229,9 @@ pub(super) enum Overlay {
 	/// The whole name of the document on display, which the pane may have
 	/// cut.
 	Name(String),
+	/// Every source of the document on display, changed or not, with the
+	/// row under the cursor.
+	Sources(usize),
 	/// The confirmation before the picked documents are recorded: each
 	/// frozen comparison, how many the reviewer has not seen, and whether
 	/// each review also records a reread.
@@ -670,6 +709,16 @@ impl<'a> App<'a> {
 				}
 			}
 			Target::Box => {}
+			Target::Listed(row) => {
+				// A click moves the cursor of the list; one on the row already
+				// under it acts as Enter does.
+				if let Some(Overlay::Sources(at)) = self.overlay {
+					if at == row {
+						return self.key(Key::Enter);
+					}
+					self.overlay = Some(Overlay::Sources(row));
+				}
+			}
 			_ if self.overlay.is_some() => {}
 			Target::Row(row) => {
 				let again = self.cursor == row
@@ -918,6 +967,104 @@ impl<'a> App<'a> {
 		))
 	}
 
+	/// Opens the box that lists every source of the document on display,
+	/// with its cursor on the first changed file.
+	fn list_sources(&mut self) {
+		let rows = self.every_source();
+		if rows.is_empty() {
+			self.notice = Some("This document has no source to list.".to_owned());
+			return;
+		}
+		let first = rows.iter().position(|row| row.changed.is_some());
+		self.overlay = Some(Overlay::Sources(first.unwrap_or(0)));
+	}
+
+	/// Every source of the document on display, for the box that lists them:
+	/// a row for each file, hung under a row for its pattern when it has
+	/// one. A changed file says when it came to differ, as `explain` does;
+	/// an unchanged one, when its source was last reviewed.
+	pub(super) fn every_source(&self) -> Vec<Listed> {
+		let Some(shown) = &self.shown else {
+			return Vec::new();
+		};
+		let Some(compared) = &shown.compared else {
+			return Vec::new();
+		};
+		let workspace = self.workspace();
+		let reports = self
+			.session
+			.state
+			.documents
+			.get(&shown.id)
+			.map(|document| document.reports.as_slice())
+			.unwrap_or_default();
+		let mut rows = Vec::new();
+		let mut changed = 0;
+		for source in &compared.sources {
+			let reviewed = source.reviewed.as_ref().map_or_else(
+				|| "never reviewed".to_owned(),
+				|review| {
+					format!(
+						"reviewed {} by {}",
+						review.at.format("%Y-%m-%d %H:%M"),
+						review.by.as_deref().unwrap_or("nobody named")
+					)
+				},
+			);
+			if source.pattern {
+				rows.push(Listed {
+					name: source.declared.clone(),
+					joint: None,
+					kept: None,
+					changed: None,
+					detail: format!(
+						"pattern · {} · {reviewed}",
+						describe::count(source.entries.len(), "file", "files")
+					),
+				});
+			}
+			for (place, entry) in source.entries.iter().enumerate() {
+				let differs = entry.is_changed();
+				let kept = match (&entry.baseline, &entry.current) {
+					(_, Current::Missing) => Kept::Removed,
+					(Baseline::Unattested, _) => Kept::New,
+					_ if differs => Kept::Changed,
+					_ => Kept::Unchanged,
+				};
+				let detail = if differs {
+					reports
+						.iter()
+						.find(|report| report.path == entry.path)
+						.map(|report| describe::timing_suffix(&report.timing))
+						.unwrap_or_default()
+						.trim_start_matches([',', ' '])
+						.to_owned()
+				} else if source.pattern {
+					String::new()
+				} else {
+					reviewed.clone()
+				};
+				rows.push(Listed {
+					name: workspace.display_path(&entry.path),
+					joint: source.pattern.then(|| {
+						if place + 1 == source.entries.len() {
+							"└"
+						} else {
+							"├"
+						}
+					}),
+					kept: Some(kept),
+					changed: differs.then(|| {
+						changed += 1;
+						changed - 1
+					}),
+					detail,
+				});
+			}
+		}
+		rows
+	}
+
 	/// Opens the box with the whole name of the document on display.
 	fn show_name(&mut self) {
 		self.overlay = self
@@ -944,12 +1091,7 @@ impl<'a> App<'a> {
 		// The wheel only looks: it keeps a held answer, a notice and a box.
 		// Over the sidebar it passes over documents without seeing them.
 		if let Key::Wheel(down, area) = key {
-			if self.overlay.is_none() {
-				if area != Area::Sidebar {
-					self.see_shown();
-				}
-				self.wheel(down, area);
-			}
+			self.wheel(down, area);
 			return Ok(Flow::Stay);
 		}
 		// Acting while a document is shown means it was looked at, even when
@@ -1029,6 +1171,7 @@ impl<'a> App<'a> {
 				self.focus = Focus::Sidebar;
 			}
 			(_, Key::Char('o' | 'O')) => self.toggle_others(),
+			(_, Key::Char('s' | 'S')) => self.list_sources(),
 			(_, Key::Char('v' | 'V')) => {
 				// The sources are out of sight while the document is shown.
 				self.pane = match self.pane {
@@ -1132,6 +1275,25 @@ impl<'a> App<'a> {
 			}
 			(Overlay::Reviewer(name), Key::Enter) => {
 				self.set_reviewer(name.trim())?;
+			}
+			(Overlay::Sources(at), Key::Enter) => {
+				// On a changed file, Enter goes to it; elsewhere the list stays.
+				match self.every_source().get(at).and_then(|row| row.changed) {
+					Some(file) => self.select_file(file),
+					None => self.overlay = Some(Overlay::Sources(at)),
+				}
+			}
+			(
+				Overlay::Sources(at),
+				Key::Up | Key::Down | Key::PageUp | Key::PageDown,
+			) => {
+				let last = self.every_source().len().saturating_sub(1);
+				self.overlay = Some(Overlay::Sources(match key {
+					Key::Up => at.saturating_sub(1),
+					Key::Down => (at + 1).min(last),
+					Key::PageUp => at.saturating_sub(LISTED_PAGE),
+					_ => (at + LISTED_PAGE).min(last),
+				}));
 			}
 			(Overlay::Contexts(at), Key::Up) => {
 				self.overlay = Some(Overlay::Contexts(at.saturating_sub(1)));
@@ -1297,8 +1459,23 @@ impl<'a> App<'a> {
 	}
 
 	/// Turns the wheel over a part of the screen: the documents move under
-	/// the cursor in the sidebar, and a pane scrolls.
+	/// the cursor in the sidebar, and a pane scrolls. Under a box nothing
+	/// does, except that the list of every source moves its cursor.
 	fn wheel(&mut self, down: bool, area: Area) {
+		if let Some(overlay) = &self.overlay {
+			if let Overlay::Sources(at) = *overlay {
+				let last = self.every_source().len().saturating_sub(1);
+				self.overlay = Some(Overlay::Sources(if down {
+					(at + WHEEL).min(last)
+				} else {
+					at.saturating_sub(WHEEL)
+				}));
+			}
+			return;
+		}
+		if area != Area::Sidebar {
+			self.see_shown();
+		}
 		match area {
 			Area::Sidebar => {
 				self.armed = None;

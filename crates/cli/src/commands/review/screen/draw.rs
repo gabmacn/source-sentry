@@ -14,7 +14,8 @@ use source_sentry_core::model::Outcome;
 use super::super::changes::Row;
 use super::super::state::Key as Id;
 use super::app::{
-	App, Area, Cursor, Field, Focus, Key, Kind, Overlay, Pane, Shown, Target,
+	App, Area, Cursor, Field, Focus, Kept, Key, Kind, Listed, Overlay, Pane,
+	Shown, Target,
 };
 use crate::{mark, output};
 
@@ -108,6 +109,9 @@ fn cap_key(label: &str) -> Option<Key> {
 	match (label, characters.next(), characters.next()) {
 		("Enter", ..) => Some(Key::Enter),
 		("Esc", ..) => Some(Key::Escape),
+		("Space", ..) => Some(Key::Char(' ')),
+		("PgUp", ..) => Some(Key::PageUp),
+		("PgDn", ..) => Some(Key::PageDown),
 		("↓", ..) => Some(Key::Down),
 		(_, Some(character), None) if character.is_ascii_graphic() => {
 			Some(Key::Char(character))
@@ -119,6 +123,15 @@ fn cap_key(label: &str) -> Option<Key> {
 /// A key's cap: ink on cream.
 fn cap() -> Style {
 	Style::new().fg(INK).bg(CREAM).add_modifier(Modifier::BOLD)
+}
+
+/// A button of the footer: a quieter cap, so that the answers stay the
+/// strongest thing in the last rows.
+fn button() -> Style {
+	Style::new()
+		.fg(CREAM)
+		.bg(FAINT)
+		.add_modifier(Modifier::BOLD)
 }
 
 /// An outcome's colour.
@@ -239,20 +252,57 @@ impl Pen<'_> {
 
 	/// Writes key caps with their labels from `(x, y)`. A cap that names one
 	/// key takes clicks, and turns blue under the pointer.
-	fn keys(&mut self, mut x: u16, y: u16, keys: &[(&str, &str)]) {
-		for (key, label) in keys {
+	fn keys(&mut self, x: u16, y: u16, keys: &[(&str, &str)]) {
+		let end = self.buffer.area.right();
+		self.caps(x, y, keys, (cap(), text()), 4, end);
+	}
+
+	/// Writes caps with their labels in the styles given, `gap` cells apart,
+	/// for as long as a whole one fits before column `end`. A cap without a
+	/// label shares the label of the next one, and stands next to it.
+	fn caps(
+		&mut self,
+		mut x: u16,
+		y: u16,
+		keys: &[(&str, &str)],
+		(cap, label): (Style, Style),
+		gap: u16,
+		end: u16,
+	) {
+		let size = |(key, action): &(&str, &str)| {
+			width(key)
+				+ 2 + if action.is_empty() {
+				0
+			} else {
+				1 + width(action)
+			}
+		};
+		for (index, pair) in keys.iter().enumerate() {
+			let (key, action) = pair;
+			// A cap without a label goes only where the next one goes too.
+			let with = match keys.get(index + 1) {
+				Some(next) if action.is_empty() => 1 + size(next),
+				_ => 0,
+			};
+			if x + size(pair) + with > end {
+				break;
+			}
 			let start = x;
-			x = self.text(x, y, &format!(" {key} "), cap(), u16::MAX);
-			let end = self.text(x + 1, y, label, text(), u16::MAX);
+			x = self.text(x, y, &format!(" {key} "), cap, u16::MAX);
+			let after = if action.is_empty() {
+				x
+			} else {
+				self.text(x + 1, y, action, label, u16::MAX)
+			};
 			if let Some(pressed) = cap_key(key)
-				&& self.hit(Rect::new(start, y, end - start, 1), Target::Cap(pressed))
+				&& self.hit(Rect::new(start, y, after - start, 1), Target::Cap(pressed))
 			{
 				self.fill(
 					Rect::new(start, y, x - start, 1),
 					selected().add_modifier(Modifier::BOLD),
 				);
 			}
-			x = end + 4;
+			x = after + if action.is_empty() { 1 } else { gap };
 		}
 	}
 }
@@ -374,13 +424,31 @@ fn header(app: &App, pen: &mut Pen, columns: u16) {
 		}
 		x += 1;
 	}
+	progress(app, pen, x, columns);
+}
+
+/// The session's progress at the right of the header, after the fields that
+/// end at column `from`. A narrow screen drops the bar first and then the
+/// words, so that the progress never runs over a field.
+fn progress(app: &App, pen: &mut Pen, from: u16, columns: u16) {
 	let (done, total) = app.progress();
+	let end = columns - 1;
+	let room = end.saturating_sub(from);
+	let words = format!("{done} of {total} reviewed");
 	let bar: u16 = 14;
+	if width(&words) + 2 + bar > room {
+		let brief = format!("{done}/{total}");
+		if width(&words) <= room {
+			pen.right(end, 0, &words, dim());
+		} else if width(&brief) <= room {
+			pen.right(end, 0, &brief, dim());
+		}
+		return;
+	}
 	let filled = (usize::from(bar) * done)
 		.checked_div(total)
 		.and_then(|filled| u16::try_from(filled).ok())
 		.unwrap_or(bar);
-	let end = columns - 1;
 	pen.rule(end - bar, 0, filled, "█", Style::new().fg(BLUE));
 	pen.rule(
 		end - bar + filled,
@@ -389,12 +457,7 @@ fn header(app: &App, pen: &mut Pen, columns: u16) {
 		"░",
 		Style::new().fg(BLUE),
 	);
-	pen.right(
-		end - bar - 2,
-		0,
-		&format!("{done} of {total} reviewed"),
-		dim(),
-	);
+	pen.right(end - bar - 2, 0, &words, dim());
 }
 
 /// The documents that need review, then all the others, then the mark when
@@ -1103,30 +1166,40 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		.collect();
 	let x = pen.text(1, y, sentence, strong(), columns.saturating_sub(2)) + 4;
 	pen.keys(x, y, &labels);
+	// A notice sits in the rule above the question, so that the buttons
+	// below stay in reach of the mouse.
 	if let Some(notice) = &app.notice {
-		pen.text(1, y + 1, notice, text(), columns.saturating_sub(2));
-		return;
+		pen.text(
+			2,
+			y - 1,
+			&format!(" {notice} "),
+			text(),
+			columns.saturating_sub(4),
+		);
 	}
-	let moves = match app.focus {
-		Focus::Sidebar => "↑↓ Tab document   → sources   Space pick",
-		Focus::Sources => {
-			"↑↓ Tab source   Enter whole path   Space pick   ← documents"
-		}
-		Focus::Title => "Enter whole name   ↓ sources   ← documents",
-	};
 	let swap = match app.pane {
 		Pane::Changes => "document",
 		Pane::Document => "changes",
 	};
-	pen.text(
-		1,
-		y + 1,
-		&format!(
-			"? keys   q quit   {moves}   v {swap}   o other documents   PgUp PgDn scroll"
-		),
-		dim(),
-		columns.saturating_sub(2),
-	);
+	// Every action that has no row or cap of its own gets a button here.
+	let mut buttons = vec![
+		("?", "keys"),
+		("q", "quit"),
+		("v", swap),
+		("o", "others"),
+		("s", "sources"),
+		("Space", "pick"),
+		("PgUp", ""),
+		("PgDn", "scroll"),
+	];
+	// What Enter shows where the focus is, unless it would record an answer.
+	// It comes last, so that the buttons before it never move.
+	match (app.armed, app.focus) {
+		(None, Focus::Sources) => buttons.push(("Enter", "whole path")),
+		(None, Focus::Title) => buttons.push(("Enter", "whole name")),
+		_ => {}
+	}
+	pen.caps(1, y + 1, &buttons, (button(), dim()), 2, columns);
 }
 
 /// Sends the screen behind a box back: its text fades and its fills dim.
@@ -1208,6 +1281,7 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 		Overlay::Keys => keys_box(pen, area),
 		Overlay::Path(path) => whole_box(pen, area, "Source", path),
 		Overlay::Name(name) => whole_box(pen, area, "Document", name),
+		Overlay::Sources(at) => sources_box(app, *at, pen, area),
 		Overlay::All(comparisons, unseen) => {
 			let ask = format!(
 				"Record the remaining {}, including {unseen} you have not seen?",
@@ -1312,6 +1386,155 @@ fn whole_box(pen: &mut Pen, area: Rect, title: &str, whole: &str) {
 	pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
 }
 
+/// The box that lists every source of the document on display, changed or
+/// not: each file with what became of it, hung under its pattern when it
+/// has one, and when it came to differ or was last reviewed.
+fn sources_box(app: &App, at: usize, pen: &mut Pen, area: Rect) {
+	let Some(shown) = &app.shown else {
+		return;
+	};
+	let rows = app.every_source();
+	let inside = frame(
+		pen,
+		area,
+		140,
+		(count(rows.len()) + 7).min(area.height.saturating_sub(2)),
+		"Sources",
+	);
+	let head = format!(
+		"{} of {}: {} changed",
+		crate::describe::count(shown.total, "file", "files"),
+		shown.name,
+		shown.files.len()
+	);
+	// The list leaves a row for the keys, and keeps its cursor in the middle
+	// of the rows in sight where it can.
+	let room = usize::from(inside.height.saturating_sub(4));
+	let first = at
+		.saturating_sub(room / 2)
+		.min(rows.len().saturating_sub(room));
+	let mut head_width = inside.width;
+	if rows.len() > room {
+		// Where the rows in sight stand among all of them.
+		let place = format!(
+			"rows {} to {} of {}",
+			first + 1,
+			(first + room).min(rows.len()),
+			rows.len()
+		);
+		head_width = head_width.saturating_sub(width(&place) + 2);
+		pen.right(inside.right(), inside.y, &place, dim());
+	}
+	pen.text(
+		inside.x,
+		inside.y,
+		&fit(&head, head_width),
+		dim(),
+		head_width,
+	);
+	// The detail of a file takes the room its longest one needs, up to that
+	// of a clock's start, and a narrow box drops it: the paths come first.
+	let detail = rows
+		.iter()
+		.filter(|row| row.kept.is_some())
+		.map(|row| width(&row.detail))
+		.max()
+		.filter(|_| inside.width >= 90)
+		.map_or(0, |longest| longest.min(36));
+	for (y, (index, row)) in
+		(inside.y + 2..).zip(rows.iter().enumerate().skip(first).take(room))
+	{
+		let line = Rect::new(inside.x, y, inside.width, 1);
+		let over = pen.hit(line, Target::Listed(index));
+		if index == at {
+			pen.fill(line, selected());
+		} else if over {
+			pen.fill(line, hovered());
+		}
+		listed_row(shown, row, (index == at, detail), pen, line);
+	}
+	pen.keys(
+		inside.x,
+		inside.bottom() - 1,
+		&[("Enter", "go to a changed file"), ("Esc", "close")],
+	);
+}
+
+/// A row of the box that lists every source, within `line`: a pattern with
+/// its count of files and its last review, or a file with what became of it
+/// and when. `on` says whether the cursor is on the row, and `detail` how
+/// many columns the last of these takes.
+fn listed_row(
+	shown: &Shown,
+	row: &Listed,
+	(on, detail): (bool, u16),
+	pen: &mut Pen,
+	line: Rect,
+) {
+	let plain = |style: Style| if on { selected() } else { style };
+	let y = line.y;
+	let mut x = line.x + 1;
+	if let Some(joint) = row.joint {
+		pen.text(x, y, joint, plain(dim()), 1);
+		x += 2;
+	}
+	let end = line.right().saturating_sub(1);
+	let Some(kept) = row.kept else {
+		// A pattern's own row: its spelling, then the rest of the row.
+		let own = width(&row.name).min(line.width / 2);
+		pen.text(x, y, &fit(&row.name, own), plain(strong()), own);
+		let rest = end.saturating_sub(x + own + 2);
+		pen.text(x + own + 2, y, &fit(&row.detail, rest), plain(dim()), rest);
+		return;
+	};
+	let state = end.saturating_sub(17 + if detail == 0 { 0 } else { detail + 1 });
+	let name = state.saturating_sub(x + 1);
+	let quiet = kept == Kept::Unchanged;
+	pen.text(
+		x,
+		y,
+		&fit_path(&row.name, name),
+		plain(if quiet { dim() } else { text() }),
+		name,
+	);
+	let (word, color) = match kept {
+		Kept::Unchanged => ("unchanged", DIM),
+		Kept::Changed => ("changed", CREAM),
+		Kept::New => ("new", ADDED.0),
+		Kept::Removed => ("removed", REMOVED.0),
+	};
+	let mut after = pen.text(state, y, word, plain(Style::new().fg(color)), 17);
+	let counts = row
+		.changed
+		.and_then(|file| shown.files.get(file))
+		.and_then(|file| file.counts);
+	if let Some((added, removed)) = counts {
+		after = pen.text(
+			after + 1,
+			y,
+			&format!("+{added}"),
+			plain(Style::new().fg(ADDED.0)),
+			u16::MAX,
+		);
+		pen.text(
+			after + 1,
+			y,
+			&format!("-{removed}"),
+			plain(Style::new().fg(REMOVED.0)),
+			u16::MAX,
+		);
+	}
+	if detail > 0 {
+		pen.text(
+			end - detail,
+			y,
+			&fit(&row.detail, detail),
+			plain(dim()),
+			detail,
+		);
+	}
+}
+
 /// A count of rows, as a coordinate.
 fn count(rows: usize) -> u16 {
 	u16::try_from(rows).unwrap_or(u16::MAX)
@@ -1333,6 +1556,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		),
 		("↑", "From the first document, enter the header"),
 		("v", "Swap the pane between the changes and the document"),
+		("s", "List every source of the document, changed or not"),
 		(
 			"PgUp PgDn",
 			"Scroll the pane by a page; the wheel by three rows",
@@ -1350,7 +1574,8 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("Click", "Like the key; a drag over rows picks that range"),
 	];
 	let inside = frame(pen, area, 78, count(keys.len()) + 4, "Keys");
-	for (y, (key, action)) in (inside.y..).zip(keys) {
+	// On a short screen the box holds what fits; nothing is drawn below it.
+	for (y, (key, action)) in (inside.y..inside.bottom()).zip(keys) {
 		pen.text(inside.x, y, key, strong(), 10);
 		pen.text(
 			inside.x + 11,

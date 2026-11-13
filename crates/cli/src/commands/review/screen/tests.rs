@@ -8,7 +8,7 @@ use super::super::tests::support::Repo;
 use std::rc::Rc;
 
 use super::app::{
-	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Target,
+	App, Area, Cursor, Field, Flow, Focus, Kept, Key, Kind, Overlay, Target,
 };
 use super::draw;
 
@@ -215,9 +215,19 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 	let narrow = drawn(&app, 80, 24);
 	assert!(narrow[22].starts_with(" Still accurate?"), "{}", narrow[22]);
 	assert!(narrow[22].ends_with(" a  yes to all"), "{}", narrow[22]);
-	assert!(narrow[23].contains("? keys   q quit"), "{}", narrow[23]);
+	// The buttons of the last row: as many as fit whole, and the two that
+	// scroll only together.
+	assert!(
+		narrow[23].starts_with("  ?  keys   q  quit   v  document"),
+		"{}",
+		narrow[23]
+	);
+	assert!(narrow[23].ends_with(" Space  pick"), "{}", narrow[23]);
 	assert!(rows[28].contains(" y  yes"), "{}", rows[28]);
-	assert!(rows[29].contains("? keys"), "{}", rows[29]);
+	assert!(rows[29].ends_with(" PgUp   PgDn  scroll"), "{}", rows[29]);
+	// On a narrow screen the progress gives way to the header's fields.
+	assert!(narrow[0].contains("Projects 1  "), "{}", narrow[0]);
+	assert!(narrow[0].ends_with(" 0/2"), "{}", narrow[0]);
 
 	press(&mut app, &[Key::Char('v')]);
 	let rows = drawn(&app, 120, 30);
@@ -335,7 +345,7 @@ fn the_focus_moves_between_the_documents_and_their_sources() {
 	);
 
 	let rows = drawn(&app, 120, 30);
-	assert!(rows[29].contains("Enter whole path"), "{}", rows[29]);
+	assert!(rows[29].contains(" Enter  whole path"), "{}", rows[29]);
 	let mut buffer = Buffer::empty(Rect::new(0, 0, 120, 30));
 	draw::draw(&app, &mut buffer);
 	assert_eq!(
@@ -895,4 +905,168 @@ fn the_bracket_joins_the_files_of_one_source() {
 		.map(|index| draw::joint(&owners, index).unwrap_or(" "))
 		.collect();
 	assert_eq!(drawn.concat(), " ┌│└ ┌└");
+}
+
+/// Every action has a button in the last row, so that the mouse reaches it:
+/// a click on one does what its key does. A notice sits in the rule above
+/// the question and leaves the buttons in reach.
+#[test]
+fn the_buttons_of_the_last_row_take_clicks() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	show(&mut app, 120, 30);
+	let button = |app: &App, key: Key| {
+		app
+			.hits
+			.iter()
+			.find(|(area, target)| area.y == 29 && *target == Target::Cap(key))
+			.map(|(area, _)| *area)
+	};
+	for key in [
+		Key::Char('?'),
+		Key::Char('q'),
+		Key::Char('v'),
+		Key::Char('o'),
+		Key::Char('s'),
+		Key::Char(' '),
+		Key::PageUp,
+		Key::PageDown,
+	] {
+		assert!(button(&app, key).is_some(), "{key:?}");
+	}
+	let swap = button(&app, Key::Char('v')).unwrap();
+	let target = app.target_at(swap.x + 1, swap.y).unwrap();
+	app.click(target).unwrap();
+	assert!(shows(&drawn(&app, 120, 30), "THE DOCUMENT"));
+	app.click(Target::Cap(Key::Char('o'))).unwrap();
+	assert!(app.expanded);
+	app.click(Target::Cap(Key::Char(' '))).unwrap();
+	assert_eq!(app.picked.len(), 1);
+	app.click(Target::Cap(Key::Char('s'))).unwrap();
+	assert!(matches!(app.overlay, Some(Overlay::Sources(_))));
+	press(&mut app, &[Key::Escape]);
+
+	app.notice = Some("A notice.".to_owned());
+	let rows = drawn(&app, 120, 30);
+	assert!(rows[27].contains(" A notice. "), "{}", rows[27]);
+	assert!(rows[29].starts_with("  ?  keys"), "{}", rows[29]);
+	assert_eq!(app.click(Target::Cap(Key::Char('q'))).unwrap(), Flow::Quit);
+}
+
+/// `s` lists every source of the document, changed or not: the files of a
+/// pattern hang under it, each row says what became of its file, and Enter
+/// on a changed one goes to it.
+#[test]
+fn every_source_is_listed_changed_or_not() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}, {"pattern": "/lib/*.rs"}]}}),
+	);
+	repo.write("lib/one.rs", "one\n");
+	repo.write("lib/two.rs", "two\n");
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Library"]);
+	repo.attest("docs/a.md");
+	repo.write("src/b.rs", "new b\n");
+	repo.write("lib/two.rs", "two, changed\n");
+	repo.write("lib/three.rs", "three\n");
+	// A pattern matches the files git knows: the new one is staged.
+	repo.git(&["add", "lib/three.rs"]);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert!(shows(&drawn(&app, 120, 30), "3 changed of 5"));
+
+	// Five files, and a row for the pattern that three of them match.
+	press(&mut app, &[Key::Char('s')]);
+	let listed = app.every_source();
+	let row = |name: &str| {
+		listed
+			.iter()
+			.find(|row| row.name == name)
+			.unwrap_or_else(|| panic!("{name} in {listed:?}"))
+	};
+	assert_eq!(listed.len(), 6);
+	assert_eq!(
+		(row("src/a.rs").kept, row("src/a.rs").changed),
+		(Some(Kept::Unchanged), None)
+	);
+	assert!(
+		row("src/a.rs")
+			.detail
+			.starts_with("reviewed 2026-10-02 10:00 by Earlier Reviewer"),
+		"{:?}",
+		row("src/a.rs")
+	);
+	assert_eq!(row("src/b.rs").kept, Some(Kept::Changed));
+	assert_eq!(row("src/b.rs").detail, "in the working tree");
+	assert_eq!(
+		(row("/lib/*.rs").kept, row("/lib/*.rs").joint),
+		(None, None)
+	);
+	assert!(
+		row("/lib/*.rs")
+			.detail
+			.starts_with("pattern · 3 files · reviewed"),
+		"{:?}",
+		row("/lib/*.rs")
+	);
+	assert_eq!(row("lib/one.rs").kept, Some(Kept::Unchanged));
+	assert_eq!(row("lib/three.rs").kept, Some(Kept::New));
+	assert_eq!(row("lib/two.rs").kept, Some(Kept::Changed));
+	let joints: String = listed.iter().filter_map(|row| row.joint).collect();
+	assert_eq!(joints, "├├└");
+
+	// The box opens on the first changed file, and says what each row is.
+	let Some(Overlay::Sources(at)) = app.overlay else {
+		panic!("expected the list of sources");
+	};
+	assert_eq!(listed[at].changed, Some(0));
+	let rows = drawn(&app, 120, 30);
+	for text in [
+		"5 files of docs/a.md: 3 changed",
+		"unchanged",
+		"changed +1 -1",
+		"new +1 -0",
+		"in the working tree",
+	] {
+		assert!(shows(&rows, text), "{text}:\n{}", rows.join("\n"));
+	}
+
+	// The cursor moves over every row; a click on a row moves it there, and
+	// a second one acts as Enter does.
+	press(&mut app, &[Key::Up; 6]);
+	assert_eq!(app.overlay, Some(Overlay::Sources(0)));
+	press(&mut app, &[Key::Enter]);
+	assert_eq!(app.overlay, Some(Overlay::Sources(0)), "nothing to go to");
+	press(&mut app, &[Key::Wheel(true, Area::Pane), Key::PageDown]);
+	assert_eq!(app.overlay, Some(Overlay::Sources(5)));
+	press(&mut app, &[Key::PageUp]);
+	let last = listed
+		.iter()
+		.rposition(|row| row.changed.is_some())
+		.unwrap();
+	show(&mut app, 120, 30);
+	assert!(
+		app
+			.hits
+			.iter()
+			.any(|(_, target)| *target == Target::Listed(last))
+	);
+	app.click(Target::Listed(last)).unwrap();
+	assert_eq!(app.overlay, Some(Overlay::Sources(last)));
+	app.click(Target::Listed(last)).unwrap();
+	assert_eq!(
+		(app.overlay.is_none(), app.focus, app.file),
+		(true, Focus::Sources, 2)
+	);
+
+	// A document without a source has nothing to list.
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Down, Key::Char('s')]);
+	assert_eq!(
+		(app.overlay.is_none(), app.notice.as_deref()),
+		(true, Some("This document has no source to list."))
+	);
 }

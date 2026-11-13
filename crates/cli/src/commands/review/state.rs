@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use source_sentry_core::claims::Inventory;
-use source_sentry_core::evaluate::{DocumentState, check};
+use source_sentry_core::evaluate::{DocumentState, SourceReport, check};
 use source_sentry_core::model::{
 	DocumentId, Fact, ObjectId, Outcome, RepoPath,
 };
@@ -84,6 +84,9 @@ pub(super) struct Document {
 	pub(super) facts: String,
 	/// The evidence for suppressing unchanged repeat questions.
 	pub(super) stamp: Stamp,
+	/// Each source file as the evaluation found it: its state, and when it
+	/// came to differ from its review.
+	pub(super) reports: Vec<SourceReport>,
 	/// Every transitive upstream, used to order equal outcomes.
 	ancestors: BTreeSet<Key>,
 }
@@ -228,6 +231,7 @@ impl State {
 				),
 				Document {
 					outcome,
+					reports: live.sources.clone(),
 					pending: subject.facts.iter().any(|fact| {
 						matches!(
 							fact,

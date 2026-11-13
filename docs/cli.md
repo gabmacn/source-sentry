@@ -263,7 +263,8 @@ The screen has four parts:
   the selected file's changes, or the document's own text. From 200 columns
   it shows both, side by side.
 - **The question** about that document, in the last rows, with the keys
-  that answer it.
+  that answer it. Below it is a row of buttons for the other actions, and
+  a notice is written into the rule above it.
 
 The order is the reviewer's. The queue's order is only where the cursor
 starts, and any document may be opened at any time.
@@ -280,9 +281,10 @@ starts, and any document may be opened at any time.
 | `o` | Open or close the other documents |
 | `↑` | From the first document, enter the header |
 | `v` | Swap the pane between the changes and the document |
+| `s` | List every source of the document, changed or not |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
-| Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap |
+| Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap or a button of the last row |
 | Drag | Pick the range of rows from where the button went down |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
@@ -321,6 +323,16 @@ brings another along. An ordinary click or `Esc` lets
 go of what was picked, and so does moving to another document for picked
 files.
 
+The pane lists only the files that changed. `s` lists every source of the
+document on display in a box, changed or not: each file with what became of
+it since its review, which is unchanged, changed, new or removed, and for a
+changed file when it came to differ, as `explain` reports it. The files of
+a pattern hang under a row for the pattern, which says how many files it
+matches and when it was last reviewed and by whom; a source that is a single
+path says so on its own row. The arrow keys, `PgUp`, `PgDn` and the wheel
+move through the list, and Enter on a changed file goes to its changes. A
+narrow screen leaves out the last column, so that the paths keep their room.
+
 A range adds to the rows already picked, so that several ranges can follow
 one another; going back within a range lets go of its rows alone. With the
 mouse, a drag picks a range. A click made with `Ctrl` or `Shift` held does
@@ -350,6 +362,13 @@ the box takes clicks, and a click around it closes it as `Esc` does. The
 pointer lightly marks what a click would act on; this depends on the
 terminal reporting the pointer's movement, so nothing is shown by it alone,
 and every action has its key.
+
+Every action can be reached with the mouse as well. Those without a row or
+a cap of their own have a button in the last row: the keys, quitting, the
+pane's swap, the other documents, the list of sources, picking and the two
+page keys, then Enter where it shows a path or a name whole. A click on a
+button does what its key does. A narrow screen shows as many buttons as fit
+whole, from the left, and the two page keys only together.
 
 Because the screen reads the mouse, selecting text with the mouse needs the
 terminal's own modifier, which is Shift in most terminals.
