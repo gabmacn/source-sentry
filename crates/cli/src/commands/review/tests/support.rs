@@ -75,7 +75,7 @@ impl Repo {
 	}
 
 	/// Reads a fixture file as text.
-	pub(super) fn read(&self, path: &str) -> String {
+	pub(in crate::commands::review) fn read(&self, path: &str) -> String {
 		fs::read_to_string(self.directory.path().join(path)).unwrap()
 	}
 

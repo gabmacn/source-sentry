@@ -15,7 +15,7 @@ use super::super::changes::Row;
 use super::super::state::Key as Id;
 use super::app::{
 	App, Area, Cursor, Field, Focus, Kept, Key, Kind, Listed, Overlay, Pane,
-	Shown, Target,
+	Past, Shown, Target,
 };
 use crate::{mark, output};
 
@@ -110,8 +110,6 @@ fn cap_key(label: &str) -> Option<Key> {
 		("Enter", ..) => Some(Key::Enter),
 		("Esc", ..) => Some(Key::Escape),
 		("Space", ..) => Some(Key::Char(' ')),
-		("PgUp", ..) => Some(Key::PageUp),
-		("PgDn", ..) => Some(Key::PageDown),
 		("↓", ..) => Some(Key::Down),
 		(_, Some(character), None) if character.is_ascii_graphic() => {
 			Some(Key::Char(character))
@@ -258,8 +256,7 @@ impl Pen<'_> {
 	}
 
 	/// Writes caps with their labels in the styles given, `gap` cells apart,
-	/// for as long as a whole one fits before column `end`. A cap without a
-	/// label shares the label of the next one, and stands next to it.
+	/// for as long as a whole one fits before column `end`.
 	fn caps(
 		&mut self,
 		mut x: u16,
@@ -269,31 +266,13 @@ impl Pen<'_> {
 		gap: u16,
 		end: u16,
 	) {
-		let size = |(key, action): &(&str, &str)| {
-			width(key)
-				+ 2 + if action.is_empty() {
-				0
-			} else {
-				1 + width(action)
-			}
-		};
-		for (index, pair) in keys.iter().enumerate() {
-			let (key, action) = pair;
-			// A cap without a label goes only where the next one goes too.
-			let with = match keys.get(index + 1) {
-				Some(next) if action.is_empty() => 1 + size(next),
-				_ => 0,
-			};
-			if x + size(pair) + with > end {
+		for (key, action) in keys {
+			if x + width(key) + 3 + width(action) > end {
 				break;
 			}
 			let start = x;
 			x = self.text(x, y, &format!(" {key} "), cap, u16::MAX);
-			let after = if action.is_empty() {
-				x
-			} else {
-				self.text(x + 1, y, action, label, u16::MAX)
-			};
+			let after = self.text(x + 1, y, action, label, u16::MAX);
 			if let Some(pressed) = cap_key(key)
 				&& self.hit(Rect::new(start, y, after - start, 1), Target::Cap(pressed))
 			{
@@ -302,7 +281,7 @@ impl Pen<'_> {
 					selected().add_modifier(Modifier::BOLD),
 				);
 			}
-			x = after + if action.is_empty() { 1 } else { gap };
+			x = after + gap;
 		}
 	}
 }
@@ -1177,21 +1156,41 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 			columns.saturating_sub(4),
 		);
 	}
-	let swap = match app.pane {
+	buttons(app, pen, y + 1, columns);
+}
+
+/// The buttons of the last row: one for each action that has no row or cap
+/// of its own, so that the mouse reaches every action. Scrolling has none,
+/// because the wheel does it.
+fn buttons(app: &App, pen: &mut Pen, y: u16, columns: u16) {
+	const GAP: u16 = 2;
+	let fixed = |swap| {
+		[
+			("?", "keys"),
+			("q", "quit"),
+			("v", swap),
+			("s", "sources"),
+			("u", "undo"),
+			("h", "history"),
+			("Space", "pick"),
+		]
+	};
+	let needs = |buttons: &[(&str, &str)]| {
+		buttons.iter().fold(1, |total, (key, action)| {
+			total + width(key) + 3 + width(action) + GAP
+		}) - GAP
+	};
+	// The pane's swap names where it leads, unless that costs a button.
+	let long = fixed(match app.pane {
 		Pane::Changes => "document",
 		Pane::Document => "changes",
+	});
+	let mut buttons = if needs(&long) > columns {
+		fixed("view").to_vec()
+	} else {
+		long.to_vec()
 	};
-	// Every action that has no row or cap of its own gets a button here.
-	let mut buttons = vec![
-		("?", "keys"),
-		("q", "quit"),
-		("v", swap),
-		("o", "others"),
-		("s", "sources"),
-		("Space", "pick"),
-		("PgUp", ""),
-		("PgDn", "scroll"),
-	];
+	buttons.push(("o", "others"));
 	// What Enter shows where the focus is, unless it would record an answer.
 	// It comes last, so that the buttons before it never move.
 	match (app.armed, app.focus) {
@@ -1199,7 +1198,7 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		(None, Focus::Title) => buttons.push(("Enter", "whole name")),
 		_ => {}
 	}
-	pen.caps(1, y + 1, &buttons, (button(), dim()), 2, columns);
+	pen.caps(1, y, &buttons, (button(), dim()), GAP, columns);
 }
 
 /// Sends the screen behind a box back: its text fades and its fills dim.
@@ -1282,6 +1281,8 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 		Overlay::Path(path) => whole_box(pen, area, "Source", path),
 		Overlay::Name(name) => whole_box(pen, area, "Document", name),
 		Overlay::Sources(at) => sources_box(app, *at, pen, area),
+		Overlay::Log(said) => log_box(app, said.as_deref(), pen, area),
+		Overlay::History(past, at) => history_box(past, *at, pen, area),
 		Overlay::All(comparisons, unseen) => {
 			let ask = format!(
 				"Record the remaining {}, including {unseen} you have not seen?",
@@ -1535,6 +1536,144 @@ fn listed_row(
 	}
 }
 
+/// The box with the answers recorded in this session that still stand,
+/// newest first. The newest carries the mark of a selected row: it is the
+/// one that `u` takes back.
+fn log_box(app: &App, said: Option<&str>, pen: &mut Pen, area: Rect) {
+	const SHOWN: usize = 10;
+	let answers = app.log();
+	let earlier = answers.len().saturating_sub(SHOWN);
+	let inside = frame(
+		pen,
+		area,
+		96,
+		count(answers.len().min(SHOWN)) + 7 + u16::from(earlier > 0),
+		"This session",
+	);
+	let head = said.map_or_else(
+		|| {
+			format!(
+				"{} recorded in this session.",
+				crate::describe::count(answers.len(), "answer", "answers")
+			)
+		},
+		str::to_owned,
+	);
+	pen.text(
+		inside.x,
+		inside.y,
+		&fit(&head, inside.width),
+		if said.is_some() { text() } else { dim() },
+		inside.width,
+	);
+	let mut y = inside.y + 2;
+	for (index, (at, label)) in answers.iter().take(SHOWN).enumerate() {
+		let line = Rect::new(inside.x, y, inside.width, 1);
+		let style = if index == 0 {
+			pen.fill(line, selected());
+			selected()
+		} else {
+			dim()
+		};
+		pen.text(inside.x + 1, y, at, style, 5);
+		let room = inside.width.saturating_sub(9);
+		pen.text(inside.x + 8, y, &fit(label, room), style, room);
+		y += 1;
+	}
+	if earlier > 0 {
+		let more = format!(
+			"and {} before these",
+			crate::describe::count(earlier, "answer", "answers")
+		);
+		pen.text(inside.x + 1, y, &more, dim(), inside.width);
+	}
+	pen.keys(
+		inside.x,
+		inside.bottom() - 1,
+		&[("u", "take back the newest"), ("Esc", "close")],
+	);
+}
+
+/// The box with the commits that changed a source since its review: what
+/// is not committed yet first, then each commit with its date, its author
+/// and the first line of its message.
+fn history_box(past: &Past, at: usize, pen: &mut Pen, area: Rect) {
+	let total = past.rows();
+	let inside = frame(
+		pen,
+		area,
+		124,
+		(count(total.max(1)) + 8).min(area.height.saturating_sub(2)),
+		"History",
+	);
+	// The list leaves two rows to the head and one to the keys.
+	let room = usize::from(inside.height.saturating_sub(5));
+	let first = at.min(total.saturating_sub(room));
+	let mut path_width = inside.width;
+	if total > room {
+		let place = format!(
+			"rows {} to {} of {total}",
+			first + 1,
+			(first + room).min(total)
+		);
+		path_width = path_width.saturating_sub(width(&place) + 2);
+		pen.right(inside.right(), inside.y, &place, dim());
+	}
+	pen.text(
+		inside.x,
+		inside.y,
+		&fit_path(&past.path, path_width),
+		strong(),
+		path_width,
+	);
+	pen.text(
+		inside.x,
+		inside.y + 1,
+		&fit(&past.head, inside.width),
+		dim(),
+		inside.width,
+	);
+	let mut rows: Vec<[&str; 4]> = Vec::new();
+	if past.uncommitted {
+		rows.push(["·", "", "", "Not committed: changes in the working tree"]);
+	}
+	for commit in &past.commits {
+		rows.push([
+			commit.id.get(..7).unwrap_or(&commit.id),
+			&commit.date,
+			&commit.author,
+			&commit.subject,
+		]);
+	}
+	if past.more {
+		rows.push(["", "", "", "Earlier commits are not listed."]);
+	}
+	if rows.is_empty() {
+		rows.push(["", "", "", "Nothing to list."]);
+	}
+	let subject = inside.width.saturating_sub(42);
+	for (y, [id, date, author, text_of]) in
+		(inside.y + 3..).zip(rows.iter().skip(first).take(room))
+	{
+		pen.text(inside.x + 1, y, id, dim(), 7);
+		if date.is_empty() {
+			// A row that is not a commit is a sentence across the columns.
+			let whole = inside.width.saturating_sub(10);
+			pen.text(inside.x + 10, y, &fit(text_of, whole), text(), whole);
+			continue;
+		}
+		pen.text(inside.x + 10, y, date, dim(), 10);
+		pen.text(inside.x + 22, y, &fit(author, 18), dim(), 18);
+		pen.text(inside.x + 42, y, &fit(text_of, subject), text(), subject);
+	}
+	let keys: &[(&str, &str)] = if total > room {
+		&[("↑ ↓", "scroll"), ("Esc", "close")]
+	} else {
+		&[("Esc", "close")]
+	};
+	pen.keys(inside.x, inside.bottom() - 1, keys);
+}
+
 /// A count of rows, as a coordinate.
 fn count(rows: usize) -> u16 {
 	u16::try_from(rows).unwrap_or(u16::MAX)
@@ -1557,6 +1696,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("↑", "From the first document, enter the header"),
 		("v", "Swap the pane between the changes and the document"),
 		("s", "List every source of the document, changed or not"),
+		("h", "List the commits that changed the selected source"),
 		(
 			"PgUp PgDn",
 			"Scroll the pane by a page; the wheel by three rows",
@@ -1565,6 +1705,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("r", "Answer yes, and record that all of it was reread"),
 		("Enter", "Record a held answer; Esc withdraws it"),
 		("a", "Answer yes to every document, after a confirmation"),
+		("u", "List this session's answers; u there takes one back"),
 		("e", "Edit the document in your editor"),
 		("q", "Quit; reviews already recorded stay"),
 		(

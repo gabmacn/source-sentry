@@ -13,6 +13,7 @@
 //!   Files it creates are marked intent-to-add.
 //! - [`GitRepository::default_reviewer`] reads the name to record from git's
 //!   configuration, and [`GitRepository::remember_reviewer`] stores one there.
+//! - [`GitRepository::path_commits`] lists the commits that changed a path.
 //!
 //! `git2` reads history and objects. The `git` executable, which must be on
 //! the `PATH`, lists the index and computes canonical blob oids for the
@@ -44,11 +45,13 @@ mod ids;
 mod index;
 mod intent;
 mod lfs;
+mod log;
 mod presence;
 mod repository;
 mod snapshot;
 mod write;
 
+pub use log::{PathCommit, PathCommits};
 pub use repository::GitRepository;
 pub use snapshot::{CommitSnapshot, WorkingTreeSnapshot};
 pub use write::{ApplyError, Unwritable};

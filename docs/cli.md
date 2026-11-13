@@ -282,6 +282,7 @@ starts, and any document may be opened at any time.
 | `↑` | From the first document, enter the header |
 | `v` | Swap the pane between the changes and the document |
 | `s` | List every source of the document, changed or not |
+| `h` | List the commits that changed the selected source since its review |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
 | Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap or a button of the last row |
@@ -290,6 +291,7 @@ starts, and any document may be opened at any time.
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
 | `a` | Answer `y` for every document that needs review, after a confirmation |
+| `u` | List the answers recorded in this session; `u` there takes the newest back |
 | `e` | Edit the document in an editor, then evaluate again |
 | `?` | Show the keys |
 | `q`, `Ctrl+C` | Quit, preserving earlier reviews |
@@ -333,6 +335,16 @@ path says so on its own row. The arrow keys, `PgUp`, `PgDn` and the wheel
 move through the list, and Enter on a changed file goes to its changes. A
 narrow screen leaves out the last column, so that the paths keep their room.
 
+`h` lists the commits that changed the selected file since its review,
+newest first, each with its date, its author and the first line of its
+message. The list starts at the commit where the file came to differ from
+its reviewed version, as `explain` dates it, and takes the commits of a
+merged branch with it. A first row says when the working tree changes the
+file further, and a file changed in the working tree alone has no commit
+to list. Where the reviewed version cannot be placed in the history, or
+the file was never reviewed, its latest commits are listed instead. At most
+50 commits are listed.
+
 A range adds to the rows already picked, so that several ranges can follow
 one another; going back within a range lets go of its rows alone. With the
 mouse, a drag picks a range. A click made with `Ctrl` or `Shift` held does
@@ -365,13 +377,26 @@ and every action has its key.
 
 Every action can be reached with the mouse as well. Those without a row or
 a cap of their own have a button in the last row: the keys, quitting, the
-pane's swap, the other documents, the list of sources, picking and the two
-page keys, then Enter where it shows a path or a name whole. A click on a
-button does what its key does. A narrow screen shows as many buttons as fit
-whole, from the left, and the two page keys only together.
+pane's swap, the list of sources, undoing, the history of a source, picking
+and the other documents, then Enter where it shows a path or a name whole.
+A click on a button does what its key does. Scrolling has no button,
+because the wheel does it. A narrow screen shows as many buttons as fit
+whole, from the left, and names the pane's swap `view` where naming the
+pane it leads to would cost a button.
 
 Because the screen reads the mouse, selecting text with the mouse needs the
 terminal's own modifier, which is Shift in most terminals.
+
+`u` lists the answers recorded in this session that still stand, newest
+first, with the time of each and what it covers. `u` in that list takes the
+newest answer back: every file the answer wrote holds again what it held
+before, the working tree is evaluated again, and the document returns to
+the queue. An answer given to several documents at once, with `a` or to
+picked rows, is one answer and is taken back whole. Answers are taken back
+in order, the newest first, and only within the session that recorded
+them; afterwards a review is an ordinary change of the lockfile, which git
+can restore. An answer is not taken back when a file it wrote has changed
+since: the refusal names the file, and nothing is restored.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been seen, and records them all on `y`. Any other

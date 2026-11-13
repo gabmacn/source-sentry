@@ -3,16 +3,25 @@
 //! attestation immediately; queue decisions always follow a fresh evaluation.
 //! The line mode's loop is here; the full screen drives the same session in
 //! the reviewer's own order.
+//!
+//! Each answer's writes are kept as a [`Step`], so that the newest answer can
+//! be taken back: its files are restored through a write plan that expects
+//! them exactly as the answer left them, and refuses otherwise.
 
 use std::collections::{BTreeMap, BTreeSet};
+
+use chrono::{DateTime, Utc};
 
 use super::state::Key as DocumentId;
 use source_sentry_core::mutate::{
 	AttestRequest, DocumentDiff, Expectation, MutateError, Selection, attest,
 	diff,
 };
+use source_sentry_core::ports::{
+	Canonical, PlannedWrite, RepoPath, Snapshot as _, WritePlan,
+};
 
-use source_sentry_git::WorkingTreeSnapshot;
+use source_sentry_git::{ApplyError, WorkingTreeSnapshot};
 
 use super::closing::{Closing, Part};
 use super::opening::Opening;
@@ -28,6 +37,31 @@ pub(super) enum Written {
 	Recorded(bool),
 	/// A source changed after it was shown, so nothing was written.
 	Changed,
+}
+
+/// One answer's writes, kept so that the answer can be taken back.
+pub(super) struct Step {
+	/// When the answer was recorded.
+	pub(super) at: DateTime<Utc>,
+	/// The reviews it recorded, and whether each recorded a reread: one, or
+	/// several for an answer given to many documents at once.
+	pub(super) reviews: Vec<(DocumentId, bool)>,
+	/// How many sources it covered, when it reviewed some of a document's
+	/// sources alone.
+	pub(super) sources: Option<usize>,
+	/// Each file it wrote, with the contents before the answer and after it.
+	/// A file the answer created has nothing before, and cannot be restored.
+	files: BTreeMap<RepoPath, (Option<Vec<u8>>, Vec<u8>)>,
+}
+
+/// What an attempt to take back the newest answer did.
+pub(super) enum Undone {
+	/// The session holds no answer to take back.
+	Nothing,
+	/// The answer was taken back: these reviews no longer stand.
+	Withdrawn(Vec<(DocumentId, bool)>),
+	/// This file is no longer as the answer left it, so nothing was restored.
+	Changed(String),
 }
 
 /// The refusal of a review whose sources changed after they were shown.
@@ -55,6 +89,8 @@ pub(super) struct Session<'a> {
 	seen: BTreeMap<DocumentId, Vec<Expectation>>,
 	/// Applied reviews, including whether each recorded a reread.
 	pub(super) recorded: Vec<(DocumentId, bool)>,
+	/// The answers behind those reviews, oldest first, for taking back.
+	steps: Vec<Step>,
 	/// The explanation of changes observed since the session began.
 	pub(super) reasons: BTreeMap<DocumentId, String>,
 	/// Answered positions; retries and editor visits keep their position.
@@ -104,6 +140,7 @@ impl<'a> Session<'a> {
 			answered: BTreeMap::new(),
 			seen: BTreeMap::new(),
 			recorded: Vec::new(),
+			steps: Vec::new(),
 			reasons: BTreeMap::new(),
 			finished: 0,
 			started: std::time::Instant::now(),
@@ -112,6 +149,13 @@ impl<'a> Session<'a> {
 
 	/// Rebuilds the evidence after an answer or edit.
 	pub(super) fn refresh(&mut self) -> Result<(), Failure> {
+		self.reload(true)
+	}
+
+	/// Evaluates again. `noted` says whether a document whose review state
+	/// changed is told why: taking an answer back changes that state on
+	/// purpose, so only a source that really changed is explained then.
+	fn reload(&mut self, noted: bool) -> Result<(), Failure> {
 		let (next, snapshot) = State::load_with(self.workspace, &self.context)?;
 		self.snapshot = snapshot;
 		for (id, document) in &next.documents {
@@ -130,7 +174,7 @@ impl<'a> Session<'a> {
 							paths.join(", ")
 						),
 					);
-				} else if !previous.pending && document.pending {
+				} else if noted && !previous.pending && document.pending {
 					self.reasons.insert(
 						id.clone(),
 						format!(
@@ -138,7 +182,8 @@ impl<'a> Session<'a> {
 							document.facts
 						),
 					);
-				} else if document.pending
+				} else if noted
+					&& document.pending
 					&& previous.stamp.upstreams != document.stamp.upstreams
 				{
 					self.reasons.insert(
@@ -295,6 +340,7 @@ impl<'a> Session<'a> {
 			.working_tree_snapshot()
 			.map_err(|error| Failure::backend(&error))?;
 		let (_, inventory) = load_project(self.workspace, &snapshot, &id.project)?;
+		let at = super::super::now();
 		let planned = match attest(
 			&snapshot,
 			&inventory,
@@ -303,7 +349,7 @@ impl<'a> Session<'a> {
 				selection: selection.clone(),
 				expectations: Some(compared.expectations.clone()),
 				reviewer: self.reviewer.clone(),
-				at: super::super::now(),
+				at,
 				reread,
 			},
 		) {
@@ -314,14 +360,135 @@ impl<'a> Session<'a> {
 			}
 			Err(error) => return Err(Failure::mutate(self.workspace, &error)),
 		};
+		// What each file holds now is what taking the answer back restores.
+		let files = planned
+			.plan
+			.writes
+			.iter()
+			.map(|write| {
+				let before = match write.expected {
+					Some(_) => Some(
+						snapshot
+							.read(&write.path)
+							.map_err(|error| Failure::backend(&error))?,
+					),
+					None => None,
+				};
+				Ok((write.path.clone(), (before, write.contents.clone())))
+			})
+			.collect::<Result<_, Failure>>()?;
 		self
 			.workspace
 			.repository
 			.apply(&planned.plan)
 			.map_err(|error| Failure::apply(self.workspace, &error))?;
 		self.recorded.push((id.clone(), reread));
+		self.steps.push(Step {
+			at,
+			reviews: vec![(id.clone(), reread)],
+			sources: match selection {
+				Selection::All => None,
+				Selection::Sources(names) => Some(names.len()),
+				Selection::Declared(specs) => Some(specs.len()),
+			},
+			files,
+		});
 		self.finished += 1;
 		Ok(Written::Recorded(reread))
+	}
+
+	/// The answers recorded in this session that still stand, oldest first.
+	pub(super) fn steps(&self) -> &[Step] {
+		&self.steps
+	}
+
+	/// Makes one answer of every step from the `from`-th onwards, for an
+	/// answer given to several documents at once: taking it back takes all
+	/// of its reviews back. A file keeps what it held before the first of
+	/// them and after the last.
+	pub(super) fn join(&mut self, from: usize) {
+		if self.steps.len() <= from + 1 {
+			return;
+		}
+		let mut later = self.steps.split_off(from + 1);
+		let Some(first) = self.steps.last_mut() else {
+			return;
+		};
+		first.sources = None;
+		for step in later.drain(..) {
+			first.reviews.extend(step.reviews);
+			for (path, (before, after)) in step.files {
+				match first.files.get_mut(&path) {
+					Some(held) => held.1 = after,
+					None => {
+						first.files.insert(path, (before, after));
+					}
+				}
+			}
+		}
+	}
+
+	/// Takes back the newest answer of the session: every file it wrote
+	/// returns to what it held before, and the working tree is evaluated
+	/// again. Nothing is restored unless each of those files is still
+	/// exactly as the answer left it, which the write itself checks again.
+	///
+	/// # Errors
+	///
+	/// Fails when the working tree cannot be read, when the restoring write
+	/// fails otherwise than on a changed file, or when the evaluation fails.
+	pub(super) fn undo(&mut self) -> Result<Undone, Failure> {
+		let Some(step) = self.steps.last() else {
+			return Ok(Undone::Nothing);
+		};
+		let snapshot = self
+			.workspace
+			.repository
+			.working_tree_snapshot()
+			.map_err(|error| Failure::backend(&error))?;
+		let changed =
+			|path: &RepoPath| Ok(Undone::Changed(self.workspace.display_path(path)));
+		for (path, (before, after)) in &step.files {
+			let now = snapshot.read(path).ok();
+			if before.is_none() || now.as_ref() != Some(after) {
+				return changed(path);
+			}
+		}
+		let paths: Vec<RepoPath> = step.files.keys().cloned().collect();
+		let oids = snapshot
+			.canonical_oids(&paths)
+			.map_err(|error| Failure::backend(&error))?;
+		let mut writes = Vec::new();
+		for ((path, (before, _)), oid) in step.files.iter().zip(oids) {
+			let (Some(before), Canonical::Oid(oid)) = (before, oid) else {
+				return changed(path);
+			};
+			writes.push(PlannedWrite {
+				path: path.clone(),
+				expected: Some(oid),
+				contents: before.clone(),
+			});
+		}
+		let plan = WritePlan {
+			writes,
+			deletes: Vec::new(),
+		};
+		match self.workspace.repository.apply(&plan) {
+			Ok(()) => {}
+			Err(ApplyError::Stale { path, .. }) => return changed(&path),
+			Err(error) => return Err(Failure::apply(self.workspace, &error)),
+		}
+		let Some(step) = self.steps.pop() else {
+			return Ok(Undone::Nothing);
+		};
+		let standing = self.recorded.len().saturating_sub(step.reviews.len());
+		self.recorded.truncate(standing);
+		self.finished = self.finished.saturating_sub(step.reviews.len());
+		for (id, _) in &step.reviews {
+			self.answered.remove(id);
+		}
+		self.reload(false)?;
+		Ok(Undone::Withdrawn(step.reviews))
 	}
 
 	/// Evaluates again after a written review, and remembers the resulting
@@ -432,6 +599,8 @@ impl<'a> Session<'a> {
 			Some(false) => return Ok(true),
 			Some(true) => {}
 		}
+		// One answer recorded them all, so they form one step.
+		let from = self.steps.len();
 		for (id, compared) in comparisons {
 			if self.queue()?.contains(&id)
 				&& !self.record(&id, &compared, false, ui)?
@@ -439,6 +608,7 @@ impl<'a> Session<'a> {
 				break;
 			}
 		}
+		self.join(from);
 		Ok(true)
 	}
 

@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use ratatui::layout::{Position, Rect};
 
+use source_sentry_core::evaluate::Timing;
 use source_sentry_core::model::{DocumentId, Outcome};
 use source_sentry_core::mutate::{
 	Baseline, Current, DocumentDiff, Selection, SourceSpec,
@@ -15,12 +16,14 @@ use source_sentry_core::mutate::{
 
 use super::super::changes::{self, Entry, Row};
 use super::super::closing::Closing;
-use super::super::session::{CHANGED, Session, Written};
+use super::super::session::{CHANGED, Session, Undone, Written};
 use super::super::state::{Key as Id, Stamp};
 use crate::cli::ReviewArgs;
 use crate::describe;
 use crate::exit::Failure;
 use crate::workspace::Workspace;
+use source_sentry_core::ports::History as _;
+use source_sentry_git::PathCommit;
 
 /// A key, reduced to what the screen distinguishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +125,45 @@ pub(super) struct Listed {
 	/// When it came to differ, or when its source was last reviewed and by
 	/// whom.
 	pub(super) detail: String,
+}
+
+/// What the box of a source's history shows: the commits that changed the
+/// source since its review.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Past {
+	/// The source's path.
+	pub(super) path: String,
+	/// What the list holds, and from when.
+	pub(super) head: String,
+	/// Whether the working tree holds the source otherwise than the newest
+	/// commit does.
+	pub(super) uncommitted: bool,
+	/// The commits that changed it, newest first.
+	pub(super) commits: Vec<PathCommit>,
+	/// Whether more commits changed it than are listed.
+	pub(super) more: bool,
+}
+
+impl Past {
+	/// How many rows the list takes: one for what is not committed, one for
+	/// each commit, and one that says the list was cut.
+	pub(super) fn rows(&self) -> usize {
+		usize::from(self.uncommitted) + self.commits.len() + usize::from(self.more)
+	}
+}
+
+/// How many commits the history of a source lists at most.
+const PAST: usize = 50;
+
+/// Where the cursor of a list in a box goes for a key that moves it, within
+/// `0..=last`.
+fn moved(at: usize, key: Key, last: usize) -> usize {
+	match key {
+		Key::Up => at.saturating_sub(1),
+		Key::Down => (at + 1).min(last),
+		Key::PageUp => at.saturating_sub(LISTED_PAGE),
+		_ => (at + LISTED_PAGE).min(last),
+	}
 }
 
 /// The rows one notch of the wheel scrolls.
@@ -232,6 +274,12 @@ pub(super) enum Overlay {
 	/// Every source of the document on display, changed or not, with the
 	/// row under the cursor.
 	Sources(usize),
+	/// The answers recorded in this session, where the newest can be taken
+	/// back, with what the last attempt to take one back did.
+	Log(Option<String>),
+	/// The commits that changed a source since its review, and how far their
+	/// list is scrolled.
+	History(Past, usize),
 	/// The confirmation before the picked documents are recorded: each
 	/// frozen comparison, how many the reviewer has not seen, and whether
 	/// each review also records a reread.
@@ -426,6 +474,8 @@ impl<'a> App<'a> {
 				Some("Recording…")
 			}
 			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
+			(Some(Overlay::Log(_)), Key::Char('u' | 'U')) => Some("Taking back…"),
+			(None, Key::Char('h' | 'H')) => Some("Reading its history…"),
 			_ => None,
 		}
 	}
@@ -1065,6 +1115,215 @@ impl<'a> App<'a> {
 		rows
 	}
 
+	/// Opens the box that lists what this session recorded, where `u` takes
+	/// the newest answer back.
+	fn open_log(&mut self) {
+		if self.session.steps().is_empty() {
+			self.notice = Some(
+				"Nothing recorded in this session stands, so there is nothing to take back."
+					.to_owned(),
+			);
+		} else {
+			self.overlay = Some(Overlay::Log(None));
+		}
+	}
+
+	/// The answers this session recorded that still stand, newest first: when
+	/// each was recorded, and what it covers.
+	pub(super) fn log(&self) -> Vec<(String, String)> {
+		let workspace = self.workspace();
+		self
+			.session
+			.steps()
+			.iter()
+			.rev()
+			.map(|step| {
+				let label = match step.reviews.as_slice() {
+					[(id, reread)] => {
+						let mut label = id.display(workspace);
+						if *reread {
+							label.push_str(" (reread)");
+						}
+						if let Some(sources) = step.sources {
+							let _ = write!(
+								label,
+								" · {} alone",
+								describe::count(sources, "source", "sources")
+							);
+						}
+						label
+					}
+					reviews => format!(
+						"{}: {}",
+						describe::count(reviews.len(), "document", "documents"),
+						reviews
+							.iter()
+							.map(|(id, _)| id.display(workspace))
+							.collect::<Vec<_>>()
+							.join(", ")
+					),
+				};
+				(step.at.format("%H:%M").to_string(), label)
+			})
+			.collect()
+	}
+
+	/// Takes back the newest answer of the session, from the box that lists
+	/// them. The box stays while another answer stands, and says what was
+	/// done; a refusal closes it, so that it is read.
+	fn undo(&mut self) -> Result<(), Failure> {
+		let said = match self.session.undo()? {
+			Undone::Nothing => return Ok(()),
+			Undone::Changed(path) => {
+				self.notice = Some(format!(
+					"{path} is no longer as that answer left it, so the answer was not taken back."
+				));
+				return Ok(());
+			}
+			Undone::Withdrawn(reviews) => {
+				for (id, _) in &reviews {
+					self.cache.remove(id);
+				}
+				self.rebuild()?;
+				let said = match reviews.as_slice() {
+					[(id, _)] => {
+						format!("Took back the review of {}.", id.display(self.workspace()))
+					}
+					_ => format!(
+						"Took back {}.",
+						describe::count(reviews.len(), "review", "reviews")
+					),
+				};
+				// The cursor goes to what returned, so that it is in sight.
+				if let Some((id, _)) = reviews.first() {
+					self.focus(id);
+				}
+				said
+			}
+		};
+		if self.session.steps().is_empty() {
+			self.notice = Some(said);
+		} else {
+			self.overlay = Some(Overlay::Log(Some(said)));
+		}
+		Ok(())
+	}
+
+	/// Opens the box with the commits that changed the selected source since
+	/// its review. A failure to read them is reported, and ends nothing.
+	fn show_history(&mut self) {
+		match self.past() {
+			Ok(Some(past)) => self.overlay = Some(Overlay::History(past, 0)),
+			Ok(None) => {
+				self.notice = Some(
+					"This document has no changed source whose history could be listed."
+						.to_owned(),
+				);
+			}
+			Err(failure) => self.notice = Some(failure.message),
+		}
+	}
+
+	/// The history of the selected changed file: the commits from the one
+	/// where it came to differ from its review, as the evaluation dated it,
+	/// or its latest commits when that commit is not known.
+	fn past(&self) -> Result<Option<Past>, Failure> {
+		let Some(shown) = &self.shown else {
+			return Ok(None);
+		};
+		let Some(compared) = &shown.compared else {
+			return Ok(None);
+		};
+		let Some((source, entry)) = compared
+			.sources
+			.iter()
+			.flat_map(|source| {
+				source
+					.entries
+					.iter()
+					.filter(|entry| entry.is_changed())
+					.map(move |entry| (source, entry))
+			})
+			.nth(self.file)
+		else {
+			return Ok(None);
+		};
+		let timing = self
+			.session
+			.state
+			.documents
+			.get(&shown.id)
+			.and_then(|document| {
+				document
+					.reports
+					.iter()
+					.find(|report| report.path == entry.path)
+			})
+			.map(|report| &report.timing);
+		let reviewed = source
+			.reviewed
+			.as_ref()
+			.map(|review| review.at.format("%Y-%m-%d %H:%M").to_string());
+		let (since, head) = match (timing, reviewed) {
+			(Some(Timing::Started(clock)), Some(at)) => (
+				Some(&clock.start.commit),
+				format!("The commits that changed it since its review of {at}."),
+			),
+			(Some(Timing::Started(clock)), None) => (
+				Some(&clock.start.commit),
+				"The commits that changed it since it came to need review.".to_owned(),
+			),
+			(Some(Timing::NotStarted), _) => (
+				None,
+				"No commit has changed it since its review.".to_owned(),
+			),
+			(_, None) => (
+				None,
+				"It was never reviewed: its latest commits.".to_owned(),
+			),
+			(_, Some(_)) => (
+				None,
+				"Its reviewed version is not in the history: its latest commits."
+					.to_owned(),
+			),
+		};
+		let repository = &self.workspace().repository;
+		let listed = if matches!(timing, Some(Timing::NotStarted)) {
+			source_sentry_git::PathCommits::default()
+		} else {
+			repository
+				.path_commits(&entry.path, since, PAST)
+				.map_err(|error| Failure::backend(&error))?
+		};
+		// What the newest commit holds tells whether the working tree changes
+		// the source further.
+		let uncommitted = match repository
+			.head()
+			.map_err(|error| Failure::backend(&error))?
+		{
+			Some(tip) => {
+				let committed = repository
+					.blobs_at(&tip, std::slice::from_ref(&entry.path))
+					.map_err(|error| Failure::backend(&error))?
+					.pop()
+					.flatten();
+				let now = match &entry.current {
+					Current::Present { oid, .. } => Some(oid),
+					Current::Missing => None,
+				};
+				committed.as_ref() != now
+			}
+			None => true,
+		};
+		Ok(Some(Past {
+			path: self.workspace().display_path(&entry.path),
+			head,
+			uncommitted,
+			commits: listed.commits,
+			more: listed.more,
+		}))
+	}
+
 	/// Opens the box with the whole name of the document on display.
 	fn show_name(&mut self) {
 		self.overlay = self
@@ -1172,6 +1431,8 @@ impl<'a> App<'a> {
 			}
 			(_, Key::Char('o' | 'O')) => self.toggle_others(),
 			(_, Key::Char('s' | 'S')) => self.list_sources(),
+			(_, Key::Char('u' | 'U')) => self.open_log(),
+			(_, Key::Char('h' | 'H')) => self.show_history(),
 			(_, Key::Char('v' | 'V')) => {
 				// The sources are out of sight while the document is shown.
 				self.pane = match self.pane {
@@ -1288,13 +1549,16 @@ impl<'a> App<'a> {
 				Key::Up | Key::Down | Key::PageUp | Key::PageDown,
 			) => {
 				let last = self.every_source().len().saturating_sub(1);
-				self.overlay = Some(Overlay::Sources(match key {
-					Key::Up => at.saturating_sub(1),
-					Key::Down => (at + 1).min(last),
-					Key::PageUp => at.saturating_sub(LISTED_PAGE),
-					_ => (at + LISTED_PAGE).min(last),
-				}));
+				self.overlay = Some(Overlay::Sources(moved(at, key, last)));
 			}
+			(
+				Overlay::History(past, at),
+				Key::Up | Key::Down | Key::PageUp | Key::PageDown,
+			) => {
+				let at = moved(at, key, past.rows().saturating_sub(1));
+				self.overlay = Some(Overlay::History(past, at));
+			}
+			(Overlay::Log(_), Key::Char('u' | 'U')) => self.undo()?,
 			(Overlay::Contexts(at), Key::Up) => {
 				self.overlay = Some(Overlay::Contexts(at.saturating_sub(1)));
 			}
@@ -1460,17 +1724,27 @@ impl<'a> App<'a> {
 
 	/// Turns the wheel over a part of the screen: the documents move under
 	/// the cursor in the sidebar, and a pane scrolls. Under a box nothing
-	/// does, except that the list of every source moves its cursor.
+	/// does, except that a list inside the box moves.
 	fn wheel(&mut self, down: bool, area: Area) {
-		if let Some(overlay) = &self.overlay {
-			if let Overlay::Sources(at) = *overlay {
-				let last = self.every_source().len().saturating_sub(1);
-				self.overlay = Some(Overlay::Sources(if down {
+		if let Some(overlay) = self.overlay.take() {
+			let turned = |at: usize, last: usize| {
+				if down {
 					(at + WHEEL).min(last)
 				} else {
 					at.saturating_sub(WHEEL)
-				}));
-			}
+				}
+			};
+			self.overlay = Some(match overlay {
+				Overlay::Sources(at) => Overlay::Sources(turned(
+					at,
+					self.every_source().len().saturating_sub(1),
+				)),
+				Overlay::History(past, at) => {
+					let at = turned(at, past.rows().saturating_sub(1));
+					Overlay::History(past, at)
+				}
+				other => other,
+			});
 			return;
 		}
 		if area != Area::Sidebar {
@@ -1672,6 +1946,8 @@ impl<'a> App<'a> {
 	) -> Result<(), Failure> {
 		let mut recorded = 0;
 		let mut stopped = false;
+		// One answer records them all, so they are taken back together.
+		let from = self.session.steps().len();
 		for (id, compared) in comparisons {
 			if !reread && !self.session.pending()?.contains(&id) {
 				continue;
@@ -1688,6 +1964,7 @@ impl<'a> App<'a> {
 				}
 			}
 		}
+		self.session.join(from);
 		self.picked.clear();
 		self.rebuild()?;
 		self.select(self.first());

@@ -215,16 +215,23 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 	let narrow = drawn(&app, 80, 24);
 	assert!(narrow[22].starts_with(" Still accurate?"), "{}", narrow[22]);
 	assert!(narrow[22].ends_with(" a  yes to all"), "{}", narrow[22]);
-	// The buttons of the last row: as many as fit whole, and the two that
-	// scroll only together.
-	assert!(
-		narrow[23].starts_with("  ?  keys   q  quit   v  document"),
-		"{}",
-		narrow[23]
+	// The buttons of the last row: as many as fit whole. Where the swap's
+	// own name would cost one, a shorter name stands for it.
+	assert_eq!(
+		narrow[23],
+		"  ?  keys   q  quit   v  view   s  sources   u  undo   h  history   Space  pick"
 	);
-	assert!(narrow[23].ends_with(" Space  pick"), "{}", narrow[23]);
 	assert!(rows[28].contains(" y  yes"), "{}", rows[28]);
-	assert!(rows[29].ends_with(" PgUp   PgDn  scroll"), "{}", rows[29]);
+	assert!(
+		rows[29].contains(" v  document   s  sources"),
+		"{}",
+		rows[29]
+	);
+	assert!(
+		rows[29].ends_with(" Space  pick   o  others"),
+		"{}",
+		rows[29]
+	);
 	// On a narrow screen the progress gives way to the header's fields.
 	assert!(narrow[0].contains("Projects 1  "), "{}", narrow[0]);
 	assert!(narrow[0].ends_with(" 0/2"), "{}", narrow[0]);
@@ -929,9 +936,9 @@ fn the_buttons_of_the_last_row_take_clicks() {
 		Key::Char('v'),
 		Key::Char('o'),
 		Key::Char('s'),
+		Key::Char('u'),
+		Key::Char('h'),
 		Key::Char(' '),
-		Key::PageUp,
-		Key::PageDown,
 	] {
 		assert!(button(&app, key).is_some(), "{key:?}");
 	}
@@ -1069,4 +1076,168 @@ fn every_source_is_listed_changed_or_not() {
 		(app.overlay.is_none(), app.notice.as_deref()),
 		(true, Some("This document has no source to list."))
 	);
+}
+
+/// `u` lists the answers of the session, and `u` there takes the newest
+/// back: the lockfile holds again what it held, byte for byte, and the
+/// document returns to the queue without an invented reason.
+#[test]
+fn the_newest_answer_is_taken_back() {
+	let repo = fixture();
+	let lockfile = repo.read("source-sentry.lock");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('u')]);
+	assert!(app.overlay.is_none());
+	assert!(app.notice.as_ref().unwrap().starts_with("Nothing recorded"));
+
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert_eq!((app.open.len(), app.session.recorded.len()), (0, 2));
+	assert_ne!(repo.read("source-sentry.lock"), lockfile);
+	press(&mut app, &[Key::Char('u')]);
+	assert_eq!(app.overlay, Some(Overlay::Log(None)));
+	let rows = drawn(&app, 120, 30);
+	assert!(shows(&rows, "2 answers recorded in this session."));
+	assert!(shows(&rows, "docs/a.md") && shows(&rows, "docs/b.md"));
+
+	// While another answer stands the box stays, and says what was done.
+	press(&mut app, &[Key::Char('u')]);
+	assert_eq!(
+		app.overlay,
+		Some(Overlay::Log(Some(
+			"Took back the review of docs/b.md.".to_owned()
+		)))
+	);
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
+	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_object());
+	press(&mut app, &[Key::Char('u')]);
+	assert_eq!(repo.read("source-sentry.lock"), lockfile);
+	assert_eq!(
+		(app.open.len(), app.session.recorded.len(), app.progress()),
+		(2, 0, (0, 2))
+	);
+	assert!(app.overlay.is_none());
+	assert_eq!(
+		app.notice.as_deref(),
+		Some("Took back the review of docs/a.md.")
+	);
+	let shown = app.shown.as_ref().unwrap();
+	assert_eq!((app.cursor, shown.reason.as_ref()), (Cursor::Open(0), None));
+	assert!(shown.name.ends_with("a.md"));
+	assert!(
+		app
+			.closing()
+			.plain()
+			.contains("2 documents still need review")
+	);
+}
+
+/// One answer given to several documents is taken back whole. An answer is
+/// not taken back once a file it wrote has changed again.
+#[test]
+fn a_shared_answer_is_taken_back_whole_and_a_changed_file_refuses() {
+	let repo = fixture();
+	let lockfile = repo.read("source-sentry.lock");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('a'), Key::Char('y'), Key::Char('u')]);
+	assert_eq!(app.log().len(), 1);
+	assert!(
+		app.log()[0]
+			.1
+			.starts_with("2 documents: docs/a.md, docs/b.md"),
+		"{:?}",
+		app.log()
+	);
+	press(&mut app, &[Key::Char('u')]);
+	assert_eq!(app.notice.as_deref(), Some("Took back 2 reviews."));
+	assert_eq!(repo.read("source-sentry.lock"), lockfile);
+	assert_eq!((app.open.len(), app.session.recorded.len()), (2, 0));
+
+	// Another review of the same lockfile, made outside the session, stands
+	// in the way: the answer is kept, and the refusal names the file.
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	repo.attest("docs/b.md");
+	press(&mut app, &[Key::Char('u'), Key::Char('u')]);
+	let notice = app.notice.clone().unwrap();
+	assert!(
+		notice.starts_with("source-sentry.lock is no longer as that answer left"),
+		"{notice}"
+	);
+	assert_eq!(
+		(app.overlay.is_none(), app.session.recorded.len()),
+		(true, 1)
+	);
+	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_object());
+}
+
+/// `h` lists the commits that changed the selected source since its review,
+/// newest first, and says when the working tree changes it further.
+#[test]
+fn the_commits_that_changed_a_source_are_listed() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}]}}),
+	);
+	repo.attest("docs/a.md");
+	let commit = |subject: &str| {
+		repo.git(&["add", "--all"]);
+		repo.git(&["commit", "--quiet", "-m", subject]);
+	};
+	commit("Record the review");
+	repo.write("src/a.rs", "second a\n");
+	commit("Change a once");
+	repo.write("src/a.rs", "third a\n");
+	commit("Change a twice");
+	repo.write("src/a.rs", "fourth a\n");
+	repo.write("src/b.rs", "new b\n");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+
+	press(&mut app, &[Key::Char('h')]);
+	let Some(Overlay::History(past, 0)) = &app.overlay else {
+		panic!("expected the history, not {:?}", app.overlay);
+	};
+	assert_eq!(past.path, "src/a.rs");
+	let subjects: Vec<_> = past
+		.commits
+		.iter()
+		.map(|commit| commit.subject.as_str())
+		.collect();
+	assert_eq!(subjects, ["Change a twice", "Change a once"]);
+	assert_eq!((past.uncommitted, past.more, past.rows()), (true, false, 3));
+	assert_eq!(
+		past.head,
+		"The commits that changed it since its review of 2026-10-02 10:00."
+	);
+	let rows = drawn(&app, 120, 30);
+	for text in [
+		"Not committed: changes in the working tree",
+		"2026-10-01  Test Reviewer",
+		"Change a twice",
+	] {
+		assert!(shows(&rows, text), "{text}:\n{}", rows.join("\n"));
+	}
+	// The wheel moves the list and keeps the box.
+	press(&mut app, &[Key::Wheel(true, Area::Pane)]);
+	assert!(matches!(app.overlay, Some(Overlay::History(_, 2))));
+
+	// A source changed in the working tree alone has no commit to list.
+	press(
+		&mut app,
+		&[Key::Escape, Key::Right, Key::Down, Key::Char('h')],
+	);
+	let Some(Overlay::History(past, 0)) = &app.overlay else {
+		panic!("expected the history, not {:?}", app.overlay);
+	};
+	assert_eq!((past.path.as_str(), past.commits.len()), ("src/b.rs", 0));
+	assert_eq!(past.head, "No commit has changed it since its review.");
+	assert!(past.uncommitted);
+
+	// An answer for one source alone says so in the session's list.
+	press(
+		&mut app,
+		&[Key::Escape, Key::Char(' '), Key::Char('y'), Key::Enter],
+	);
+	assert!(app.log()[0].1.ends_with("docs/a.md · 1 source alone"));
 }

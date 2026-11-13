@@ -213,3 +213,71 @@ fn populated_submodule_contents_are_not_blobs_of_the_parent_repository() {
 		[None, None]
 	);
 }
+
+/// The commits that changed a path are listed newest first, from the commit
+/// asked for onwards, and the list says when it was cut.
+#[test]
+fn the_commits_that_changed_a_path_are_listed_newest_first() {
+	let (repo, ids) = three_commits();
+	repo.write("other.txt", "elsewhere\n");
+	repo.commit_all("commit 4");
+	let repository = repo.open();
+	let file = path("file.txt");
+
+	let all = repository.path_commits(&file, None, 10).unwrap();
+	let subjects: Vec<_> = all
+		.commits
+		.iter()
+		.map(|commit| commit.subject.as_str())
+		.collect();
+	assert_eq!(subjects, ["commit 3", "commit 2", "commit 1"]);
+	assert!(!all.more);
+	assert_eq!(all.commits[0].id, ids[2]);
+	assert_eq!(all.commits[0].date.len(), "2026-01-01".len());
+	assert_ne!(all.commits[0].author, "");
+
+	// From the second commit: it and what followed, not the first.
+	let since = repository
+		.path_commits(&file, Some(&commit_id(&ids[1])), 10)
+		.unwrap();
+	let listed: Vec<_> = since
+		.commits
+		.iter()
+		.map(|commit| commit.id.as_str())
+		.collect();
+	assert_eq!(listed, [ids[2].as_str(), ids[1].as_str()]);
+
+	// The first commit has no parent, so everything is listed; a limit cuts
+	// the list and says so.
+	let cut = repository
+		.path_commits(&file, Some(&commit_id(&ids[0])), 2)
+		.unwrap();
+	assert_eq!((cut.commits.len(), cut.more), (2, true));
+}
+
+/// A path is taken literally: a name with pattern characters lists its own
+/// commits, not those of the files a pattern would match.
+#[test]
+fn the_path_of_a_commit_list_is_never_a_pattern() {
+	let repo = TestRepo::init();
+	repo.write("a.txt", "a\n");
+	repo.commit_all("add a");
+	repo.write("[ab].txt", "odd\n");
+	repo.commit_all("add the odd name");
+	let repository = repo.open();
+	let listed = repository
+		.path_commits(&path("[ab].txt"), None, 10)
+		.unwrap();
+	assert_eq!(listed.commits.len(), 1);
+	assert_eq!(listed.commits[0].subject, "add the odd name");
+	// Before any commit there is nothing to list.
+	let empty = TestRepo::init();
+	assert_eq!(
+		empty
+			.open()
+			.path_commits(&path("a.txt"), None, 10)
+			.unwrap()
+			.commits,
+		[]
+	);
+}
