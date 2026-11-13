@@ -91,18 +91,6 @@ pub(super) enum Target {
 	Outside,
 }
 
-/// How a click was made, which decides what it does to the picked rows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Press {
-	/// An ordinary click: it moves the cursor and lets go of the picked rows.
-	Plain,
-	/// With Control held: it picks the row, or lets go of it.
-	Toggle,
-	/// With Shift held, or dragged to: it picks every row from where the
-	/// range started to this one.
-	Range,
-}
-
 /// The rows one notch of the wheel scrolls.
 const WHEEL: usize = 3;
 /// How many of the other documents are read ahead, after the cursor.
@@ -296,6 +284,11 @@ pub(super) struct App<'a> {
 	pub(super) picked_sources: BTreeSet<usize>,
 	/// The row a range of picked rows starts from, while one is being made.
 	anchor: Option<usize>,
+	/// The documents that were picked when that range started. The range
+	/// adds to them, so that several ranges can follow one another.
+	base: BTreeSet<Id>,
+	/// The same for the picked sources.
+	base_sources: BTreeSet<usize>,
 }
 
 impl<'a> App<'a> {
@@ -335,6 +328,8 @@ impl<'a> App<'a> {
 			picked: BTreeSet::new(),
 			picked_sources: BTreeSet::new(),
 			anchor: None,
+			base: BTreeSet::new(),
+			base_sources: BTreeSet::new(),
 		};
 		app.rebuild()?;
 		app.select(app.first());
@@ -651,30 +646,15 @@ impl<'a> App<'a> {
 		changed
 	}
 
-	/// Handles a click: it does what the matching key does. A click on the
-	/// row already under the cursor acts as Enter does there, except that it
-	/// never records a held answer; only the cap of Enter does.
+	/// Handles a click: it does what the matching key does, and on a row it
+	/// lets go of what was picked. A click on the row already under the
+	/// cursor acts as Enter does there, except that it never records a held
+	/// answer; only the cap of Enter does.
 	///
 	/// # Errors
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
-	#[cfg(test)]
 	pub(super) fn click(&mut self, target: Target) -> Result<Flow, Failure> {
-		self.click_with(target, Press::Plain)
-	}
-
-	/// Handles a click made with or without Control or Shift held. On a row,
-	/// Control picks it or lets go of it, and Shift picks the range to it; an
-	/// ordinary click lets go of every picked row.
-	///
-	/// # Errors
-	///
-	/// Fails when an evaluation or a write fails; the session then ends.
-	pub(super) fn click_with(
-		&mut self,
-		target: Target,
-		press: Press,
-	) -> Result<Flow, Failure> {
 		self.see_shown();
 		match target {
 			Target::Cap(key) => return self.key(key),
@@ -697,21 +677,14 @@ impl<'a> App<'a> {
 					&& self.picked.is_empty();
 				self.notice = None;
 				self.armed = None;
-				match (row, press) {
-					(Cursor::Others, _) => {
+				self.anchor = None;
+				match row {
+					Cursor::Others => {
 						self.select(row);
 						self.toggle_others();
 					}
-					(Cursor::Open(_) | Cursor::Other(_), Press::Toggle) => {
-						self.select(row);
-						self.toggle_pick();
-					}
-					(Cursor::Open(_) | Cursor::Other(_), Press::Range) => {
-						self.pick_to(row);
-					}
-					(Cursor::Open(_) | Cursor::Other(_), Press::Plain) => {
+					Cursor::Open(_) | Cursor::Other(_) => {
 						self.picked.clear();
-						self.anchor = None;
 						if again {
 							self.enter_pane();
 						} else {
@@ -725,24 +698,16 @@ impl<'a> App<'a> {
 				let files = self.shown.as_ref().map_or(0, |shown| shown.files.len());
 				self.notice = None;
 				self.armed = None;
-				match press {
-					_ if file >= files => {}
-					Press::Toggle => {
+				self.anchor = None;
+				if file < files {
+					let again = self.focus == Focus::Sources
+						&& self.file == file
+						&& self.picked_sources.is_empty();
+					self.picked_sources.clear();
+					if again {
+						self.show_path();
+					} else {
 						self.select_file(file);
-						self.toggle_source();
-					}
-					Press::Range => self.pick_sources_to(file),
-					Press::Plain => {
-						let again = self.focus == Focus::Sources
-							&& self.file == file
-							&& self.picked_sources.is_empty();
-						self.picked_sources.clear();
-						self.anchor = None;
-						if again {
-							self.show_path();
-						} else {
-							self.select_file(file);
-						}
 					}
 				}
 			}
@@ -807,19 +772,25 @@ impl<'a> App<'a> {
 		if !self.picked.remove(&id) {
 			self.picked.insert(id);
 		}
-		self.anchor = self.at();
 	}
 
-	/// Picks every document from where the range started to `row`, in place
-	/// of what was picked, and moves the cursor there.
+	/// Picks every document from where the range started to `row`, besides
+	/// what was picked before that range, and moves the cursor there. Going
+	/// back within a range lets go of its rows alone.
 	fn pick_to(&mut self, row: Cursor) {
 		let Some(to) = self.index_of(row) else {
 			return;
 		};
-		let from = self.anchor.or_else(|| self.at()).unwrap_or(to);
+		let from = if let Some(from) = self.anchor {
+			from
+		} else {
+			// A new range keeps what earlier ranges and the space bar picked.
+			self.base.clone_from(&self.picked);
+			self.at().unwrap_or(to)
+		};
 		self.select(row);
 		self.anchor = Some(from);
-		self.picked = (from.min(to)..=from.max(to))
+		let range: Vec<Id> = (from.min(to)..=from.max(to))
 			.filter_map(|index| match self.row(index) {
 				Cursor::Open(open) => self.open.get(open),
 				Cursor::Other(other) => self.others.get(other).map(|other| &other.id),
@@ -828,6 +799,8 @@ impl<'a> App<'a> {
 			.filter(|id| self.session.state.documents.contains_key(*id))
 			.cloned()
 			.collect();
+		self.picked.clone_from(&self.base);
+		self.picked.extend(range);
 	}
 
 	/// Moves the cursor one document down or up and picks the range to it,
@@ -869,11 +842,11 @@ impl<'a> App<'a> {
 		if !self.picked_sources.remove(&owner) {
 			self.picked_sources.insert(owner);
 		}
-		self.anchor = Some(self.file);
 	}
 
 	/// Picks the sources of every file from where the range started to
-	/// `file`, in place of what was picked, and selects that file.
+	/// `file`, besides what was picked before that range, and selects that
+	/// file.
 	fn pick_sources_to(&mut self, file: usize) {
 		let Some(shown) = &self.shown else {
 			return;
@@ -881,10 +854,17 @@ impl<'a> App<'a> {
 		if file >= shown.files.len() {
 			return;
 		}
-		let from = self.anchor.unwrap_or(self.file);
-		self.picked_sources = (from.min(file)..=from.max(file))
+		let from = if let Some(from) = self.anchor {
+			from
+		} else {
+			self.base_sources.clone_from(&self.picked_sources);
+			self.file
+		};
+		let range: Vec<usize> = (from.min(file)..=from.max(file))
 			.filter_map(|index| shown.owners.get(index).copied())
 			.collect();
+		self.picked_sources.clone_from(&self.base_sources);
+		self.picked_sources.extend(range);
 		self.select_file(file);
 		self.anchor = Some(from);
 	}

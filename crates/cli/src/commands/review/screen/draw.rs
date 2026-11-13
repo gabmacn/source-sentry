@@ -1328,10 +1328,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 			"Space",
 			"Pick a row or let go of it; Shift+↑↓ a range; Esc none",
 		),
-		(
-			"Click",
-			"Like the key; Ctrl picks, Shift or a drag picks a range",
-		),
+		("Click", "Like the key; a drag over rows picks that range"),
 	];
 	let inside = frame(pen, area, 78, count(keys.len()) + 4, "Keys");
 	for (y, (key, action)) in (inside.y..).zip(keys) {

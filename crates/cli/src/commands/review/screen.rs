@@ -21,7 +21,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 
-use self::app::{App, Flow, Key, Press, Target};
+use self::app::{App, Flow, Key, Target};
 use super::closing::Writer;
 use super::external;
 use crate::cli::ReviewArgs;
@@ -114,8 +114,8 @@ fn release_mouse_on_panic() {
 enum Input {
 	/// A key, or a turn of the wheel.
 	Key(Key),
-	/// A click on something that acts on one, and how it was made.
-	Click(Target, Press),
+	/// A click on something that acts on one.
+	Click(Target),
 	/// The pointer dragged, with its button held, over a row.
 	Drag(Target),
 }
@@ -168,8 +168,8 @@ fn events(
 		};
 		stale = true;
 		let pressed = match input {
-			Input::Key(key) | Input::Click(Target::Cap(key), _) => Some(key),
-			Input::Click(..) | Input::Drag(_) => None,
+			Input::Key(key) | Input::Click(Target::Cap(key)) => Some(key),
+			Input::Click(_) | Input::Drag(_) => None,
 		};
 		if let Some(note) = pressed.and_then(|key| app.busy(key)) {
 			app.notice = Some(note.to_owned());
@@ -177,7 +177,7 @@ fn events(
 		}
 		let flow = match input {
 			Input::Key(key) => app.key(key)?,
-			Input::Click(target, press) => app.click_with(target, press)?,
+			Input::Click(target) => app.click(target)?,
 			Input::Drag(target) => {
 				app.drag(target);
 				Flow::Stay
@@ -262,25 +262,20 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 
 /// What the mouse did, beyond moving: a turn of the wheel over a part of
 /// the screen, a press of its left button on something that takes clicks,
-/// or a drag over a row with that button held. Control makes a click pick
-/// its row, and Shift makes it pick a range; a terminal that keeps Shift
-/// and the mouse for its own selection never reports that one, which is
-/// why a drag picks a range too.
+/// or a drag over a row with that button held, which picks a range. A click
+/// made with Control or Shift held is left alone: terminals give those
+/// their own meaning, such as opening a path or selecting text.
 fn pointed(mouse: MouseEvent, app: &App, columns: u16) -> Option<Input> {
 	let area = draw::area_at(columns, mouse.column);
 	let target = || app.target_at(mouse.column, mouse.row);
+	let held = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
 	match mouse.kind {
 		MouseEventKind::ScrollDown => Some(Input::Key(Key::Wheel(true, area))),
 		MouseEventKind::ScrollUp => Some(Input::Key(Key::Wheel(false, area))),
-		MouseEventKind::Down(MouseButton::Left) => {
-			let press = if mouse.modifiers.contains(KeyModifiers::SHIFT) {
-				Press::Range
-			} else if mouse.modifiers.contains(KeyModifiers::CONTROL) {
-				Press::Toggle
-			} else {
-				Press::Plain
-			};
-			target().map(|target| Input::Click(target, press))
+		MouseEventKind::Down(MouseButton::Left)
+			if !mouse.modifiers.intersects(held) =>
+		{
+			target().map(Input::Click)
 		}
 		MouseEventKind::Drag(MouseButton::Left) => target()
 			.filter(|target| matches!(target, Target::Row(_) | Target::Source(_)))

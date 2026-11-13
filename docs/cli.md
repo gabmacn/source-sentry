@@ -275,7 +275,7 @@ starts, and any document may be opened at any time.
 | `←`, `Esc` | From the changed files or the name, return to the documents |
 | `Enter` | On a changed file or the document's name, show it whole; on the label of the other documents, open or close them |
 | `Space` | Pick the row under the cursor, or let go of it |
-| `Shift+↑`, `Shift+↓` | Pick the range of rows to the next one |
+| `Shift+↑`, `Shift+↓` | Pick the range of rows to the next one, besides those already picked |
 | `Esc` | Let go of every picked row |
 | `o` | Open or close the other documents |
 | `↑` | From the first document, enter the header |
@@ -283,8 +283,7 @@ starts, and any document may be opened at any time.
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
 | Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap |
-| `Ctrl` and a click | Pick the row, or let go of it |
-| `Shift` and a click, or a drag | Pick the range of rows to that one |
+| Drag | Pick the range of rows from where the button went down |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
@@ -318,9 +317,13 @@ files picked, `y` and `r` record a review of their sources alone, as
 source still needs review. The files of a pattern are picked together,
 because a pattern is reviewed as a whole. An ordinary click or `Esc` lets
 go of what was picked, and so does moving to another document for picked
-files. Many terminals keep `Shift` with the mouse for their own text
-selection and never report that click, which is why a drag picks a range
-as well.
+files.
+
+A range adds to the rows already picked, so that several ranges can follow
+one another; going back within a range lets go of its rows alone. With the
+mouse, a drag picks a range. A click made with `Ctrl` or `Shift` held does
+nothing, so that it keeps the meaning a terminal gives it, such as opening
+a path or selecting text.
 
 `y` and `r` only hold an answer: nothing is written until Enter. A recorded
 review is bound to the source versions shown, exactly as in the line mode,

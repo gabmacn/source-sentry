@@ -8,7 +8,7 @@ use super::super::tests::support::Repo;
 use std::rc::Rc;
 
 use super::app::{
-	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Press, Target,
+	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Target,
 };
 use super::draw;
 
@@ -640,39 +640,96 @@ fn picked_documents_take_one_answer_after_a_confirmation() {
 	assert_eq!(app.notice.as_deref(), Some("Recorded 2 reviews."));
 }
 
-/// Control and a click picks a row or lets go of it; Shift and a click, or
-/// a drag, picks the range to it; an ordinary click lets go of them all. A
-/// document that needs nothing takes a reread but no plain yes.
+/// A range picked with Shift and the arrows adds to what was already
+/// picked, so that several ranges can follow one another. Going back within
+/// a range lets go of its rows alone.
 #[test]
-fn clicks_pick_rows_and_ranges() {
+fn a_new_range_adds_to_the_rows_already_picked() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {}, "docs/b.md": {}, "docs/c.md": {}, "docs/d.md": {}, "docs/e.md": {}, "docs/f.md": {}}),
+	);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.open.len(), 6);
+	press(&mut app, &[Key::Extend(true), Key::Extend(true)]);
+	assert_eq!((app.picked.len(), app.cursor), (3, Cursor::Open(2)));
+
+	press(&mut app, &[Key::Down, Key::Down, Key::Extend(true)]);
+	assert_eq!((app.picked.len(), app.cursor), (5, Cursor::Open(5)));
+	assert!(
+		!app.picked.contains(&app.open[3]),
+		"the fourth was passed over"
+	);
+	press(&mut app, &[Key::Extend(false)]);
+	assert_eq!((app.picked.len(), app.cursor), (4, Cursor::Open(4)));
+	assert!(app.picked.contains(&app.open[0]), "the first range stays");
+
+	press(
+		&mut app,
+		&[Key::Escape, Key::Char(' '), Key::Up, Key::Up, Key::Up],
+	);
+	press(&mut app, &[Key::Extend(false)]);
+	assert_eq!((app.picked.len(), app.cursor), (3, Cursor::Open(0)));
+	assert!(
+		app.picked.contains(&app.open[4]),
+		"the space bar's row stays"
+	);
+}
+
+/// With the mouse, a drag picks the range of rows it passes over and an
+/// ordinary click lets go of them all. A click made with Control or Shift
+/// held is left alone, so that it keeps the meaning a terminal gives it.
+#[test]
+fn a_drag_picks_a_range_and_modified_clicks_are_left_alone() {
+	use ratatui::crossterm::event::{
+		KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+	};
+
 	let repo = fixture();
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
-	press(&mut app, &[Key::Char('o')]);
-	app
-		.click_with(Target::Row(Cursor::Open(1)), Press::Toggle)
-		.unwrap();
-	assert_eq!((app.picked.len(), app.cursor), (1, Cursor::Open(1)));
-	app
-		.click_with(Target::Row(Cursor::Other(0)), Press::Range)
-		.unwrap();
-	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Other(0)));
-	app
-		.click_with(Target::Row(Cursor::Open(1)), Press::Toggle)
-		.unwrap();
-	assert_eq!(app.picked.len(), 1, "only the passing document is left");
+	show(&mut app, 120, 30);
+	let at = |kind, modifiers| MouseEvent {
+		kind,
+		column: 10,
+		row: 5,
+		modifiers,
+	};
+	let down = MouseEventKind::Down(MouseButton::Left);
+	let second = Target::Row(Cursor::Open(1));
+	assert!(matches!(
+		super::pointed(at(down, KeyModifiers::NONE), &app, 120),
+		Some(super::Input::Click(target)) if target == second
+	));
+	assert!(super::pointed(at(down, KeyModifiers::CONTROL), &app, 120).is_none());
+	assert!(super::pointed(at(down, KeyModifiers::SHIFT), &app, 120).is_none());
+	let drag = MouseEventKind::Drag(MouseButton::Left);
+	assert!(matches!(
+		super::pointed(at(drag, KeyModifiers::NONE), &app, 120),
+		Some(super::Input::Drag(target)) if target == second
+	));
 
+	app.drag(second);
+	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Open(1)));
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	assert!(app.picked.is_empty());
+}
+
+/// A plain yes needs something to review, so it leaves out a picked
+/// document that needs nothing; a reread takes it.
+#[test]
+fn a_picked_document_that_needs_nothing_takes_a_reread_alone() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('o'), Key::Down, Key::Down, Key::Down]);
+	press(&mut app, &[Key::Char(' ')]);
+	assert_eq!((app.picked.len(), app.cursor), (1, Cursor::Other(0)));
 	press(&mut app, &[Key::Char('y')]);
 	assert!(app.overlay.is_none());
 	assert!(app.notice.as_ref().unwrap().contains("r records a reread"));
 	press(&mut app, &[Key::Char('r')]);
 	assert!(matches!(app.overlay, Some(Overlay::Picked(_, _, true))));
-	press(&mut app, &[Key::Escape]);
-
-	app.click(Target::Row(Cursor::Open(0))).unwrap();
-	assert!(app.picked.is_empty());
-	app.drag(Target::Row(Cursor::Open(1)));
-	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Open(1)));
 }
 
 /// Picked sources limit a review to them, as `attest --source` does, and
