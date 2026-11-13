@@ -17,7 +17,11 @@ source-sentry help [<command>]
 - `-h` or `--help` describes a command; `-V` or `--version` prints the
   version. On a terminal, the top-level help opens with the Source Sentry
   mark, drawn in half-block characters; redirected help is plain text, and a
-  command's own help never carries it.
+  command's own help never carries it. Where the terminal shows 24-bit
+  colour, the mark is shaded with a gradient, one colour for each
+  character. Elsewhere, and with `--color never` or `NO_COLOR`, it takes
+  the terminal's own foreground. Windows consoles are taken to show 24-bit
+  colour; other terminals announce it in `COLORTERM`.
 
 Documents are named by path or by remote identity: `abstract:onboarding-video`,
 `google-drive:1a2B3c4D5e6F7g8H9i0J`.
@@ -490,7 +494,8 @@ shows the closing after the evaluation instead, and under `--quiet` the
 reviews recorded come first. The closing mirrors the opening: the mark with
 the reviewer, the number of reviews recorded, the number of documents
 remaining and the session's length beside it, then each recorded review and
-each remaining document. Use `check` as the gate. Review comparisons and questions remain visible under
+each remaining document. The mark of the opening and of the closing is
+shaded as in the top-level help. Use `check` as the gate. Review comparisons and questions remain visible under
 `--quiet`, which reduces the closing to plain sentences without the mark.
 
 ## Records

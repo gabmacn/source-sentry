@@ -22,6 +22,21 @@ pub(crate) fn set_color(when: ColorWhen) {
 	.write_global();
 }
 
+/// Whether standard output shows 24-bit colour: colour is not turned off,
+/// and the terminal takes all of it. Windows consoles have taken 24-bit
+/// colour since Windows 10; elsewhere a terminal announces it in
+/// `COLORTERM`. A terminal that does not know these colours may read their
+/// numbers as other instructions, so they are never sent on a guess.
+pub(crate) fn full_colour() -> bool {
+	let on = !matches!(
+		anstream::AutoStream::choice(&std::io::stdout()),
+		ColorChoice::Never
+	);
+	on && (cfg!(windows)
+		|| std::env::var("COLORTERM")
+			.is_ok_and(|value| value == "truecolor" || value == "24bit"))
+}
+
 /// Writes a command's output, honouring `--quiet`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Printer {

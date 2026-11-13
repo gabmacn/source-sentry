@@ -1,5 +1,6 @@
 //! The mark with the product's name, version and licence, and a column of
 //! facts beside it: the frame shared by a session's opening and closing.
+//! The mark is shaded where the terminal shows 24-bit colour.
 
 use std::fmt::Write as _;
 
@@ -37,17 +38,20 @@ pub(super) fn text(facts: &[(&str, String)]) -> String {
 			output::pad(&output::dim(label), label, LABEL_WIDTH)
 		);
 	}
-	let mut drawn = mark::MARK.lines();
+	// The plain mark gives each line's width; the dressed one is what is
+	// written, and its colours take no room.
+	let dressed = mark::dressed(output::full_colour());
+	let mut drawn = dressed.lines().zip(mark::MARK.lines());
 	let mut text = String::new();
 	for row in &beside {
-		let line = drawn.next().unwrap_or_default();
+		let (line, plain) = drawn.next().unwrap_or_default();
 		if !text.is_empty() {
 			text.push('\n');
 		}
-		if row.is_empty() {
-			text.push_str(line);
-		} else {
-			let _ = write!(text, "{line:<COLUMN$}{row}");
+		text.push_str(line);
+		if !row.is_empty() {
+			let gap = COLUMN.saturating_sub(plain.chars().count());
+			let _ = write!(text, "{:gap$}{row}", "");
 		}
 	}
 	text

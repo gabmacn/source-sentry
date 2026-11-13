@@ -32,20 +32,11 @@ use crate::workspace::Workspace;
 /// Whether this terminal can show the full screen: it has colour, including
 /// the deck's own three, and room for the layout.
 pub(super) fn supported() -> bool {
-	let colour = !matches!(
-		anstream::AutoStream::choice(&io::stdout()),
-		anstream::ColorChoice::Never
-	);
-	// Windows consoles have taken 24-bit colour since Windows 10; elsewhere
-	// a terminal announces it.
-	let deck = cfg!(windows)
-		|| std::env::var("COLORTERM")
-			.is_ok_and(|value| value == "truecolor" || value == "24bit");
 	let room =
 		ratatui::crossterm::terminal::size().is_ok_and(|(columns, rows)| {
 			columns >= draw::MINIMUM.0 && rows >= draw::MINIMUM.1
 		});
-	colour && deck && room
+	crate::output::full_colour() && room
 }
 
 /// Runs a session on the full screen, then prints its closing: what the

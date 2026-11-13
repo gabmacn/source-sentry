@@ -46,18 +46,33 @@ fn main() -> ExitCode {
 
 /// Parses the command line, without exiting.
 fn parse() -> Result<Cli, clap::Error> {
-	let matches = command(io::stdout().is_terminal()).try_get_matches()?;
+	// On a terminal the top-level help opens with the mark, shaded where the
+	// terminal shows 24-bit colour; redirected help stays plain text for
+	// pagers and scripts.
+	let mark = io::stdout()
+		.is_terminal()
+		.then(|| mark::dressed(!colour_refused() && output::full_colour()));
+	let matches = command(mark.as_deref()).try_get_matches()?;
 	Cli::from_matches(&matches)
 }
 
-/// The command line's definition. On a terminal, the top-level help opens
-/// with the mark; redirected help stays plain text for pagers and scripts.
-fn command(terminal: bool) -> clap::Command {
+/// Whether the command line turns colour off. Help is printed before any
+/// option takes effect, so the mark's colour looks for this one itself.
+fn colour_refused() -> bool {
+	let arguments: Vec<_> = std::env::args_os().collect();
+	arguments.iter().any(|argument| argument == "--color=never")
+		|| arguments
+			.windows(2)
+			.any(|pair| pair[0] == "--color" && pair[1] == "never")
+}
+
+/// The command line's definition, with the mark that opens its top-level
+/// help, if any.
+fn command(mark: Option<&str>) -> clap::Command {
 	let command = Cli::command();
-	if terminal {
-		command.before_help(mark::MARK)
-	} else {
-		command
+	match mark {
+		Some(mark) => command.before_help(mark.to_owned()),
+		None => command,
 	}
 }
 
@@ -69,18 +84,33 @@ mod tests {
 	/// left out when the help is redirected.
 	#[test]
 	fn the_top_level_help_opens_with_the_mark_on_a_terminal_only() {
-		let help = command(true).render_help().to_string();
+		let help = command(Some(mark::MARK)).render_help().to_string();
 		assert!(help.starts_with(&format!("{}\n\n", mark::MARK)), "{help}");
-		let long = command(true).render_long_help().to_string();
+		let long = command(Some(mark::MARK)).render_long_help().to_string();
 		assert!(long.starts_with(&format!("{}\n\n", mark::MARK)), "{long}");
-		let plain = command(false).render_help().to_string();
+		let plain = command(None).render_help().to_string();
 		assert!(!plain.contains('█'), "{plain}");
+	}
+
+	/// A shaded mark keeps its colours in help that is printed with colour,
+	/// and is the plain mark, line for line, in help printed without.
+	#[test]
+	fn the_shaded_mark_survives_the_help_with_and_without_colour() {
+		let shaded = mark::dressed(true);
+		let help = command(Some(&shaded)).render_help();
+		let coloured = help.ansi().to_string();
+		assert!(
+			coloured.starts_with(&format!("{shaded}\n\n")),
+			"{coloured:?}"
+		);
+		let plain = help.to_string();
+		assert!(plain.starts_with(&format!("{}\n\n", mark::MARK)), "{plain}");
 	}
 
 	/// A command's own help stays free of the mark.
 	#[test]
 	fn a_commands_help_does_not_carry_the_mark() {
-		let mut root = command(true);
+		let mut root = command(Some(mark::MARK));
 		root.build();
 		for name in ["check", "review", "help"] {
 			let help = root
