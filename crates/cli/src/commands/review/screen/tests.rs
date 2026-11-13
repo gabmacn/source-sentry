@@ -496,3 +496,105 @@ fn the_pointer_marks_what_a_click_would_act_on() {
 	assert!(app.hover_changed());
 	assert_eq!(app.hover, None);
 }
+
+/// A character typed with Control or Alt is not taken for the plain
+/// letter, so Control and A does not ask to record everything. Control and
+/// C still quits, and Control with Alt, which is `AltGr` on Windows, types.
+#[test]
+fn shortcuts_the_screen_does_not_have_are_ignored() {
+	use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+	let typed = |character, modifiers| {
+		super::translate(KeyEvent::new(KeyCode::Char(character), modifiers))
+	};
+	assert_eq!(typed('a', KeyModifiers::CONTROL), None);
+	assert_eq!(typed('y', KeyModifiers::ALT), None);
+	assert_eq!(typed('c', KeyModifiers::CONTROL), Some(Key::Interrupt));
+	assert_eq!(typed('y', KeyModifiers::NONE), Some(Key::Char('y')));
+	assert_eq!(typed('Y', KeyModifiers::SHIFT), Some(Key::Char('Y')));
+	assert_eq!(
+		typed('@', KeyModifiers::CONTROL | KeyModifiers::ALT),
+		Some(Key::Char('@'))
+	);
+}
+
+/// The wheel passes over documents in the sidebar without seeing them; a
+/// document it brings counts as seen once the reviewer acts while it is
+/// shown.
+#[test]
+fn the_wheel_does_not_count_a_document_as_seen() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(
+		&mut app,
+		&[
+			Key::Wheel(true, Area::Sidebar),
+			Key::Wheel(false, Area::Sidebar),
+		],
+	);
+	assert_eq!(app.cursor, Cursor::Open(0));
+	press(&mut app, &[Key::Char('a')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_, 1))));
+
+	press(&mut app, &[Key::Escape, Key::Wheel(true, Area::Sidebar)]);
+	assert_eq!(app.cursor, Cursor::Open(1));
+	press(&mut app, &[Key::Char('a')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_, 0))));
+}
+
+/// A source changed after the document was shown refuses the held answer:
+/// nothing is written, and the document is shown again with its current
+/// changes.
+#[test]
+fn a_source_changed_after_it_was_shown_refuses_the_answer() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let before = app.shown.as_ref().unwrap().compared.clone().unwrap();
+	repo.write("src/a.rs", "changed while shown\n");
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_null());
+	assert_eq!(app.session.recorded, Vec::new());
+	assert_eq!(app.notice.as_deref(), Some(super::super::session::CHANGED));
+	let shown = app.shown.as_ref().unwrap();
+	assert!(shown.name.ends_with("a.md"));
+	assert_ne!(
+		shown.compared.as_ref().unwrap().expectations,
+		before.expectations
+	);
+
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert_eq!(
+		repo.entry("docs/a.md")["sources"][0]["reviewed"]["by"],
+		"Test Reviewer"
+	);
+}
+
+/// The closing evaluates once more: a change made outside the screen after
+/// the last write is reported, and the part known at once comes first.
+#[test]
+fn the_closing_reports_changes_made_after_the_last_write() {
+	use super::super::closing::Part;
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert!(!app.closing().plain().contains("docs/a.md: "));
+	repo.write("src/a.rs", "changed outside the screen\n");
+	let mut parts = Vec::new();
+	app
+		.session
+		.finish(|closing, part| parts.push((part, closing.part(part, true))))
+		.unwrap();
+	assert_eq!(
+		parts[0],
+		(Part::Known, "Recorded 1 review.\n  docs/a.md".to_owned())
+	);
+	assert_eq!(parts[1].0, Part::Evaluated);
+	assert!(parts[1].1.contains("docs/a.md: "), "{}", parts[1].1);
+	assert!(
+		parts[1].1.starts_with("2 documents still need review"),
+		"{}",
+		parts[1].1
+	);
+}

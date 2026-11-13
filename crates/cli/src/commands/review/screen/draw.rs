@@ -1140,8 +1140,10 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			let contexts = app.contexts();
 			let inside =
 				frame(pen, area, 60, count(contexts.len().min(12)) + 6, "Context");
+			// Twelve rows at most, scrolled so that the cursor stays in them.
+			let first = at.saturating_sub(11);
 			for (y, (index, context)) in
-				(inside.y..).zip(contexts.iter().enumerate().take(12))
+				(inside.y..).zip(contexts.iter().enumerate().skip(first).take(12))
 			{
 				let row = Rect::new(inside.x, y, inside.width, 1);
 				let on = index == *at;

@@ -25,7 +25,37 @@ pub(super) struct Closing {
 	pub(super) check: String,
 }
 
+/// A part of the closing. The session prints the first at once, then
+/// evaluates the working tree a final time for the second.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Part {
+	/// What the session itself knows: who reviewed and what was recorded.
+	Known,
+	/// What the final evaluation adds: what remains, and the rest.
+	Evaluated,
+}
+
 impl Closing {
+	/// One part of the closing, in plain sentences under `--quiet` and
+	/// beside the mark otherwise, without a final newline. The two parts
+	/// together make [`Self::plain`] or [`Self::text`], and the first never
+	/// depends on what remains.
+	pub(super) fn part(&self, part: Part, quiet: bool) -> String {
+		let whole = if quiet { self.plain() } else { self.text() };
+		// The plain summary's first part is the recorded reviews; beside the
+		// mark, it ends with the row that counts them.
+		let known = if quiet {
+			1 + self.recorded.len()
+		} else {
+			banner::FIRST_FACT_LINE + 2
+		};
+		let (head, tail) = split_lines(&whole, known);
+		match part {
+			Part::Known => head.to_owned(),
+			Part::Evaluated => tail.to_owned(),
+		}
+	}
+
 	/// The summary in plain sentences, as `--quiet` prints it.
 	pub(super) fn plain(&self) -> String {
 		let mut text = format!(
@@ -45,7 +75,9 @@ impl Closing {
 	}
 
 	/// The mark with what was done beside it, then each recorded review and
-	/// each remaining document, without a final newline.
+	/// each remaining document, without a final newline. The rows beside the
+	/// mark keep the order of [`Part`]: the reviewer and the reviews come
+	/// before anything the final evaluation decides.
 	pub(super) fn text(&self) -> String {
 		let rereads = self.recorded.iter().filter(|(_, reread)| *reread).count();
 		let recorded = match (self.recorded.len(), rereads) {
@@ -114,6 +146,16 @@ impl Closing {
 	}
 }
 
+/// `text` split after its first `lines` lines, without the newline between
+/// the two parts.
+fn split_lines(text: &str, lines: usize) -> (&str, &str) {
+	match text.match_indices('\n').nth(lines.saturating_sub(1)) {
+		Some((at, _)) if lines > 0 => (&text[..at], &text[at + 1..]),
+		_ if lines == 0 => ("", text),
+		_ => (text, ""),
+	}
+}
+
 /// A duration in whole minutes, as people say it.
 fn took(seconds: u64) -> String {
 	let count = |value: u64, singular: &str, plural: &str| {
@@ -137,7 +179,7 @@ fn took(seconds: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{Closing, TICK, took};
+	use super::{Closing, Part, TICK, took};
 	use crate::commands::review::banner::COLUMN;
 
 	/// A session with work done and work left.
@@ -194,6 +236,35 @@ mod tests {
 				"",
 				"  Run `source-sentry check` for the final gate.",
 			]
+		);
+	}
+
+	/// The two parts make the whole closing, and the first is the same
+	/// whatever remains, so it can be printed before the final evaluation.
+	#[test]
+	fn the_known_part_does_not_wait_for_what_remains() {
+		let before = Closing {
+			remaining: Vec::new(),
+			..closing()
+		};
+		for quiet in [false, true] {
+			let whole = if quiet {
+				closing().plain()
+			} else {
+				closing().text()
+			};
+			let known = closing().part(Part::Known, quiet);
+			assert_eq!(
+				format!("{known}\n{}", closing().part(Part::Evaluated, quiet)),
+				whole
+			);
+			assert_eq!(before.part(Part::Known, quiet), known);
+			assert!(!known.contains("Remaining") && !known.contains("still need"));
+			assert!(known.contains("Recorded"), "{known}");
+		}
+		assert_eq!(
+			closing().part(Part::Known, true),
+			"Recorded 2 reviews.\n  docs/a.md\n  docs/long-name.md (reread)"
 		);
 	}
 

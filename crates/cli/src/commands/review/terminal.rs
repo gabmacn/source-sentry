@@ -9,7 +9,7 @@ use inquire::{Confirm, InquireError, Text};
 use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::DocumentDiff;
 
-use super::closing::Closing;
+use super::closing::{Closing, Part};
 use super::opening::Opening;
 use super::render::{self, Paint};
 use super::{Answer, Interface, View};
@@ -104,15 +104,14 @@ impl Interface for Terminal {
 		output::data(text);
 	}
 
-	fn close(&mut self, closing: &Closing) {
-		output::data(&if self.printer.is_quiet() {
-			closing.plain()
+	fn close(&mut self, closing: &Closing, part: Part) {
+		let quiet = self.printer.is_quiet();
+		let text = closing.part(part, quiet);
+		// A blank line parts the closing from the session above it.
+		output::data(&if part == Part::Known && !quiet {
+			format!("\n{text}")
 		} else {
-			format!(
-				"
-{}",
-				closing.text()
-			)
+			text
 		});
 	}
 }

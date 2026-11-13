@@ -11,7 +11,7 @@ pub(super) const COLUMN: usize = 28;
 /// licence follows on the next line.
 const TITLE_LINE: usize = 2;
 /// The line of the mark that carries the first fact; the others follow it.
-const FIRST_FACT_LINE: usize = 5;
+pub(super) const FIRST_FACT_LINE: usize = 5;
 /// The width of the facts' label column.
 const LABEL_WIDTH: usize = 11;
 

@@ -47,8 +47,10 @@ pub(super) fn supported() -> bool {
 	colour && deck && room
 }
 
-/// Runs a session on the full screen, then prints its closing. A session
-/// with nothing to review prints the closing alone.
+/// Runs a session on the full screen, then prints its closing: what the
+/// session recorded at once, and what remains after a final evaluation. A
+/// session with nothing to review prints the closing of the evaluation that
+/// found nothing, alone.
 ///
 /// # Errors
 ///
@@ -59,20 +61,24 @@ pub(super) fn run(
 	printer: Printer,
 ) -> Result<(), Failure> {
 	let mut app = App::new(workspace, args)?;
-	if !app.open.is_empty() {
-		release_mouse_on_panic();
-		let mut terminal = take_over()?;
-		let result = events(&mut terminal, &mut app);
-		hand_back();
-		result?;
+	let quiet = printer.is_quiet();
+	if app.open.is_empty() {
+		let closing = app.closing();
+		output::data(&if quiet {
+			closing.plain()
+		} else {
+			closing.text()
+		});
+		return Ok(());
 	}
-	let closing = app.closing();
-	output::data(&if printer.is_quiet() {
-		closing.plain()
-	} else {
-		closing.text()
-	});
-	Ok(())
+	release_mouse_on_panic();
+	let mut terminal = take_over()?;
+	let result = events(&mut terminal, &mut app);
+	hand_back();
+	result?;
+	app
+		.session
+		.finish(|closing, part| output::data(&closing.part(part, quiet)))
 }
 
 /// Takes the terminal over: the alternate screen, every key as it is
@@ -202,17 +208,25 @@ fn draw(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), Failure> {
 }
 
 /// The key of a press. Windows also reports releases, which are ignored.
+/// A character typed with Control or Alt is a shortcut the screen does not
+/// have, except Control and C, so it is ignored rather than taken for the
+/// plain letter. Control and Alt together are kept: Windows reports `AltGr`
+/// that way, and some keyboards type characters such as `@` with it.
 fn translate(pressed: KeyEvent) -> Option<Key> {
 	if pressed.kind == KeyEventKind::Release {
 		return None;
 	}
+	let chord = pressed.modifiers & (KeyModifiers::CONTROL | KeyModifiers::ALT);
 	Some(match pressed.code {
-		KeyCode::Char('c' | 'C')
-			if pressed.modifiers.contains(KeyModifiers::CONTROL) =>
-		{
+		KeyCode::Char('c' | 'C') if chord == KeyModifiers::CONTROL => {
 			Key::Interrupt
 		}
-		KeyCode::Char(character) => Key::Char(character),
+		KeyCode::Char(character)
+			if chord.is_empty()
+				|| chord == KeyModifiers::CONTROL | KeyModifiers::ALT =>
+		{
+			Key::Char(character)
+		}
 		KeyCode::Up => Key::Up,
 		KeyCode::Down => Key::Down,
 		KeyCode::Left => Key::Left,

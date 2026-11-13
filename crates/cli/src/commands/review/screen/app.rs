@@ -324,8 +324,8 @@ impl<'a> App<'a> {
 			.collect()
 	}
 
-	/// The closing, from the latest evaluation: the one that followed the
-	/// last write, the last editor visit or the last change of context.
+	/// The closing, from the latest evaluation. When the screen closes, the
+	/// session evaluates once more for it; see [`Session::finish`].
 	pub(super) fn closing(&self) -> Closing {
 		self.session.closing()
 	}
@@ -334,6 +334,11 @@ impl<'a> App<'a> {
 	pub(super) fn busy(&self, key: Key) -> Option<&'static str> {
 		match (&self.overlay, key) {
 			(None, Key::Enter) if self.armed.is_some() => Some("Recording…"),
+			(None, Key::Char('a' | 'A'))
+				if self.open.iter().any(|id| !self.cache.contains_key(id)) =>
+			{
+				Some("Comparing…")
+			}
 			(Some(Overlay::All(..)), Key::Char('y' | 'Y')) => Some("Recording…"),
 			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
 			_ => None,
@@ -431,10 +436,17 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Moves the cursor and loads the document under it. The header and the
-	/// label of the other documents keep the last document on display. The
-	/// focus returns to the sidebar.
+	/// Moves the cursor, loads the document under it and counts it as seen.
 	fn select(&mut self, cursor: Cursor) {
+		self.load(cursor);
+		self.see_shown();
+	}
+
+	/// Moves the cursor and loads the document under it, without counting
+	/// it as seen: the wheel passes over documents. The header and the label
+	/// of the other documents keep the last document on display. The focus
+	/// returns to the sidebar.
+	fn load(&mut self, cursor: Cursor) {
 		self.cursor = cursor;
 		self.focus = Focus::Sidebar;
 		if matches!(cursor, Cursor::Header(_) | Cursor::Others) {
@@ -443,14 +455,22 @@ impl<'a> App<'a> {
 		self.file = 0;
 		self.scroll = (0, 0);
 		self.shown = self.current().cloned().map(|id| self.cached(&id));
-		// Only a document on display has been seen; one read ahead has not.
-		if let Some(shown) = &self.shown {
-			if let Some(compared) = &shown.compared {
-				self.session.see(&shown.id, compared);
-			}
-			if shown.failure.is_some() {
-				self.notice.clone_from(&shown.failure);
-			}
+		if let Some(failure) =
+			self.shown.as_ref().and_then(|shown| shown.failure.clone())
+		{
+			self.notice = Some(failure);
+		}
+	}
+
+	/// Counts the document on display as seen. Only a document on display
+	/// has been seen, and only once the reviewer stopped on it: one read
+	/// ahead has not, and neither has one the wheel passed over in the
+	/// sidebar, until the reviewer acts while it is shown.
+	fn see_shown(&mut self) {
+		if let Some(shown) = &self.shown
+			&& let Some(compared) = &shown.compared
+		{
+			self.session.see(&shown.id, compared);
 		}
 	}
 
@@ -567,6 +587,7 @@ impl<'a> App<'a> {
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
 	pub(super) fn click(&mut self, target: Target) -> Result<Flow, Failure> {
+		self.see_shown();
 		match target {
 			Target::Cap(key) => return self.key(key),
 			Target::Context(at) => {
@@ -638,12 +659,19 @@ impl<'a> App<'a> {
 	/// Fails when an evaluation or a write fails; the session then ends.
 	pub(super) fn key(&mut self, key: Key) -> Result<Flow, Failure> {
 		// The wheel only looks: it keeps a held answer, a notice and a box.
+		// Over the sidebar it passes over documents without seeing them.
 		if let Key::Wheel(down, area) = key {
 			if self.overlay.is_none() {
+				if area != Area::Sidebar {
+					self.see_shown();
+				}
 				self.wheel(down, area);
 			}
 			return Ok(Flow::Stay);
 		}
+		// Acting while a document is shown means it was looked at, even when
+		// the wheel brought it.
+		self.see_shown();
 		self.notice = None;
 		if let Some(overlay) = self.overlay.take() {
 			return self.overlay_key(overlay, key);
@@ -667,8 +695,8 @@ impl<'a> App<'a> {
 		match (self.focus, key) {
 			(_, Key::Interrupt | Key::Char('q' | 'Q')) => return Ok(Flow::Quit),
 			(_, Key::Char('?')) => self.overlay = Some(Overlay::Keys),
-			(Focus::Sidebar, Key::Up) => self.step(false),
-			(Focus::Sidebar, Key::Down) => self.step(true),
+			(Focus::Sidebar, Key::Up) => self.step(false, true),
+			(Focus::Sidebar, Key::Down) => self.step(true, true),
 			(Focus::Sidebar, Key::Tab) => self.cycle(true),
 			(Focus::Sidebar, Key::BackTab) => self.cycle(false),
 			(Focus::Sidebar, Key::Enter) if self.cursor == Cursor::Others => {
@@ -700,7 +728,7 @@ impl<'a> App<'a> {
 			(_, Key::PageDown) => self.scroll_by(true),
 			(_, Key::Char('y' | 'Y')) if on_document => self.arm(false),
 			(_, Key::Char('r' | 'R')) if on_document => self.arm(true),
-			(_, Key::Char('a' | 'A')) => self.ask_all()?,
+			(_, Key::Char('a' | 'A')) => self.ask_all(),
 			(_, Key::Char('e' | 'E')) if on_document => return Ok(self.edit()),
 			_ => {}
 		}
@@ -850,9 +878,9 @@ impl<'a> App<'a> {
 		};
 		let recorded = self.session.reviewer.as_deref().unwrap_or("nobody");
 		self.notice = Some(match remembered {
-			Ok(()) if name.is_empty() => {
-				format!("Reviews are recorded as {recorded}, git's own name, again.")
-			}
+			Ok(()) if name.is_empty() => format!(
+				"The remembered name is forgotten; reviews are recorded as {recorded}, as git's configuration gives it."
+			),
 			Ok(()) => format!(
 				"Reviews are recorded as {recorded}, in this session and later ones."
 			),
@@ -865,7 +893,8 @@ impl<'a> App<'a> {
 	}
 
 	/// Moves the cursor one row down or up. Above the first row is the header.
-	fn step(&mut self, down: bool) {
+	/// `see` counts the document reached as seen; the wheel does not.
+	fn step(&mut self, down: bool, see: bool) {
 		let next = match (self.at(), down) {
 			(None, true) => 0,
 			(Some(at), true) if at + 1 < self.listed() => at + 1,
@@ -877,7 +906,11 @@ impl<'a> App<'a> {
 			}
 			_ => return,
 		};
-		self.select(self.row(next));
+		if see {
+			self.select(self.row(next));
+		} else {
+			self.load(self.row(next));
+		}
 	}
 
 	/// Moves the cursor as an arrow key does, but round: from the last row to
@@ -946,7 +979,7 @@ impl<'a> App<'a> {
 		match area {
 			Area::Sidebar => {
 				self.armed = None;
-				self.step(down);
+				self.step(down, false);
 			}
 			Area::Pane => self.scroll_rows(self.pane, down, WHEEL),
 			Area::Changes => self.scroll_rows(Pane::Changes, down, WHEEL),
@@ -1043,22 +1076,27 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Opens the confirmation for recording every document that needs review.
-	fn ask_all(&mut self) -> Result<(), Failure> {
+	/// Opens the confirmation for recording every document that needs
+	/// review, with the comparisons of the latest evaluation, which the
+	/// screen has mostly read already. Each write checks its comparison
+	/// against the working tree again. A document that cannot be compared
+	/// cannot be recorded, so it is left out.
+	fn ask_all(&mut self) {
 		if self.open.is_empty() {
 			self.notice = Some("Nothing needs review.".to_owned());
-			return Ok(());
+			return;
 		}
-		let shown = self.shown.as_ref().and_then(|shown| {
-			shown
-				.compared
-				.as_ref()
-				.map(|compared| (&shown.id, compared))
-		});
-		let comparisons = self.session.comparisons(&self.open, shown)?;
+		let comparisons: Vec<_> = self
+			.open
+			.clone()
+			.into_iter()
+			.filter_map(|id| {
+				let compared = self.cached(&id).compared.clone()?;
+				Some((id, compared))
+			})
+			.collect();
 		let unseen = self.session.unseen(&comparisons);
 		self.overlay = Some(Overlay::All(comparisons, unseen));
-		Ok(())
 	}
 
 	/// Records every confirmed comparison that still needs review. A source

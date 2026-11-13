@@ -11,7 +11,7 @@ use source_sentry_core::mutate::{
 };
 use tempfile::TempDir;
 
-use super::super::closing::Closing;
+use super::super::closing::{Closing, Part};
 use super::super::opening::Opening;
 use super::super::render::{self, Paint};
 use super::super::{Answer, Interface, View, session};
@@ -325,7 +325,11 @@ impl Interface for Script {
 		}
 	}
 
-	fn close(&mut self, closing: &Closing) {
-		self.messages.push(closing.plain());
+	fn close(&mut self, closing: &Closing, part: Part) {
+		// The parts are tested together; the final evaluation decides the
+		// whole closing.
+		if part == Part::Evaluated {
+			self.messages.push(closing.plain());
+		}
 	}
 }

@@ -109,9 +109,10 @@ trait Interface {
 	) -> Result<(), Failure>;
 	/// Reports a refusal or a completed write.
 	fn message(&mut self, text: &str);
-	/// Presents what was recorded and what remains, once, as the session
-	/// ends.
-	fn close(&mut self, closing: &closing::Closing);
+	/// Presents what was recorded and what remains as the session ends: the
+	/// part the session knows at once, then the part that the final
+	/// evaluation decides.
+	fn close(&mut self, closing: &closing::Closing, part: closing::Part);
 }
 
 /// Refuses redirected input or output before even opening the repository.

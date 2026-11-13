@@ -14,7 +14,7 @@ use source_sentry_core::mutate::{
 
 use source_sentry_git::WorkingTreeSnapshot;
 
-use super::closing::Closing;
+use super::closing::{Closing, Part};
 use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
 use super::{Answer, Interface, View};
@@ -411,7 +411,25 @@ impl<'a> Session<'a> {
 		Ok(true)
 	}
 
-	/// What the session did and what remains, from the final evaluation,
+	/// Ends the session: shows at once the part of the closing that the
+	/// session itself knows, then evaluates the working tree a final time and
+	/// shows what remains, so that a change made outside the session, such as
+	/// an edit that makes other documents stale, is reported.
+	///
+	/// # Errors
+	///
+	/// Fails when the final evaluation fails; the first part is shown then.
+	pub(super) fn finish(
+		&mut self,
+		mut show: impl FnMut(&Closing, Part),
+	) -> Result<(), Failure> {
+		show(&self.closing(), Part::Known);
+		self.refresh()?;
+		show(&self.closing(), Part::Evaluated);
+		Ok(())
+	}
+
+	/// What the session did and what remains, from the latest evaluation,
 	/// including documents outside an explicit selection.
 	pub(super) fn closing(&self) -> Closing {
 		Closing {
@@ -531,7 +549,5 @@ pub(super) fn run(
 			}
 		}
 	}
-	session.refresh()?;
-	ui.close(&session.closing());
-	Ok(())
+	session.finish(|closing, part| ui.close(closing, part))
 }

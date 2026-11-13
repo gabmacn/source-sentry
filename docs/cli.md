@@ -287,6 +287,10 @@ starts, and any document may be opened at any time.
 | `?` | Show the keys |
 | `q`, `Ctrl+C` | Quit, preserving earlier reviews |
 
+A letter typed with `Ctrl` or `Alt` does nothing, apart from `Ctrl+C`, so
+that a shortcut meant for another program is not taken for the letter.
+`Ctrl` and `Alt` together still type, as AltGr does on Windows.
+
 The arrow keys and Tab move in the list that has the focus. It starts in the
 sidebar, where the row under the cursor is marked in a strong blue. From a
 document, `→` or Enter moves the focus to its changed files: the document's
@@ -314,25 +318,27 @@ A click does what the matching key does, and a second click on the row
 already under the cursor acts as Enter does there. A click never records a
 held answer, except on the cap of Enter itself. While a box is open, only
 the box takes clicks, and a click around it closes it as `Esc` does. The
-pointer lightly marks
-what a click would act on; this depends on the terminal reporting the
-pointer's movement, so nothing is shown by it alone, and every action has
-its key.
+pointer lightly marks what a click would act on; this depends on the
+terminal reporting the pointer's movement, so nothing is shown by it alone,
+and every action has its key.
 
 Because the screen reads the mouse, selecting text with the mouse needs the
 terminal's own modifier, which is Shift in most terminals.
 
 `a` lists every document that needs review with its outcome and whether its
-current comparison has been displayed, and records them all on `y`. Any
-other key goes back. A source that changes during the batch stops it.
+current comparison has been seen, and records them all on `y`. Any other
+key goes back. A source that changes during the batch stops it, and a
+document that cannot be compared is left out. A document counts as seen
+once the cursor stops on it: moved there by a key or a click, or acted on
+while it is shown. The wheel over the sidebar passes over documents
+without seeing them, and a document read ahead is not seen either.
 
 In the header, `←` and `→` select a field and Enter changes it. The
 reviewer's name applies to the reviews recorded from then on, and is
 remembered for the repository as `source-sentry.reviewer` in its local git
-configuration; an empty name forgets it. The context
-is chosen from those that the traversed projects declare, and the working
-tree is evaluated again under it. The projects are listed. `↓` returns to
-the documents.
+configuration; an empty name forgets it. The context is chosen from those
+that the traversed projects declare, and the working tree is evaluated
+again under it. The projects are listed. `↓` returns to the documents.
 
 The screen is drawn on the terminal's alternate screen and leaves nothing
 behind, so the closing described below is printed after it. `e` hands the
@@ -402,10 +408,12 @@ application.
 `review` requires both standard input and standard output to be terminals.
 Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.
 End of input or cancellation quits. A completed or quit session exits 0;
-the closing lists what was recorded and what still needs review. The line
-mode evaluates the working tree once more for it; the full screen reports
-its latest evaluation. It mirrors the opening: the mark with the reviewer, the number
-of reviews recorded, the number of documents remaining and the session's
+the closing lists what was recorded and what still needs review. Its first
+lines, the mark with the reviewer and the number of reviews recorded, are
+printed at once; the working tree is then evaluated once more, so that a
+change made outside the session is reported, and the rest follows. The
+closing mirrors the opening: the mark with the reviewer, the number of
+reviews recorded, the number of documents remaining and the session's
 length beside it, then each recorded review and each remaining document. Use
 `check` as the gate. Review comparisons and questions remain visible under
 `--quiet`, which reduces the closing to plain sentences without the mark.
