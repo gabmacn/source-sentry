@@ -35,6 +35,11 @@ private = { ignore = true, registries = ["gmn"] }
 
 # Crate configuration must come last.
 
+# foldhash, which the hash maps of ratatui use, is under the Zlib licence
+# alone. The licence was accepted for this crate on 2026-11-12.
+[foldhash]
+accepted = ["Zlib"]
+
 # libgit2-sys compiles in libgit2, whose C sources carry their own licence: the
 # GPL, version 2, with a linking exception that permits distributing it linked
 # into other programs. Its COPYING file also holds the licences of the code

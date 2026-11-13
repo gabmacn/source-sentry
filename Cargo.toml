@@ -70,6 +70,10 @@ rrule = "0.14"
 similar = "3.2"
 # Interactive review answers and confirmations on Windows and Unix terminals.
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm"] }
+# The full-screen review: a cell grid that redraws only what changed, and a
+# backend that renders to memory for tests. Its crossterm is the copy that
+# `inquire` already brings; it also reports the terminal's size.
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 # Terminal colour that respects `NO_COLOR` and redirected output, including on
 # Windows consoles.
 anstream = "1.0"
