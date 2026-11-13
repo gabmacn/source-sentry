@@ -278,6 +278,7 @@ starts, and any document may be opened at any time.
 | `v` | Swap the pane between the changes and the document |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
+| Click | Do what the matching key does: select a document or a changed file, open or close the other documents, open a header field, press a key's cap |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
@@ -309,8 +310,15 @@ source edited since is caught when the review is recorded: the write reads
 every source again and refuses what changed. The working tree is evaluated
 again after every write, every editor visit and every change of context.
 
-Because the screen reads the mouse for its wheel, selecting text with the
-mouse needs the terminal's own modifier, which is Shift in most terminals.
+A click does what the matching key does, and a second click on the row
+already under the cursor acts as Enter does there. A click never records a
+held answer, except on the cap of Enter itself. The pointer lightly marks
+what a click would act on; this depends on the terminal reporting the
+pointer's movement, so nothing is shown by it alone, and every action has
+its key.
+
+Because the screen reads the mouse, selecting text with the mouse needs the
+terminal's own modifier, which is Shift in most terminals.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been displayed, and records them all on `y`. Any

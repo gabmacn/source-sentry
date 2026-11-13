@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::rc::Rc;
 
+use ratatui::layout::{Position, Rect};
+
 use source_sentry_core::model::{DocumentId, Outcome};
 use source_sentry_core::mutate::DocumentDiff;
 
@@ -61,6 +63,21 @@ pub(super) enum Area {
 	Changes,
 	/// The document, on a wide screen.
 	Document,
+}
+
+/// Something on the screen that a click acts on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Target {
+	/// A row of the sidebar: a document, or the label of the other documents.
+	Row(Cursor),
+	/// A changed file of the document on display, by its place.
+	Source(usize),
+	/// A field of the header.
+	Field(Field),
+	/// A key's cap, which a click presses.
+	Cap(Key),
+	/// A context in the box that lists them.
+	Context(usize),
 }
 
 /// The rows one notch of the wheel scrolls.
@@ -225,6 +242,13 @@ pub(super) struct App<'a> {
 	pub(super) notice: Option<String>,
 	/// How many rows a page of the pane holds, as last drawn.
 	pub(super) page: usize,
+	/// What a click acts on, and where, as last drawn. Later entries lie
+	/// over earlier ones.
+	pub(super) hits: Vec<(Rect, Target)>,
+	/// Where the pointer was last reported: its column and row.
+	pub(super) pointer: Option<(u16, u16)>,
+	/// What the pointer is over, which is drawn lightly marked.
+	pub(super) hover: Option<Target>,
 }
 
 impl<'a> App<'a> {
@@ -258,6 +282,9 @@ impl<'a> App<'a> {
 			armed: None,
 			overlay: None,
 			page: 10,
+			hits: Vec::new(),
+			pointer: None,
+			hover: None,
 		};
 		app.rebuild()?;
 		app.select(app.first());
@@ -504,6 +531,94 @@ impl<'a> App<'a> {
 		shown
 	}
 
+	/// What a click at a cell acts on, as the screen was last drawn.
+	pub(super) fn target_at(&self, column: u16, row: u16) -> Option<Target> {
+		let cell = Position::new(column, row);
+		self
+			.hits
+			.iter()
+			.rev()
+			.find(|(area, _)| area.contains(cell))
+			.map(|(_, target)| *target)
+	}
+
+	/// Works out what the pointer is over, and returns whether that changed,
+	/// which calls for drawing again.
+	pub(super) fn hover_changed(&mut self) -> bool {
+		let hover = self
+			.pointer
+			.and_then(|(column, row)| self.target_at(column, row));
+		let changed = hover != self.hover;
+		self.hover = hover;
+		changed
+	}
+
+	/// Handles a click: it does what the matching key does. A click on the
+	/// row already under the cursor acts as Enter does there, except that it
+	/// never records a held answer; only the cap of Enter does.
+	///
+	/// # Errors
+	///
+	/// Fails when an evaluation or a write fails; the session then ends.
+	pub(super) fn click(&mut self, target: Target) -> Result<Flow, Failure> {
+		match target {
+			Target::Cap(key) => return self.key(key),
+			Target::Context(at) => {
+				if matches!(self.overlay, Some(Overlay::Contexts(_))) {
+					self.overlay = Some(Overlay::Contexts(at));
+					return self.key(Key::Enter);
+				}
+			}
+			_ if self.overlay.is_some() => {}
+			Target::Row(row) => {
+				let again = self.cursor == row && self.focus == Focus::Sidebar;
+				self.notice = None;
+				self.armed = None;
+				match row {
+					Cursor::Others => {
+						self.select(row);
+						self.toggle_others();
+					}
+					Cursor::Open(_) | Cursor::Other(_) if again => self.enter_sources(),
+					_ => self.select(row),
+				}
+			}
+			Target::Source(file) => {
+				let again = self.focus == Focus::Sources && self.file == file;
+				self.notice = None;
+				self.armed = None;
+				if again {
+					self.show_path();
+				} else if self
+					.shown
+					.as_ref()
+					.is_some_and(|shown| file < shown.files.len())
+				{
+					self.focus = Focus::Sources;
+					self.file = file;
+					self.scroll.0 = 0;
+				}
+			}
+			Target::Field(field) => {
+				self.notice = None;
+				self.armed = None;
+				self.focus = Focus::Sidebar;
+				self.cursor = Cursor::Header(field);
+				self.header_key(field, Key::Enter);
+			}
+		}
+		Ok(Flow::Stay)
+	}
+
+	/// Opens the box with the selected source's whole path.
+	fn show_path(&mut self) {
+		self.overlay = self
+			.shown
+			.as_ref()
+			.and_then(|shown| shown.files.get(self.file))
+			.map(|file| Overlay::Path(file.path.clone()));
+	}
+
 	/// Handles one key.
 	///
 	/// # Errors
@@ -557,13 +672,7 @@ impl<'a> App<'a> {
 			(Focus::Sources, Key::Left | Key::Escape) => {
 				self.focus = Focus::Sidebar;
 			}
-			(Focus::Sources, Key::Enter) => {
-				self.overlay = self
-					.shown
-					.as_ref()
-					.and_then(|shown| shown.files.get(self.file))
-					.map(|file| Overlay::Path(file.path.clone()));
-			}
+			(Focus::Sources, Key::Enter) => self.show_path(),
 			(_, Key::Char('o' | 'O')) => self.toggle_others(),
 			(_, Key::Char('v' | 'V')) => {
 				// The sources are out of sight while the document is shown.

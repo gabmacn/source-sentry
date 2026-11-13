@@ -17,11 +17,11 @@ use std::time::Duration;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{
 	self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent,
-	KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+	KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::crossterm::execute;
 
-use self::app::{App, Flow, Key};
+use self::app::{App, Flow, Key, Target};
 use super::external;
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
@@ -76,7 +76,7 @@ pub(super) fn run(
 }
 
 /// Takes the terminal over: the alternate screen, every key as it is
-/// pressed, and the mouse for its wheel.
+/// pressed, and the mouse for its wheel, its clicks and its position.
 fn take_over() -> Result<DefaultTerminal, Failure> {
 	let terminal = ratatui::try_init()
 		.map_err(|error| failed("cannot take over the terminal", &error))?;
@@ -101,38 +101,74 @@ fn release_mouse_on_panic() {
 	}));
 }
 
-/// Draws, waits for a key and handles it, until the reviewer quits. While
-/// no key is waiting, it reads ahead the documents the reviewer may open.
+/// What the reviewer did: pressed a key, or clicked on something.
+enum Input {
+	/// A key, or a turn of the wheel.
+	Key(Key),
+	/// A click on something that acts on one.
+	Click(Target),
+}
+
+/// Draws, waits for the reviewer and handles what they did, until they
+/// quit. While nothing is waiting, it reads ahead the documents the reviewer
+/// may open. The screen is drawn again only when something changed.
 fn events(
 	terminal: &mut DefaultTerminal,
 	app: &mut App,
 ) -> Result<(), Failure> {
 	let read = |error: io::Error| failed("cannot read the keyboard", &error);
+	let mut stale = true;
 	loop {
-		draw(terminal, app)?;
+		if stale {
+			draw(terminal, app)?;
+			// What lies under the pointer may have moved away from it.
+			if app.hover_changed() {
+				draw(terminal, app)?;
+			}
+			stale = false;
+		}
 		while !event::poll(Duration::ZERO).map_err(read)? {
 			if !app.prefetch() {
 				break;
 			}
 		}
-		let columns = terminal
-			.size()
-			.map_err(|error| failed("cannot measure the terminal", &error))?
-			.width;
-		let key = match event::read().map_err(read)? {
-			Event::Key(pressed) => translate(pressed),
-			Event::Mouse(mouse) => wheel(mouse, columns),
-			// A resize, among others: draw again.
+		let input = match event::read().map_err(read)? {
+			Event::Key(pressed) => translate(pressed).map(Input::Key),
+			Event::Mouse(mouse) => {
+				app.pointer = Some((mouse.column, mouse.row));
+				let columns = terminal
+					.size()
+					.map_err(|error| failed("cannot measure the terminal", &error))?
+					.width;
+				let input = pointed(mouse, app, columns);
+				// A pointer that only moved redraws when it reached or left
+				// something a click acts on.
+				stale = input.is_none() && app.hover_changed();
+				input
+			}
+			Event::Resize(..) => {
+				stale = true;
+				None
+			}
 			_ => None,
 		};
-		let Some(key) = key else {
+		let Some(input) = input else {
 			continue;
 		};
-		if let Some(note) = app.busy(key) {
+		stale = true;
+		let pressed = match input {
+			Input::Key(key) | Input::Click(Target::Cap(key)) => Some(key),
+			Input::Click(_) => None,
+		};
+		if let Some(note) = pressed.and_then(|key| app.busy(key)) {
 			app.notice = Some(note.to_owned());
 			draw(terminal, app)?;
 		}
-		match app.key(key)? {
+		let flow = match input {
+			Input::Key(key) => app.key(key)?,
+			Input::Click(target) => app.click(target)?,
+		};
+		match flow {
 			Flow::Stay => {}
 			Flow::Quit => return Ok(()),
 			Flow::Edit(document) => {
@@ -149,16 +185,19 @@ fn events(
 	}
 }
 
-/// Draws the screen, and notes how many rows a page of the pane holds.
+/// Draws the screen, and notes how many rows a page of the pane holds and
+/// what a click now acts on.
 fn draw(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), Failure> {
 	let rows = terminal
 		.size()
 		.map_err(|error| failed("cannot measure the terminal", &error))?
 		.height;
 	app.page = usize::from(rows.saturating_sub(14)).max(1);
+	let mut hits = Vec::new();
 	terminal
-		.draw(|frame| draw::draw(app, frame.buffer_mut()))
+		.draw(|frame| hits = draw::draw(app, frame.buffer_mut()))
 		.map_err(|error| failed("cannot draw the review", &error))?;
+	app.hits = hits;
 	Ok(())
 }
 
@@ -192,14 +231,18 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 	})
 }
 
-/// A turn of the wheel, with the part of the screen it happened over.
-fn wheel(mouse: MouseEvent, columns: u16) -> Option<Key> {
-	let down = match mouse.kind {
-		MouseEventKind::ScrollDown => true,
-		MouseEventKind::ScrollUp => false,
-		_ => return None,
-	};
-	Some(Key::Wheel(down, draw::area_at(columns, mouse.column)))
+/// What the mouse did, beyond moving: a turn of the wheel over a part of
+/// the screen, or a press of its left button on something that takes clicks.
+fn pointed(mouse: MouseEvent, app: &App, columns: u16) -> Option<Input> {
+	let area = draw::area_at(columns, mouse.column);
+	match mouse.kind {
+		MouseEventKind::ScrollDown => Some(Input::Key(Key::Wheel(true, area))),
+		MouseEventKind::ScrollUp => Some(Input::Key(Key::Wheel(false, area))),
+		MouseEventKind::Down(MouseButton::Left) => {
+			app.target_at(mouse.column, mouse.row).map(Input::Click)
+		}
+		_ => None,
+	}
 }
 
 /// A terminal I/O error, with what was being done.

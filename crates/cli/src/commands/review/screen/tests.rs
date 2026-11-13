@@ -7,7 +7,9 @@ use serde_json::json;
 use super::super::tests::support::Repo;
 use std::rc::Rc;
 
-use super::app::{App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay};
+use super::app::{
+	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Target,
+};
 use super::draw;
 
 /// A repository with two documents that need review, the first with a
@@ -379,4 +381,102 @@ fn the_label_of_the_other_documents_opens_and_closes_them() {
 	assert_eq!((app.expanded, app.cursor), (false, Cursor::Others));
 	press(&mut app, &[Key::Tab]);
 	assert_eq!(app.cursor, Cursor::Open(0), "Tab goes round");
+}
+
+/// Draws the screen and keeps what a click acts on, as the terminal loop
+/// does.
+fn show(app: &mut App, columns: u16, rows: u16) -> Buffer {
+	let mut buffer = Buffer::empty(Rect::new(0, 0, columns, rows));
+	app.hits = draw::draw(app, &mut buffer);
+	buffer
+}
+
+/// A click does what the matching key does: it selects a row, opens the
+/// other documents or a header field, presses a cap. A second click on a
+/// row acts as Enter does there, but never records a held answer.
+#[test]
+fn a_click_does_what_the_matching_key_does() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}]}, "docs/b.md": {}}),
+	);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	show(&mut app, 120, 30);
+	assert_eq!(app.target_at(10, 5), Some(Target::Row(Cursor::Open(1))));
+	assert_eq!(app.target_at(60, 15), None, "a diff line takes no click");
+	app.click(Target::Row(Cursor::Open(1))).unwrap();
+	assert_eq!(app.cursor, Cursor::Open(1));
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	assert_eq!((app.cursor, app.focus), (Cursor::Open(0), Focus::Sidebar));
+
+	press(&mut app, &[Key::Char('y')]);
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	assert_eq!((app.armed, app.focus), (None, Focus::Sources));
+	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_null());
+	app.click(Target::Source(1)).unwrap();
+	assert_eq!((app.file, app.focus), (1, Focus::Sources));
+	app.click(Target::Source(1)).unwrap();
+	assert!(matches!(app.overlay, Some(Overlay::Path(_))));
+
+	// Under a box, only the box takes clicks.
+	show(&mut app, 120, 30);
+	assert_eq!(app.target_at(10, 5), None);
+	let close = app
+		.hits
+		.iter()
+		.find(|(_, target)| *target == Target::Cap(Key::Escape))
+		.map(|(area, _)| *area)
+		.unwrap();
+	let target = app.target_at(close.x, close.y).unwrap();
+	app.click(target).unwrap();
+	assert!(app.overlay.is_none());
+
+	app.click(Target::Row(Cursor::Others)).unwrap();
+	assert_eq!((app.expanded, app.cursor), (true, Cursor::Others));
+	app.click(Target::Field(Field::Reviewer)).unwrap();
+	assert!(matches!(app.overlay, Some(Overlay::Reviewer(_))));
+	press(&mut app, &[Key::Escape]);
+
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	app.click(Target::Cap(Key::Char('y'))).unwrap();
+	assert_eq!(app.armed, Some(false));
+	show(&mut app, 120, 30);
+	assert!(
+		app
+			.hits
+			.iter()
+			.any(|(_, target)| *target == Target::Cap(Key::Enter))
+	);
+	app.click(Target::Cap(Key::Enter)).unwrap();
+	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_object());
+}
+
+/// The pointer lightly marks what a click would act on, and nothing else.
+#[test]
+fn the_pointer_marks_what_a_click_would_act_on() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	show(&mut app, 120, 30);
+	app.pointer = Some((10, 5));
+	assert!(app.hover_changed());
+	assert_eq!(app.hover, Some(Target::Row(Cursor::Open(1))));
+	assert!(!app.hover_changed());
+	let buffer = show(&mut app, 120, 30);
+	assert_eq!(buffer[(10, 5)].bg, draw::HOVER);
+	assert_eq!(buffer[(10, 6)].bg, draw::HOVER);
+
+	app.pointer = Some((10, 3));
+	assert!(app.hover_changed());
+	let buffer = show(&mut app, 120, 30);
+	assert_ne!(
+		buffer[(10, 3)].bg,
+		draw::HOVER,
+		"the selection keeps its mark"
+	);
+	assert_ne!(buffer[(10, 5)].bg, draw::HOVER);
+
+	app.pointer = Some((60, 15));
+	assert!(app.hover_changed());
+	assert_eq!(app.hover, None);
 }

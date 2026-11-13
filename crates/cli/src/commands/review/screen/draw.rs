@@ -13,7 +13,9 @@ use source_sentry_core::model::Outcome;
 
 use super::super::changes::Row;
 use super::super::state::Key as Id;
-use super::app::{App, Area, Cursor, Field, Focus, Kind, Overlay, Pane, Shown};
+use super::app::{
+	App, Area, Cursor, Field, Focus, Key, Kind, Overlay, Pane, Shown, Target,
+};
 use crate::{mark, output};
 
 /// The smallest screen the layout fits: columns, then rows.
@@ -33,6 +35,8 @@ const BLUE: Color = Color::Rgb(31, 43, 255);
 const DIM: Color = Color::Rgb(149, 141, 127);
 const FAINT: Color = Color::Rgb(75, 70, 61);
 const DIM_BLUE: Color = Color::Rgb(25, 26, 86);
+/// The ground under the pointer, where a click would act.
+pub(super) const HOVER: Color = Color::Rgb(46, 42, 35);
 /// The selection in a list that does not have the focus.
 pub(super) const MUTED_BLUE: Color = Color::Rgb(27, 32, 140);
 const ADDED: (Color, Color) =
@@ -81,6 +85,25 @@ fn marked(app: &App, row: Cursor, id: &Id) -> Option<Style> {
 		Some(muted())
 	} else {
 		None
+	}
+}
+
+/// What the pointer is over: the same text on a slightly lighter ground.
+fn hovered() -> Style {
+	Style::new().bg(HOVER)
+}
+
+/// The key that a cap presses, when its label names exactly one.
+fn cap_key(label: &str) -> Option<Key> {
+	let mut characters = label.chars();
+	match (label, characters.next(), characters.next()) {
+		("Enter", ..) => Some(Key::Enter),
+		("Esc", ..) => Some(Key::Escape),
+		("↓", ..) => Some(Key::Down),
+		(_, Some(character), None) if character.is_ascii_graphic() => {
+			Some(Key::Char(character))
+		}
+		_ => None,
 	}
 }
 
@@ -149,6 +172,10 @@ fn wrap(text: &str, columns: u16) -> Vec<String> {
 struct Pen<'b> {
 	/// The grid.
 	buffer: &'b mut Buffer,
+	/// What a click acts on, and where, in drawing order.
+	hits: Vec<(Rect, Target)>,
+	/// What the pointer is over.
+	hover: Option<Target>,
 }
 
 impl Pen<'_> {
@@ -194,11 +221,29 @@ impl Pen<'_> {
 		}
 	}
 
-	/// Writes key caps with their labels from `(x, y)`.
+	/// Notes that a click in `area` acts on `target`, and returns whether the
+	/// pointer is over it now.
+	fn hit(&mut self, area: Rect, target: Target) -> bool {
+		self.hits.push((area, target));
+		self.hover == Some(target)
+	}
+
+	/// Writes key caps with their labels from `(x, y)`. A cap that names one
+	/// key takes clicks, and turns blue under the pointer.
 	fn keys(&mut self, mut x: u16, y: u16, keys: &[(&str, &str)]) {
 		for (key, label) in keys {
+			let start = x;
 			x = self.text(x, y, &format!(" {key} "), cap(), u16::MAX);
-			x = self.text(x + 1, y, label, text(), u16::MAX) + 4;
+			let end = self.text(x + 1, y, label, text(), u16::MAX);
+			if let Some(pressed) = cap_key(key)
+				&& self.hit(Rect::new(start, y, end - start, 1), Target::Cap(pressed))
+			{
+				self.fill(
+					Rect::new(start, y, x - start, 1),
+					selected().add_modifier(Modifier::BOLD),
+				);
+			}
+			x = end + 4;
 		}
 	}
 }
@@ -217,9 +262,15 @@ pub(super) fn area_at(columns: u16, x: u16) -> Area {
 }
 
 /// Draws the whole screen.
-pub(super) fn draw(app: &App, buffer: &mut Buffer) {
+///
+/// Returns what a click acts on, and where, for the screen as drawn.
+pub(super) fn draw(app: &App, buffer: &mut Buffer) -> Vec<(Rect, Target)> {
 	let area = buffer.area;
-	let mut pen = Pen { buffer };
+	let mut pen = Pen {
+		buffer,
+		hits: Vec::new(),
+		hover: app.hover,
+	};
 	pen.fill(area, Style::new().fg(CREAM).bg(INK));
 	if area.width < MINIMUM.0 || area.height < MINIMUM.1 {
 		let note = format!(
@@ -233,7 +284,7 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) {
 			text(),
 			area.width.saturating_sub(2),
 		);
-		return;
+		return pen.hits;
 	}
 	let body = Rect::new(0, HEADER, area.width, area.height - HEADER - QUESTION);
 	header(app, &mut pen, area.width);
@@ -262,8 +313,11 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) {
 	question(app, &mut pen, body.bottom() + 1, area.width);
 	if let Some(overlay) = &app.overlay {
 		step_back(pen.buffer);
+		// Under a box, only the box takes clicks.
+		pen.hits.clear();
 		overlay_box(app, overlay, &mut pen, area);
 	}
+	pen.hits
 }
 
 /// The product, the session's facts and its progress.
@@ -301,8 +355,12 @@ fn header(app: &App, pen: &mut Pen, columns: u16) {
 			if on { selected() } else { text() },
 			u16::MAX,
 		);
+		let field_area = Rect::new(start, 0, x - start, 1);
+		let over = pen.hit(field_area, Target::Field(field));
 		if on {
-			pen.fill(Rect::new(start, 0, x - start, 1), selected());
+			pen.fill(field_area, selected());
+		} else if over {
+			pen.fill(field_area, hovered());
 		}
 		x += 1;
 	}
@@ -336,9 +394,13 @@ fn sidebar(app: &App, pen: &mut Pen, area: Rect) {
 	if y >= area.bottom() {
 		return;
 	}
+	let row = Rect::new(area.x, y, area.width, 1);
 	let on = app.cursor == Cursor::Others;
+	let over = pen.hit(row, Target::Row(Cursor::Others));
 	if on {
-		pen.fill(Rect::new(area.x, y, area.width, 1), selected());
+		pen.fill(row, selected());
+	} else if over {
+		pen.fill(row, hovered());
 	}
 	let label = if on {
 		selected().add_modifier(Modifier::BOLD)
@@ -400,9 +462,13 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 		.skip(at.saturating_sub(room - 1))
 		.take(room)
 	{
+		let row = Rect::new(area.x, y, area.width, 2);
 		let mark = marked(app, Cursor::Open(index), id);
+		let over = pen.hit(row, Target::Row(Cursor::Open(index)));
 		if let Some(style) = mark {
-			pen.fill(Rect::new(area.x, y, area.width, 2), style);
+			pen.fill(row, style);
+		} else if over {
+			pen.fill(row, hovered());
 		}
 		let strong = |plain: Style| {
 			mark.map_or(plain, |style| style.add_modifier(Modifier::BOLD))
@@ -453,9 +519,13 @@ fn others(app: &App, pen: &mut Pen, area: Rect) {
 	for (y, (index, other)) in
 		(area.y..).zip(app.others.iter().enumerate().skip(first).take(room))
 	{
+		let row = Rect::new(area.x, y, area.width, 1);
 		let mark = marked(app, Cursor::Other(index), &other.id);
+		let over = pen.hit(row, Target::Row(Cursor::Other(index)));
 		if let Some(style) = mark {
-			pen.fill(Rect::new(area.x, y, area.width, 1), style);
+			pen.fill(row, style);
+		} else if over {
+			pen.fill(row, hovered());
 		}
 		let (label, color, name) = match other.kind {
 			Kind::Reviewed => (" ✓", outcome_color(Outcome::Pass), text()),
@@ -662,6 +732,7 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		.skip(app.file.saturating_sub(4))
 		.take(5)
 	{
+		let row = Rect::new(area.x, y, area.width, 1);
 		let mark = (index == app.file).then(|| {
 			if app.focus == Focus::Sources {
 				selected()
@@ -669,8 +740,11 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 				muted()
 			}
 		});
+		let over = pen.hit(row, Target::Source(index));
 		if let Some(style) = mark {
-			pen.fill(Rect::new(area.x, y, area.width, 1), style);
+			pen.fill(row, style);
+		} else if over {
+			pen.fill(row, hovered());
 		}
 		let mut start = pen.right(
 			area.right() - 1,
@@ -1067,9 +1141,13 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			for (y, (index, context)) in
 				(inside.y..).zip(contexts.iter().enumerate().take(12))
 			{
+				let row = Rect::new(inside.x, y, inside.width, 1);
 				let on = index == *at;
+				let over = pen.hit(row, Target::Context(index));
 				if on {
-					pen.fill(Rect::new(inside.x, y, inside.width, 1), selected());
+					pen.fill(row, selected());
+				} else if over {
+					pen.fill(row, hovered());
 				}
 				pen.text(
 					inside.x + 1,
@@ -1134,6 +1212,10 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("a", "Answer yes to every document, after a confirmation"),
 		("e", "Edit the document in your editor"),
 		("q", "Quit; reviews already recorded stay"),
+		(
+			"Click",
+			"Do what the key would: on a row, a header field or a cap",
+		),
 	];
 	let inside = frame(pen, area, 78, count(keys.len()) + 4, "Keys");
 	for (y, (key, action)) in (inside.y..).zip(keys) {
