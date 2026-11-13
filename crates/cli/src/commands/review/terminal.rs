@@ -9,7 +9,7 @@ use inquire::{Confirm, InquireError, Text};
 use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::DocumentDiff;
 
-use super::closing::{Closing, Part};
+use super::closing::{self, Closing, Part};
 use super::opening::Opening;
 use super::render::{self, Paint};
 use super::{Answer, Interface, View};
@@ -23,6 +23,9 @@ pub(super) struct Terminal {
 	printer: Printer,
 	/// The document the next question is about, as it was shown.
 	asked: String,
+	/// Prints the closing, after a blank line that parts it from the
+	/// session.
+	closing: closing::Writer,
 }
 
 impl Terminal {
@@ -31,6 +34,7 @@ impl Terminal {
 		Self {
 			printer,
 			asked: String::new(),
+			closing: closing::Writer::new(printer.is_quiet(), true),
 		}
 	}
 }
@@ -105,14 +109,7 @@ impl Interface for Terminal {
 	}
 
 	fn close(&mut self, closing: &Closing, part: Part) {
-		let quiet = self.printer.is_quiet();
-		let text = closing.part(part, quiet);
-		// A blank line parts the closing from the session above it.
-		output::data(&if part == Part::Known && !quiet {
-			format!("\n{text}")
-		} else {
-			text
-		});
+		self.closing.show(closing, part);
 	}
 }
 

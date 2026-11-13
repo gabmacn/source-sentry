@@ -22,6 +22,7 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::execute;
 
 use self::app::{App, Flow, Key, Target};
+use super::closing::Writer;
 use super::external;
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
@@ -76,9 +77,11 @@ pub(super) fn run(
 	let result = events(&mut terminal, &mut app);
 	hand_back();
 	result?;
+	// The alternate screen leaves nothing behind, so no blank line is needed.
+	let mut closing = Writer::new(quiet, false);
 	app
 		.session
-		.finish(|closing, part| output::data(&closing.part(part, quiet)))
+		.finish(|summary, part| closing.show(summary, part))
 }
 
 /// Takes the terminal over: the alternate screen, every key as it is

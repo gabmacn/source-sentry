@@ -2,6 +2,12 @@
 //! shows it as the opening's twin, beside the same mark.
 
 use std::fmt::Write as _;
+use std::io::{self, Write as _};
+
+use ratatui::crossterm::cursor::{MoveToNextLine, MoveToPreviousLine};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{self, Clear, ClearType};
+use ratatui::text::Span;
 
 use super::{banner, opening};
 use crate::{describe, output};
@@ -29,31 +35,50 @@ pub(super) struct Closing {
 /// evaluates the working tree a final time for the second.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Part {
-	/// What the session itself knows: who reviewed and what was recorded.
+	/// What the session itself knows. Beside the mark, this is the whole
+	/// mark, with the count of remaining documents still being checked.
 	Known,
 	/// What the final evaluation adds: what remains, and the rest.
 	Evaluated,
 }
 
+/// The row beside the mark that counts the remaining documents, which the
+/// final evaluation fills in.
+const REMAINING_ROW: usize = banner::FIRST_FACT_LINE + 2;
+
+/// What the remaining row shows until the final evaluation has run.
+const CHECKING: &str = "checking…";
+
 impl Closing {
 	/// One part of the closing, in plain sentences under `--quiet` and
-	/// beside the mark otherwise, without a final newline. The two parts
-	/// together make [`Self::plain`] or [`Self::text`], and the first never
-	/// depends on what remains.
+	/// beside the mark otherwise, without a final newline. The plain parts
+	/// together make [`Self::plain`]. Beside the mark, the first part is the
+	/// mark with the remaining count still being checked, and the second
+	/// follows it; [`Self::remaining_row`] then fills that count in, so that
+	/// the whole reads as [`Self::text`].
 	pub(super) fn part(&self, part: Part, quiet: bool) -> String {
-		let whole = if quiet { self.plain() } else { self.text() };
-		// The plain summary's first part is the recorded reviews; beside the
-		// mark, it ends with the row that counts them.
-		let known = if quiet {
-			1 + self.recorded.len()
-		} else {
-			banner::FIRST_FACT_LINE + 2
-		};
-		let (head, tail) = split_lines(&whole, known);
-		match part {
-			Part::Known => head.to_owned(),
-			Part::Evaluated => tail.to_owned(),
+		match (part, quiet) {
+			(Part::Known, false) => self.banner(false),
+			(Part::Evaluated, false) => self.rest(),
+			(part, true) => {
+				// The plain summary's first part is the recorded reviews.
+				let whole = self.plain();
+				let (head, tail) = split_lines(&whole, 1 + self.recorded.len());
+				match part {
+					Part::Known => head.to_owned(),
+					Part::Evaluated => tail.to_owned(),
+				}
+			}
 		}
+	}
+
+	/// The row beside the mark that counts the remaining documents, as the
+	/// final evaluation fills it in, and how many lines above the end of the
+	/// mark it sits.
+	pub(super) fn remaining_row(&self) -> (String, usize) {
+		let banner = self.banner(true);
+		let row = banner.lines().nth(REMAINING_ROW).unwrap_or_default();
+		(row.to_owned(), banner.lines().count() - REMAINING_ROW)
 	}
 
 	/// The summary in plain sentences, as `--quiet` prints it.
@@ -75,10 +100,15 @@ impl Closing {
 	}
 
 	/// The mark with what was done beside it, then each recorded review and
-	/// each remaining document, without a final newline. The rows beside the
-	/// mark keep the order of [`Part`]: the reviewer and the reviews come
-	/// before anything the final evaluation decides.
+	/// each remaining document, without a final newline.
 	pub(super) fn text(&self) -> String {
+		format!("{}\n{}", self.banner(true), self.rest())
+	}
+
+	/// The mark with what was done beside it, without a final newline.
+	/// Before the final evaluation, the count of remaining documents reads
+	/// as still being checked.
+	fn banner(&self, evaluated: bool) -> String {
 		let rereads = self.recorded.iter().filter(|(_, reread)| *reread).count();
 		let recorded = match (self.recorded.len(), rereads) {
 			(0, _) => "no reviews".to_owned(),
@@ -88,18 +118,25 @@ impl Closing {
 				describe::count(count, "review", "reviews")
 			),
 		};
-		let remaining = if self.remaining.is_empty() {
+		let remaining = if !evaluated {
+			output::dim(CHECKING)
+		} else if self.remaining.is_empty() {
 			output::good("none")
 		} else {
 			describe::count(self.remaining.len(), "document", "documents")
 		};
-		let mut text = banner::text(&[
+		banner::text(&[
 			("Reviewer", opening::reviewer(self.reviewer.as_deref())),
 			("Recorded", recorded),
 			("Remaining", remaining),
 			("Took", took(self.seconds)),
-		]);
-		text.push('\n');
+		])
+	}
+
+	/// What follows the mark: each recorded review, each remaining document
+	/// and the final gate, without a final newline.
+	fn rest(&self) -> String {
+		let mut text = String::new();
 		if !self.recorded.is_empty() {
 			text.push('\n');
 			let width = self
@@ -146,6 +183,92 @@ impl Closing {
 	}
 }
 
+/// Prints a closing on the terminal in its two parts. Beside the mark, the
+/// whole mark comes at once, with the count of remaining documents still
+/// being checked; once the final evaluation has run, that count is written
+/// over in place and the rest follows. Where the terminal is too narrow to
+/// keep each row of the mark on one line, which moving back up relies on,
+/// the whole closing waits for the evaluation instead.
+pub(super) struct Writer {
+	/// Plain sentences without the mark, for `--quiet`.
+	quiet: bool,
+	/// Whether a blank line parts the closing from what came before it.
+	gap: bool,
+	/// Whether the mark was printed with the count still being checked.
+	checking: bool,
+}
+
+/// The columns the remaining count may take beyond what is shown while it
+/// is checked, as in "1234 documents".
+const ROOM: usize = 8;
+
+impl Writer {
+	/// A writer that has printed nothing yet.
+	pub(super) fn new(quiet: bool, gap: bool) -> Self {
+		Self {
+			quiet,
+			gap,
+			checking: false,
+		}
+	}
+
+	/// Prints one part of `closing`.
+	pub(super) fn show(&mut self, closing: &Closing, part: Part) {
+		if self.quiet {
+			output::data(&closing.part(part, true));
+			return;
+		}
+		let gap = if self.gap { "\n" } else { "" };
+		match part {
+			Part::Known => {
+				let mark = closing.part(Part::Known, false);
+				if fits(&mark) {
+					output::data(&format!("{gap}{mark}"));
+					self.checking = true;
+				}
+			}
+			Part::Evaluated if self.checking => {
+				let (row, up) = closing.remaining_row();
+				// Should the cursor not move, the list below still says how
+				// many documents remain.
+				let _ = overwrite(&row, up);
+				output::data(&closing.part(Part::Evaluated, false));
+			}
+			Part::Evaluated => output::data(&format!("{gap}{}", closing.text())),
+		}
+	}
+}
+
+/// Whether every line of `text` fits the terminal's width on one line,
+/// with room for the remaining count to grow.
+fn fits(text: &str) -> bool {
+	let Ok((columns, _)) = terminal::size() else {
+		return false;
+	};
+	let widest = anstream::adapter::strip_str(text)
+		.to_string()
+		.lines()
+		.map(|line| Span::raw(line).width())
+		.max()
+		.unwrap_or_default();
+	widest + ROOM < usize::from(columns)
+}
+
+/// Writes `row` over the line `up` lines above the cursor, then returns to
+/// where the cursor was.
+fn overwrite(row: &str, up: usize) -> io::Result<()> {
+	let up = u16::try_from(up).unwrap_or(u16::MAX);
+	execute!(
+		io::stdout(),
+		MoveToPreviousLine(up),
+		Clear(ClearType::CurrentLine)
+	)?;
+	let mut stdout = anstream::stdout();
+	write!(stdout, "{row}")?;
+	stdout.flush()?;
+	execute!(io::stdout(), MoveToNextLine(up))
+}
+
 /// `text` split after its first `lines` lines, without the newline between
 /// the two parts.
 fn split_lines(text: &str, lines: usize) -> (&str, &str) {
@@ -179,8 +302,9 @@ fn took(seconds: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{Closing, Part, TICK, took};
+	use super::{CHECKING, Closing, Part, REMAINING_ROW, TICK, took};
 	use crate::commands::review::banner::COLUMN;
+	use crate::{mark, output};
 
 	/// A session with work done and work left.
 	fn closing() -> Closing {
@@ -239,8 +363,11 @@ mod tests {
 		);
 	}
 
-	/// The two parts make the whole closing, and the first is the same
-	/// whatever remains, so it can be printed before the final evaluation.
+	/// The first part is the same whatever remains, so it can be printed
+	/// before the final evaluation. In plain sentences the two parts make
+	/// the whole. Beside the mark, the first is the whole mark with the
+	/// remaining count still being checked, and filling that row in makes
+	/// the whole.
 	#[test]
 	fn the_known_part_does_not_wait_for_what_remains() {
 		let before = Closing {
@@ -248,23 +375,38 @@ mod tests {
 			..closing()
 		};
 		for quiet in [false, true] {
-			let whole = if quiet {
-				closing().plain()
-			} else {
-				closing().text()
-			};
-			let known = closing().part(Part::Known, quiet);
 			assert_eq!(
-				format!("{known}\n{}", closing().part(Part::Evaluated, quiet)),
-				whole
+				before.part(Part::Known, quiet),
+				closing().part(Part::Known, quiet)
 			);
-			assert_eq!(before.part(Part::Known, quiet), known);
-			assert!(!known.contains("Remaining") && !known.contains("still need"));
-			assert!(known.contains("Recorded"), "{known}");
 		}
+		assert_eq!(
+			format!(
+				"{}\n{}",
+				closing().part(Part::Known, true),
+				closing().part(Part::Evaluated, true)
+			),
+			closing().plain()
+		);
 		assert_eq!(
 			closing().part(Part::Known, true),
 			"Recorded 2 reviews.\n  docs/a.md\n  docs/long-name.md (reread)"
+		);
+
+		let known = closing().part(Part::Known, false);
+		let mut lines: Vec<String> = known.lines().map(str::to_owned).collect();
+		assert_eq!(lines.len(), mark::MARK.lines().count());
+		assert!(lines[REMAINING_ROW].ends_with(&output::dim(CHECKING)));
+		let (row, up) = closing().remaining_row();
+		assert_eq!(up, lines.len() - REMAINING_ROW);
+		lines[REMAINING_ROW] = row;
+		assert_eq!(
+			format!(
+				"{}\n{}",
+				lines.join("\n"),
+				closing().part(Part::Evaluated, false)
+			),
+			closing().text()
 		);
 	}
 

@@ -408,14 +408,16 @@ application.
 `review` requires both standard input and standard output to be terminals.
 Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.
 End of input or cancellation quits. A completed or quit session exits 0;
-the closing lists what was recorded and what still needs review. Its first
-lines, the mark with the reviewer and the number of reviews recorded, are
-printed at once; the working tree is then evaluated once more, so that a
-change made outside the session is reported, and the rest follows. The
-closing mirrors the opening: the mark with the reviewer, the number of
-reviews recorded, the number of documents remaining and the session's
-length beside it, then each recorded review and each remaining document. Use
-`check` as the gate. Review comparisons and questions remain visible under
+the closing lists what was recorded and what still needs review. Its mark
+is printed at once, with the number of documents remaining shown as being
+checked. The working tree is then evaluated once more, so that a change made
+outside the session is reported; that number is filled in, and the rest
+follows. A terminal too narrow to keep each row of the mark on one line
+shows the closing after the evaluation instead, and under `--quiet` the
+reviews recorded come first. The closing mirrors the opening: the mark with
+the reviewer, the number of reviews recorded, the number of documents
+remaining and the session's length beside it, then each recorded review and
+each remaining document. Use `check` as the gate. Review comparisons and questions remain visible under
 `--quiet`, which reduces the closing to plain sentences without the mark.
 
 ## Records
