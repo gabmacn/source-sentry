@@ -265,12 +265,23 @@ fn rename_preserves_a_sealed_record() {
 	let before = lock(&repo, "docs/source-sentry.lock");
 	repo.git(&["mv", "docs/guide.md", "docs/record.md"]);
 	repo
-		.run(&["rename", "docs/guide.md", "docs/record.md", "--yes"])
+		.run(&[
+			"rename",
+			"docs/guide.md",
+			"docs/record.md",
+			"--by",
+			"Renaming Agent",
+			"--yes",
+		])
 		.expect_code(0);
 	let mut after = lock(&repo, "docs/source-sentry.lock");
 	assert_eq!(
 		after["documents"]["record.md"]["renamed"][0]["from"],
 		"/docs/guide.md"
+	);
+	assert_eq!(
+		after["documents"]["record.md"]["renamed"][0]["by"],
+		"Renaming Agent"
 	);
 	after["documents"]["record.md"]
 		.as_object_mut()

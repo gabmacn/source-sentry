@@ -450,7 +450,7 @@ source-sentry track <document> [--on-file | --lockfile [<directory>] | --remote 
                     [--dry-run] [--yes]
 source-sentry track <document>... --from <placement> --to <placement> [--dry-run] [--yes]
 source-sentry untrack <document> [--source <path>]... [--pattern <glob>]... [--dry-run] [--yes]
-source-sentry rename <old> <new> [--dry-run] [--yes]
+source-sentry rename <old> <new> [--by <name>] [--dry-run] [--yes]
 source-sentry init [<path>... | --all] [--class <name>]... [--owner <id>]... [--dry-run] [--yes]
 source-sentry migrate [--dry-run] [--yes]
 ```
@@ -533,8 +533,8 @@ source-sentry migrate [--dry-run] [--yes]
 
   Every source review, the document's `reviewed`, its seal and `completed`
   are kept. The declaration appends `renamed: [{from, at, by}]`, newest last,
-  with the current time and the same name `--reviewer` defaults to (or
-  `null`). `from` uses
+  with the current time and `--by`, which has the same default as
+  `--reviewer` (or `null`). `from` uses
   `/docs/old.md` from the destination project's root, or `:/other/old.md`
   from the repository root when the former path is outside that project.
   Project moves also re-express earlier provenance entries and show each

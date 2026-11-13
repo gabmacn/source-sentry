@@ -21,7 +21,7 @@ pub(super) fn run(
 ) -> Result<u8, Failure> {
 	let request = RenameRequest {
 		at: super::now(),
-		by: super::person(workspace, None)?,
+		by: super::person(workspace, args.by.as_deref())?,
 		old: workspace.document(&args.old)?,
 		new: workspace.document(&args.new)?,
 	};

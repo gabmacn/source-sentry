@@ -110,7 +110,8 @@ fn now() -> DateTime<Utc> {
 	Utc::now().trunc_subsecs(0)
 }
 
-/// Who reviews, seals or retires: the name given, or else the one git's
+/// Who reviews, seals, retires or renames: the name given, or else the one
+/// git's
 /// configuration remembers as `source-sentry.reviewer`, or else git's
 /// `user.name`.
 ///

@@ -327,6 +327,10 @@ pub(crate) struct RenameArgs {
 	/// The new path, which must exist and be tracked by git.
 	#[arg(value_name = "NEW", value_parser = parse_document)]
 	pub(crate) new: DocumentArg,
+	/// Who renames it. By default, `source-sentry.reviewer` in git's
+	/// configuration, or else git's `user.name`.
+	#[arg(long, value_name = "NAME")]
+	pub(crate) by: Option<String>,
 	#[command(flatten)]
 	pub(crate) confirm: ConfirmArgs,
 }
