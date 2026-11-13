@@ -237,16 +237,23 @@ configuration or integrity error refuses the session before its first
 question.
 
 A session whose queue is not empty opens with the Source Sentry mark and,
-beside it, the facts of the review ahead: the reviewer whose name each
-review will carry, the context, the number of projects traversed, how many
-documents need review out of those tracked (out of those named, when
-documents were named), and the queue's outcomes, worst first. `--quiet`
-leaves the opening out.
+beside it, the version, the licence and the facts of the review ahead: the
+reviewer whose name each review will carry, the context, the number of
+projects traversed, how many documents need review out of those tracked (out
+of those named, when documents were named), and the queue's outcomes, worst
+first. `--quiet` leaves the opening out.
 
-Each document shows its place in the queue, the pending sources' old and new
-oids, line counts and up to 40 diff lines. Changes carry `path:line`
-locations relative to the current directory. Type a one-letter answer and
-submit it with Enter:
+Each document shows its place in the queue under a rule, then its name with
+its outcome and facts. Each pending file follows with its line counts and
+the first seven digits of its old and new object names; the lockfile holds
+the full names. Up to 40 diff lines are shown across the document, in
+groups. Each group opens with a `path:line` location relative to the current
+directory, and each line carries its number, with tabs expanded to stops of
+four columns. The display is as wide as the terminal, between 60 and 100
+columns.
+
+The session then asks whether the document is still accurate. Type a
+one-letter answer and submit it with Enter:
 
 | Answer | Action |
 |---|---|
@@ -278,7 +285,9 @@ review. When documents were named, newly stale documents outside that
 selection appear in the closing summary.
 
 `d` uses `VISUAL`, then `EDITOR`, then git's `core.editor`; without an editor
-it tries `GIT_PAGER`, `PAGER` and git's `core.pager`, then plain output. `e`
+it tries `GIT_PAGER`, `PAGER` and git's `core.pager`, then plain output. The
+full diff is the same display without the line limit; opened in an editor or
+a pager, it is a file without colour, 100 columns wide. `e`
 uses the editor chain alone and supports local documents. Commands may
 include arguments. A remote document must be edited in its source
 application.
@@ -286,9 +295,12 @@ application.
 `review` requires both standard input and standard output to be terminals.
 Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.
 End of input or cancellation quits. A completed or quit session exits 0;
-the closing summary uses a final evaluation to list what was recorded and
-what still needs review. Use `check` as the gate. Review comparisons and
-questions remain visible under `--quiet`.
+the closing uses a final evaluation to list what was recorded and what still
+needs review. It mirrors the opening: the mark with the reviewer, the number
+of reviews recorded, the number of documents remaining and the session's
+length beside it, then each recorded review and each remaining document. Use
+`check` as the gate. Review comparisons and questions remain visible under
+`--quiet`, which reduces the closing to plain sentences without the mark.
 
 ## Records
 

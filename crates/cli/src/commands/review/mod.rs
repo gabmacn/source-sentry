@@ -1,5 +1,8 @@
 //! Interactive review, with terminal I/O separated from session decisions.
 
+mod banner;
+mod changes;
+mod closing;
 mod external;
 mod opening;
 mod render;
@@ -70,6 +73,8 @@ struct View {
 	reason: Option<String>,
 	/// The facts of the evaluation that queued the document.
 	facts: String,
+	/// The outcome of those facts in the session's context.
+	outcome: source_sentry_core::model::Outcome,
 }
 
 /// The session's human interaction boundary. Scripted tests use the same
@@ -101,8 +106,11 @@ trait Interface {
 		workspace: &Workspace,
 		document: &DocumentId,
 	) -> Result<(), Failure>;
-	/// Reports a refusal, a completed write, or the closing evaluation.
+	/// Reports a refusal or a completed write.
 	fn message(&mut self, text: &str);
+	/// Presents what was recorded and what remains, once, as the session
+	/// ends.
+	fn close(&mut self, closing: &closing::Closing);
 }
 
 /// Refuses redirected input or output before even opening the repository.
@@ -124,6 +132,6 @@ pub(super) fn run(
 	args: &ReviewArgs,
 	printer: Printer,
 ) -> Result<u8, Failure> {
-	session::run(workspace, args, &mut terminal::Terminal { printer })?;
+	session::run(workspace, args, &mut terminal::Terminal::new(printer))?;
 	Ok(exit::SUCCESS)
 }

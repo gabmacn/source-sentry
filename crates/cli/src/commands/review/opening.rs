@@ -1,20 +1,10 @@
 //! The opening of a session: the facts of the review ahead, which a terminal
 //! shows beside the mark.
 
-use std::fmt::Write as _;
-
 use source_sentry_core::model::Outcome;
 
-use crate::{mark, output};
-
-/// The column where the title and the facts start, clear of the mark.
-const COLUMN: usize = 28;
-/// The line of the mark that carries the title.
-const TITLE_LINE: usize = 2;
-/// The line of the mark that carries the first fact; the others follow it.
-const FIRST_FACT_LINE: usize = 4;
-/// The width of the facts' label column.
-const LABEL_WIDTH: usize = 11;
+use super::banner;
+use crate::output;
 
 /// What a reviewer should know before the first question.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,17 +25,11 @@ pub(super) struct Opening {
 }
 
 impl Opening {
-	/// The mark with the product, its version and the facts beside it,
-	/// without a final newline.
+	/// The mark with the product, its version, its licence and the facts
+	/// beside it, without a final newline.
 	pub(super) fn text(&self) -> String {
-		let facts = [
-			(
-				"Reviewer",
-				self
-					.reviewer
-					.clone()
-					.unwrap_or_else(|| "not set".to_owned()),
-			),
+		banner::text(&[
+			("Reviewer", reviewer(self.reviewer.as_deref())),
 			("Context", self.context.clone()),
 			("Projects", self.projects.to_string()),
 			(
@@ -68,60 +52,35 @@ impl Opening {
 					.collect::<Vec<_>>()
 					.join(" · "),
 			),
-		];
-		let mut beside = vec![String::new(); mark::MARK.lines().count()];
-		if let Some(row) = beside.get_mut(TITLE_LINE) {
-			*row =
-				output::bold(&format!("Source Sentry {}", env!("CARGO_PKG_VERSION")));
-		}
-		for (row, (label, value)) in
-			beside.iter_mut().skip(FIRST_FACT_LINE).zip(facts)
-		{
-			*row = format!(
-				"{}{value}",
-				output::pad(&output::dim(label), label, LABEL_WIDTH)
-			);
-		}
-		let mut text = String::new();
-		for (line, row) in mark::MARK.lines().zip(&beside) {
-			if !text.is_empty() {
-				text.push('\n');
-			}
-			if row.is_empty() {
-				text.push_str(line);
-			} else {
-				let _ = write!(text, "{line:<COLUMN$}{row}");
-			}
-		}
-		text
+		])
 	}
+}
+
+/// The reviewer's name, or a statement that none is configured.
+pub(super) fn reviewer(name: Option<&str>) -> String {
+	name.unwrap_or("not set").to_owned()
 }
 
 #[cfg(test)]
 mod tests {
 	use source_sentry_core::model::Outcome;
 
-	use super::{COLUMN, Opening};
-	use crate::mark;
+	use super::Opening;
+	use super::banner::COLUMN;
 
-	/// The opening's lines without styles, split at the facts' column.
-	fn columns(opening: &Opening) -> Vec<(String, String)> {
+	/// The opening's text beside the mark, without styles.
+	fn beside(opening: &Opening) -> Vec<String> {
 		anstream::adapter::strip_str(&opening.text())
 			.to_string()
 			.lines()
-			.map(|line| {
-				(
-					line.chars().take(COLUMN).collect::<String>(),
-					line.chars().skip(COLUMN).collect::<String>(),
-				)
-			})
+			.map(|line| line.chars().skip(COLUMN).collect())
 			.collect()
 	}
 
-	/// The title and the five facts share one column beside an intact mark.
+	/// The five facts follow the title and the licence.
 	#[test]
-	fn the_facts_line_up_beside_the_mark() {
-		let lines = columns(&Opening {
+	fn the_facts_follow_the_title() {
+		let lines = beside(&Opening {
 			reviewer: Some("Test Reviewer".to_owned()),
 			context: "production".to_owned(),
 			projects: 2,
@@ -133,14 +92,9 @@ mod tests {
 				(Outcome::Notice, 1),
 			],
 		});
-		let beside: Vec<_> = lines.iter().map(|(_, text)| text.as_str()).collect();
 		assert_eq!(
-			beside,
+			lines[5..],
 			[
-				"",
-				"",
-				concat!("Source Sentry ", env!("CARGO_PKG_VERSION")),
-				"",
 				"Reviewer   Test Reviewer",
 				"Context    production",
 				"Projects   2",
@@ -148,18 +102,14 @@ mod tests {
 				"Outcomes   1 fail · 3 warn · 1 note",
 				"",
 				"",
-				"",
 			]
 		);
-		for ((drawn, _), line) in lines.iter().zip(mark::MARK.lines()) {
-			assert_eq!(drawn.trim_end(), line);
-		}
 	}
 
 	/// One queued document takes the singular, and a missing name is stated.
 	#[test]
 	fn a_single_document_and_an_unset_reviewer_are_worded_plainly() {
-		let lines = columns(&Opening {
+		let lines = beside(&Opening {
 			reviewer: None,
 			context: "default".to_owned(),
 			projects: 1,
@@ -167,7 +117,7 @@ mod tests {
 			tracked: 3,
 			outcomes: vec![(Outcome::Warn, 1)],
 		});
-		assert_eq!(lines[4].1, "Reviewer   not set");
-		assert_eq!(lines[7].1, "Documents  1 of 3 needs review");
+		assert_eq!(lines[5], "Reviewer   not set");
+		assert_eq!(lines[8], "Documents  1 of 3 needs review");
 	}
 }

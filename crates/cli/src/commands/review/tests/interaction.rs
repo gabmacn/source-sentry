@@ -64,6 +64,45 @@ fn a_session_opens_with_its_facts_unless_the_queue_is_empty() {
 	assert_eq!(script.shown, []);
 }
 
+/// The display has one shape: a ruled position, the document with its
+/// outcome, then each file with its counts, object names and located lines.
+#[test]
+fn a_document_is_displayed_with_a_rule_a_header_and_located_lines() {
+	let repo =
+		Repo::new(json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}]}}));
+	repo.attest("docs/a.md");
+	repo.write(
+		"src/a.rs",
+		"old a
+	fn new() {}
+",
+	);
+	let mut script = Script::answers(&repo, &[Answer::Quit]);
+	repo.run(&[], &mut script).unwrap();
+	let root = repo
+		.workspace()
+		.display_path(&source_sentry_core::model::RepoPath::new("src").unwrap());
+	let shown = script.displays[0].replace(root.trim_end_matches("src"), "");
+	assert_eq!(
+		shown,
+		[
+			"",
+			&format!("── 1 of 1 {}", "─".repeat(90)),
+			&format!("  docs/a.md{}warn  stale", " ".repeat(78)),
+			"",
+			&format!("  src/a.rs{}+1 -0   ffc7496 → 30bb147", " ".repeat(65)),
+			"  │ src/a.rs:1",
+			"  │    1   old a",
+			"  │    2 +     fn new() {}",
+			"",
+		]
+		.join(
+			"
+"
+		)
+	);
+}
+
 /// Context severity precedes dependency and lexical ordering within a tier.
 #[test]
 fn queue_orders_outcomes_then_upstreams_then_paths() {
@@ -84,7 +123,7 @@ fn queue_orders_outcomes_then_upstreams_then_paths() {
 			local("docs/a.md")
 		]
 	);
-	assert!(script.displays[0].contains("[1/4]"));
+	assert!(script.displays[0].contains("── 1 of 4 ─"));
 }
 
 /// Explicit selection excludes other pending documents and ignores fresh ones.
@@ -223,10 +262,10 @@ fn full_diff_is_not_capped_and_returns_to_the_same_prompt() {
 	let mut script = Script::answers(&repo, &[Answer::Diff, Answer::Next]);
 	repo.run(&[], &mut script).unwrap();
 	assert_eq!(script.shown.len(), 1);
-	assert!(script.displays[0].contains("+90 -0 lines"));
-	assert!(script.displays[0].contains("50 diff line(s) omitted"));
-	assert!(script.diffs[0].contains("+line 89"));
-	assert!(!script.displays[0].contains("+line 89"));
+	assert!(script.displays[0].contains("+90 -0   unattested → "));
+	assert!(script.displays[0].contains("50 more diff lines · d opens"));
+	assert!(script.diffs[0].contains("  90 + line 89"));
+	assert!(!script.displays[0].contains("+ line 89"));
 	let source = repo.workspace().display_path(
 		&source_sentry_core::model::RepoPath::new("src/a.rs").unwrap(),
 	);

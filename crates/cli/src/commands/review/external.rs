@@ -13,13 +13,23 @@ use crate::exit::{self, Failure};
 use crate::output;
 use crate::workspace::Workspace;
 
+/// The measure of the full diff's file, which no terminal bounds.
+const FULL_DIFF_WIDTH: usize = 100;
+
 /// Opens the complete diff with the configured editor, then pager, falling
 /// back to plain output when neither is configured.
 pub(super) fn full_diff(
 	workspace: &Workspace,
 	compared: &DocumentDiff,
 ) -> Result<(), Failure> {
-	let text = super::render::changes(workspace, compared, None);
+	// The file is opened by an editor or a pager, so it carries no styles.
+	let text = super::render::changes(
+		workspace,
+		compared,
+		None,
+		super::render::Paint::Plain,
+		FULL_DIFF_WIDTH,
+	);
 	let viewer = match editor(workspace)? {
 		Some(editor) => Some(editor),
 		None => pager(workspace)?,

@@ -87,10 +87,24 @@ fn check_paths(case: &Value) {
 	);
 	session::run(&workspace, &args, &mut script).unwrap();
 	assert_eq!(script.shown, [local("docs/a.md")]);
-	assert!(script.displays[0].contains(&format!("[1/1] {document}:")));
+	assert!(script.displays[0].contains("── 1 of 1 ─"));
+	assert!(script.displays[0].contains(&format!(
+		"
+  {document}  "
+	)));
 	for text in [&script.displays[0], &script.diffs[0]] {
-		assert!(text.contains(&format!("\n{source}:1  unattested ->")));
-		assert!(text.contains(&format!("\n{source}:1  +old a")));
+		let file = format!("  {source}  ");
+		assert!(text.lines().any(|line| line.starts_with(&file)), "{text}");
+		assert!(text.contains("+1 -0   unattested → "), "{text}");
+		assert!(
+			text.contains(&format!(
+				"
+  │ {source}:1
+  │    1 + old a
+"
+			)),
+			"{text}"
+		);
 	}
 	assert!(script.summary().contains(&format!("\n  {document}\n")));
 	let remaining = format!("  {}: ", document.replace("a.md", "b.md"));

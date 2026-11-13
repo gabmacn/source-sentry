@@ -2,7 +2,6 @@
 //! immediately; queue decisions always follow a fresh evaluation.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 
 use super::state::Key as DocumentId;
 use source_sentry_core::mutate::{
@@ -10,6 +9,7 @@ use source_sentry_core::mutate::{
 	diff,
 };
 
+use super::closing::Closing;
 use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
 use super::{Answer, Interface, View};
@@ -41,6 +41,8 @@ struct Session<'a> {
 	reasons: BTreeMap<DocumentId, String>,
 	/// Answered positions; retries and editor visits keep their position.
 	finished: usize,
+	/// When the session began, for its closing.
+	started: std::time::Instant,
 }
 
 impl<'a> Session<'a> {
@@ -85,6 +87,7 @@ impl<'a> Session<'a> {
 			recorded: Vec::new(),
 			reasons: BTreeMap::new(),
 			finished: 0,
+			started: std::time::Instant::now(),
 		})
 	}
 
@@ -286,54 +289,36 @@ impl<'a> Session<'a> {
 		Ok(true)
 	}
 
-	/// Reports applied reviews and all remaining obligations from the final
-	/// evaluation, including documents outside an explicit selection.
-	fn summary(&self) -> String {
-		let mut text = format!(
-			"Recorded {}.\n",
-			crate::describe::count(self.recorded.len(), "review", "reviews")
-		);
-		for (id, reread) in &self.recorded {
-			let _ = writeln!(
-				text,
-				"  {}{}",
-				id.display(self.workspace),
-				if *reread { " (reread)" } else { "" }
-			);
+	/// What the session did and what remains, from the final evaluation,
+	/// including documents outside an explicit selection.
+	fn closing(&self) -> Closing {
+		Closing {
+			reviewer: self.reviewer.clone(),
+			recorded: self
+				.recorded
+				.iter()
+				.map(|(id, reread)| (id.display(self.workspace), *reread))
+				.collect(),
+			remaining: self
+				.state
+				.documents
+				.iter()
+				.filter(|(_, document)| document.pending)
+				.map(|(id, document)| {
+					let mut line =
+						format!("{}: {}", id.display(self.workspace), document.facts);
+					if !self.initial.contains(id) {
+						line.push_str("; started needing review during this session");
+					}
+					if !self.selected.is_empty() && !self.selected.contains(id) {
+						line.push_str("; outside the selected documents");
+					}
+					line
+				})
+				.collect(),
+			seconds: self.started.elapsed().as_secs(),
+			check: format!("{} check", self.workspace.command_prefix()),
 		}
-		let remaining: Vec<_> = self
-			.state
-			.documents
-			.iter()
-			.filter(|(_, document)| document.pending)
-			.collect();
-		let _ = writeln!(
-			text,
-			"{} still {} review:",
-			crate::describe::count(remaining.len(), "document", "documents"),
-			if remaining.len() == 1 {
-				"needs"
-			} else {
-				"need"
-			}
-		);
-		for (id, document) in remaining {
-			let _ =
-				write!(text, "  {}: {}", id.display(self.workspace), document.facts);
-			if !self.initial.contains(id) {
-				text.push_str("; started needing review during this session");
-			}
-			if !self.selected.is_empty() && !self.selected.contains(id) {
-				text.push_str("; outside the selected documents");
-			}
-			text.push('\n');
-		}
-		let _ = write!(
-			text,
-			"Run `{} check` for the final gate.",
-			self.workspace.command_prefix()
-		);
-		text
 	}
 }
 
@@ -373,6 +358,7 @@ pub(super) fn run(
 			total: session.finished + queue.len(),
 			reason: session.reasons.get(&id).cloned(),
 			facts: session.state.documents[&id].facts.clone(),
+			outcome: session.state.documents[&id].outcome(),
 		};
 		session
 			.seen
@@ -424,6 +410,6 @@ pub(super) fn run(
 		}
 	}
 	session.refresh()?;
-	ui.message(&session.summary());
+	ui.close(&session.closing());
 	Ok(())
 }

@@ -11,8 +11,10 @@ use source_sentry_core::mutate::{
 };
 use tempfile::TempDir;
 
+use super::super::closing::Closing;
 use super::super::opening::Opening;
-use super::super::{Answer, Interface, View, render, session};
+use super::super::render::{self, Paint};
+use super::super::{Answer, Interface, View, session};
 use crate::cli::{DocumentArg, ReviewArgs};
 use crate::exit::Failure;
 use crate::workspace::{Workspace, load};
@@ -157,6 +159,9 @@ pub(super) fn local(path: &str) -> DocumentId {
 	DocumentId::Local(RepoPath::new(path).unwrap())
 }
 
+/// The measure of every scripted display.
+const WIDTH: usize = 100;
+
 /// One scripted interaction, including changes made while a prompt is open.
 pub(super) enum Step {
 	/// A submitted answer or end of input.
@@ -241,7 +246,9 @@ impl Interface for Script {
 
 	fn show(&mut self, workspace: &Workspace, view: &View) {
 		self.shown.push(view.compared.document.clone());
-		self.displays.push(render::document(workspace, view));
+		self
+			.displays
+			.push(render::document(workspace, view, Paint::Plain, WIDTH));
 		self.comparisons.push(view.compared.clone());
 	}
 
@@ -280,7 +287,13 @@ impl Interface for Script {
 		workspace: &Workspace,
 		compared: &DocumentDiff,
 	) -> Result<(), Failure> {
-		self.diffs.push(render::changes(workspace, compared, None));
+		self.diffs.push(render::changes(
+			workspace,
+			compared,
+			None,
+			Paint::Plain,
+			WIDTH,
+		));
 		Ok(())
 	}
 
@@ -306,5 +319,9 @@ impl Interface for Script {
 			fs::write(self.root.join(path), content).unwrap();
 			self.steps.pop_front();
 		}
+	}
+
+	fn close(&mut self, closing: &Closing) {
+		self.messages.push(closing.plain());
 	}
 }

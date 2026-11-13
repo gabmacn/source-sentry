@@ -9,7 +9,9 @@ use inquire::{Confirm, InquireError, Text};
 use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::DocumentDiff;
 
+use super::closing::Closing;
 use super::opening::Opening;
+use super::render::{self, Paint};
 use super::{Answer, Interface, View};
 use crate::exit::{self, Failure};
 use crate::output::{self, Printer};
@@ -18,7 +20,27 @@ use crate::workspace::Workspace;
 /// The production interaction boundary, using inquire's crossterm backend.
 pub(super) struct Terminal {
 	/// Prints what `--quiet` leaves out: the session's opening.
-	pub(super) printer: Printer,
+	printer: Printer,
+	/// The document the next question is about, as it was shown.
+	asked: String,
+}
+
+impl Terminal {
+	/// A terminal that has shown nothing yet.
+	pub(super) fn new(printer: Printer) -> Self {
+		Self {
+			printer,
+			asked: String::new(),
+		}
+	}
+}
+
+/// The measure for a document's display: the terminal's width, kept between
+/// 60 and 100 columns so that the right-hand column stays near its file.
+fn width() -> usize {
+	ratatui::crossterm::terminal::size()
+		.map_or(80, |(columns, _)| usize::from(columns))
+		.clamp(60, 100)
 }
 
 impl Interface for Terminal {
@@ -27,14 +49,16 @@ impl Interface for Terminal {
 	}
 
 	fn show(&mut self, workspace: &Workspace, view: &View) {
-		output::data(&super::render::document(workspace, view));
+		self.asked = workspace.display_document(&view.compared.document);
+		output::data(&render::document(workspace, view, Paint::Styled, width()));
 	}
 
 	fn answer(&mut self) -> Result<Option<Answer>, Failure> {
-		let answer = Text::new("Review [n/y/r/a/d/e/q]")
+		let question = format!("Is {} still accurate? [y/n/r/a/d/e/q]", self.asked);
+		let answer = Text::new(&question)
 			.with_default("n")
 			.with_render_config(render_config())
-			.with_help_message("n/Enter leave, y attest, r reread, a all, d full diff, e edit, q quit; submit with Enter")
+			.with_help_message("y attest · r attest and reread · n leave · a all · d full diff · e edit · q quit · Enter submits")
 			.with_validator(|value: &str| Ok(if Answer::parse(value).is_some() {
 				Validation::Valid
 			} else {
@@ -78,6 +102,18 @@ impl Interface for Terminal {
 
 	fn message(&mut self, text: &str) {
 		output::data(text);
+	}
+
+	fn close(&mut self, closing: &Closing) {
+		output::data(&if self.printer.is_quiet() {
+			closing.plain()
+		} else {
+			format!(
+				"
+{}",
+				closing.text()
+			)
+		});
 	}
 }
 

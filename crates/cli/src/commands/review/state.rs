@@ -86,6 +86,13 @@ pub(super) struct Document {
 	ancestors: BTreeSet<Key>,
 }
 
+impl Document {
+	/// Its outcome in the selected context.
+	pub(super) fn outcome(&self) -> Outcome {
+		self.outcome
+	}
+}
+
 /// The live documents of a fresh evaluation. Sealed records never enter it.
 pub(super) struct State {
 	/// Projects ordered by their default because the requested context is absent.

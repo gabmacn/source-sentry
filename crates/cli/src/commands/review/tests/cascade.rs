@@ -179,8 +179,8 @@ fn editing_a_source_document_is_seen_by_its_dependents() {
 			local("docs/index.md")
 		]
 	);
-	assert!(script.displays[2].contains("+1 -1 lines"));
-	assert!(script.displays[2].contains("+# Edited document"));
+	assert!(script.displays[2].contains("+1 -1   "));
+	assert!(script.displays[2].contains("+ # Edited document"));
 	assert!(script.summary().contains("0 documents still need review"));
 }
 
@@ -333,7 +333,7 @@ fn bulk_expectations_remain_frozen_across_the_batch() {
 	repo.run(&[], &mut script).unwrap();
 	assert_eq!(script.confirmations, [(2, 1)]);
 	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
-	assert!(script.displays[1].contains("+edited during bulk review"));
+	assert!(script.displays[1].contains("+ edited during bulk review"));
 	assert!(
 		script
 			.messages
@@ -371,7 +371,7 @@ fn a_newly_stale_document_outside_the_batch_gets_an_individual_prompt() {
 	assert_eq!(script.confirmations, [(1, 0)]);
 	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
 	assert!(script.displays[1].contains("Sources changed during this session"));
-	assert!(script.displays[1].contains("+edited outside the batch"));
+	assert!(script.displays[1].contains("+ edited outside the batch"));
 	assert_eq!(repo.entry("docs/b.md"), before);
 	assert!(script.summary().contains("Recorded 1 review"));
 	assert!(script.summary().contains("1 document still needs review"));

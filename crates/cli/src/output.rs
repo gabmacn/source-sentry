@@ -79,12 +79,28 @@ pub(crate) fn write_err(text: &str) {
 /// An outcome's label, four characters wide: `fail`, `warn`, `note` or
 /// `pass`, coloured by severity.
 pub(crate) fn outcome_label(outcome: Outcome) -> String {
+	let name = outcome_name(outcome);
 	match outcome {
-		Outcome::Fail => "fail".red().bold().to_string(),
-		Outcome::Warn => "warn".yellow().bold().to_string(),
-		Outcome::Notice => "note".cyan().bold().to_string(),
-		Outcome::Pass => "pass".green().to_string(),
+		Outcome::Fail => name.red().bold().to_string(),
+		Outcome::Warn => name.yellow().bold().to_string(),
+		Outcome::Notice => name.cyan().bold().to_string(),
+		Outcome::Pass => name.green().to_string(),
 	}
+}
+
+/// An outcome's label without colour: `fail`, `warn`, `note` or `pass`.
+pub(crate) fn outcome_name(outcome: Outcome) -> &'static str {
+	match outcome {
+		Outcome::Fail => "fail",
+		Outcome::Warn => "warn",
+		Outcome::Notice => "note",
+		Outcome::Pass => "pass",
+	}
+}
+
+/// Text for a good state, in the colour of a passing outcome.
+pub(crate) fn good(text: &str) -> String {
+	text.green().to_string()
 }
 
 /// Bold text.
