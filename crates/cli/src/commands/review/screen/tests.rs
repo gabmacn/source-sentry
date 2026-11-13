@@ -8,7 +8,7 @@ use super::super::tests::support::Repo;
 use std::rc::Rc;
 
 use super::app::{
-	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Target,
+	App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay, Press, Target,
 };
 use super::draw;
 
@@ -67,7 +67,7 @@ fn an_answer_is_recorded_only_after_enter_and_the_queue_moves_on() {
 	press(&mut app, &[Key::Enter]);
 	assert!(repo.entry("docs/a.md")["sources"][0]["reviewed"].is_null());
 
-	press(&mut app, &[Key::Up, Key::Char('y'), Key::Enter]);
+	press(&mut app, &[Key::Left, Key::Up, Key::Char('y'), Key::Enter]);
 	assert_eq!(
 		repo.entry("docs/a.md")["sources"][0]["reviewed"]["by"],
 		"Test Reviewer"
@@ -258,10 +258,13 @@ fn documents_are_read_once_and_ahead_without_counting_as_seen() {
 	press(&mut app, &[Key::Char('a')]);
 	assert!(matches!(app.overlay, Some(Overlay::All(_, 0))));
 
+	// The other documents are many and seldom opened: none is read as
+	// their list opens, only the one the cursor reaches.
 	press(&mut app, &[Key::Escape, Key::Char('o')]);
-	assert!(app.prefetch());
 	assert!(!app.prefetch());
-	assert_eq!(app.cache.len(), 3);
+	assert_eq!(app.cache.len(), 2);
+	press(&mut app, &[Key::Down, Key::Down, Key::Down]);
+	assert_eq!((app.cursor, app.cache.len()), (Cursor::Other(0), 3));
 }
 
 /// The wheel scrolls the pane it is over and moves the cursor over the
@@ -324,9 +327,8 @@ fn the_focus_moves_between_the_documents_and_their_sources() {
 	press(&mut app, &[Key::Tab]);
 	assert_eq!(app.cursor, Cursor::Open(1));
 	press(&mut app, &[Key::Right]);
-	assert_eq!(app.focus, Focus::Sidebar, "no changed source to go to");
-	assert!(app.notice.is_some());
-	press(&mut app, &[Key::BackTab, Key::Enter]);
+	assert_eq!(app.focus, Focus::Title, "no changed source: its name");
+	press(&mut app, &[Key::Left, Key::BackTab, Key::Enter]);
 	assert_eq!(
 		(app.focus, app.cursor, app.file),
 		(Focus::Sources, Cursor::Open(0), 0)
@@ -597,4 +599,178 @@ fn the_closing_reports_changes_made_after_the_last_write() {
 		"{}",
 		parts[1].1
 	);
+}
+
+/// Several documents are picked with the space bar or with Shift and an
+/// arrow, and take one answer after a confirmation that lists them.
+#[test]
+fn picked_documents_take_one_answer_after_a_confirmation() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Extend(true)]);
+	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Open(1)));
+	press(&mut app, &[Key::Extend(false)]);
+	assert_eq!((app.picked.len(), app.cursor), (1, Cursor::Open(0)));
+	press(&mut app, &[Key::Escape]);
+	assert!(app.picked.is_empty());
+
+	press(&mut app, &[Key::Char(' '), Key::Down, Key::Char(' ')]);
+	assert_eq!(app.picked.len(), 2);
+	let rows = drawn(&app, 210, 44);
+	assert!(shows(&rows, "Are the 2 picked documents still accurate?"));
+	assert!(rows[3].starts_with('▌') && rows[5].starts_with('▌'));
+
+	press(&mut app, &[Key::Char('y')]);
+	let Some(Overlay::Picked(comparisons, unseen, reread)) = &app.overlay else {
+		panic!("expected the confirmation");
+	};
+	assert_eq!((comparisons.len(), *unseen, *reread), (2, 0, false));
+	assert!(shows(
+		&drawn(&app, 120, 30),
+		"Record the 2 picked documents, including 0 you have not seen?"
+	));
+	press(&mut app, &[Key::Char('n')]);
+	assert_eq!(app.picked.len(), 2);
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
+
+	press(&mut app, &[Key::Char('y'), Key::Char('y')]);
+	assert!(app.picked.is_empty() && app.open.is_empty());
+	assert!(repo.entry("docs/b.md")["reviewed"].is_object());
+	assert_eq!(app.notice.as_deref(), Some("Recorded 2 reviews."));
+}
+
+/// Control and a click picks a row or lets go of it; Shift and a click, or
+/// a drag, picks the range to it; an ordinary click lets go of them all. A
+/// document that needs nothing takes a reread but no plain yes.
+#[test]
+fn clicks_pick_rows_and_ranges() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('o')]);
+	app
+		.click_with(Target::Row(Cursor::Open(1)), Press::Toggle)
+		.unwrap();
+	assert_eq!((app.picked.len(), app.cursor), (1, Cursor::Open(1)));
+	app
+		.click_with(Target::Row(Cursor::Other(0)), Press::Range)
+		.unwrap();
+	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Other(0)));
+	app
+		.click_with(Target::Row(Cursor::Open(1)), Press::Toggle)
+		.unwrap();
+	assert_eq!(app.picked.len(), 1, "only the passing document is left");
+
+	press(&mut app, &[Key::Char('y')]);
+	assert!(app.overlay.is_none());
+	assert!(app.notice.as_ref().unwrap().contains("r records a reread"));
+	press(&mut app, &[Key::Char('r')]);
+	assert!(matches!(app.overlay, Some(Overlay::Picked(_, _, true))));
+	press(&mut app, &[Key::Escape]);
+
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	assert!(app.picked.is_empty());
+	app.drag(Target::Row(Cursor::Open(1)));
+	assert_eq!((app.picked.len(), app.cursor), (2, Cursor::Open(1)));
+}
+
+/// Picked sources limit a review to them, as `attest --source` does, and
+/// the document stays in the queue for its other sources.
+#[test]
+fn picked_sources_limit_a_review_to_them() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}]}}),
+	);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Right, Key::Down, Key::Char(' ')]);
+	assert_eq!((app.focus, app.file), (Focus::Sources, 1));
+	assert_eq!(app.picked_sources.len(), 1);
+	assert!(shows(
+		&drawn(&app, 210, 44),
+		"still accurate for the 1 picked source?"
+	));
+
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	let entry = repo.entry("docs/a.md");
+	assert!(entry["sources"][0]["reviewed"].is_null());
+	assert_eq!(entry["sources"][1]["reviewed"]["by"], "Test Reviewer");
+	assert!(app.picked_sources.is_empty());
+	assert_eq!(app.open.len(), 1, "its other source still waits");
+	assert!(
+		app
+			.notice
+			.as_ref()
+			.unwrap()
+			.contains("1 picked source alone")
+	);
+	assert_eq!(app.shown.as_ref().unwrap().files.len(), 1);
+}
+
+/// The document's name takes the focus above its sources, or in their
+/// place when it has none, and Enter or a click shows it whole.
+#[test]
+fn the_name_of_the_document_is_shown_whole_on_request() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Right, Key::Up]);
+	assert_eq!(app.focus, Focus::Title);
+	press(&mut app, &[Key::Enter]);
+	let Some(Overlay::Name(name)) = &app.overlay else {
+		panic!("expected the whole name");
+	};
+	assert!(name.ends_with("a.md"));
+	press(&mut app, &[Key::Escape, Key::Down]);
+	assert_eq!(app.focus, Focus::Sources);
+
+	press(&mut app, &[Key::Left, Key::Down, Key::Right]);
+	assert_eq!((app.cursor, app.focus), (Cursor::Open(1), Focus::Title));
+	press(&mut app, &[Key::Escape]);
+	assert_eq!(app.focus, Focus::Sidebar);
+
+	show(&mut app, 120, 30);
+	let title = app
+		.hits
+		.iter()
+		.find(|(_, target)| *target == Target::Title)
+		.map(|(area, _)| *area)
+		.unwrap();
+	let target = app.target_at(title.x, title.y).unwrap();
+	app.click(target).unwrap();
+	assert!(matches!(app.overlay, Some(Overlay::Name(_))));
+}
+
+/// A recorded review keeps what the screen read of the documents it did
+/// not touch, so that they are not read again.
+#[test]
+fn what_was_read_survives_a_review_of_another_document() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	while app.prefetch() {}
+	let other = app.open[1].clone();
+	let before = Rc::clone(&app.cache[&other]);
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert_eq!(app.open, std::slice::from_ref(&other));
+	assert!(Rc::ptr_eq(&before, &app.cache[&other]));
+	assert!(Rc::ptr_eq(&before, app.shown.as_ref().unwrap()));
+}
+
+/// Where the mark has no room, the smaller one takes its place with the
+/// same glow, and where that has none either, nothing is drawn.
+#[test]
+fn the_mark_gives_way_to_the_smaller_one_and_then_to_nothing() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let app = App::new(&workspace, &args).unwrap();
+	let (large, small) = ("▄▄██████▄▄", "▄▄▀▀▀▀▄▄");
+	let tall = drawn(&app, 120, 30);
+	assert!(shows(&tall, large) && !shows(&tall, small));
+	let short = drawn(&app, 120, 24);
+	assert!(shows(&short, small) && !shows(&short, large));
+	assert!(shows(&short, "▒"), "the smaller mark glows too");
+	let shorter = drawn(&app, 120, 20);
+	assert!(!shows(&shorter, small) && !shows(&shorter, large));
 }

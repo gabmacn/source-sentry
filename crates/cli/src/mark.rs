@@ -23,9 +23,37 @@ pub(crate) const MARK: &str = concat!(
 	"    ▀▀▀   ▀██▀   ▀▀▀",
 );
 
+/// The mark where the larger one has no room: at most 16 columns wide and 8
+/// lines tall, in the same three characters.
+pub(crate) const SMALL: &str = concat!(
+	"   ▄▄  ██  ▄▄\n",
+	"   ▀█▄ ▀▀ ▄█▀\n",
+	"    ▄▄▀▀▀▀▄▄\n",
+	"  ▄▀▀ ██▀█ ▀▀▄\n",
+	"  ▀▄▄ ████ ▄▄▀\n",
+	"    ▀▀▄▄▄▄▀▀\n",
+	"   ▄█▀ ▄▄ ▀█▄\n",
+	"   ▀▀  ██  ▀▀",
+);
+
 #[cfg(test)]
 mod tests {
-	use super::MARK;
+	use super::{MARK, SMALL};
+
+	/// The smaller mark keeps its size and the same three characters.
+	#[test]
+	fn the_smaller_mark_fits_16_columns_and_uses_half_blocks_alone() {
+		let lines: Vec<_> = SMALL.lines().collect();
+		assert_eq!(lines.len(), 8);
+		for line in lines {
+			assert!(line.chars().count() <= 16, "{line:?}");
+			assert_eq!(line, line.trim_end(), "no trailing spaces");
+			assert!(
+				line.chars().all(|c| matches!(c, ' ' | '▀' | '▄' | '█')),
+				"{line:?}"
+			);
+		}
+	}
 
 	/// The mark keeps the size and the three characters that its callers and
 	/// legacy consoles rely on.

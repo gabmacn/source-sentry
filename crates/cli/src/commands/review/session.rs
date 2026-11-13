@@ -185,15 +185,33 @@ impl<'a> Session<'a> {
 		&self,
 		id: &DocumentId,
 	) -> Result<DocumentDiff, Failure> {
+		if self.state.inventories.contains_key(&id.project) {
+			self.compare_selected(id, &Selection::All)
+		} else {
+			self.compare(id)
+		}
+	}
+
+	/// The comparison of the selected sources of `id` alone, against the
+	/// snapshot the latest evaluation read, for a review that covers only
+	/// them. Its expectations are those a write of that selection checks.
+	pub(super) fn compare_selected(
+		&self,
+		id: &DocumentId,
+		selection: &Selection,
+	) -> Result<DocumentDiff, Failure> {
 		let Some(inventory) = self.state.inventories.get(&id.project) else {
-			return self.compare(id);
+			return Err(Failure::new(
+				exit::OPERATIONAL,
+				"the document's project was not evaluated",
+			));
 		};
 		diff(
 			&self.snapshot,
 			&self.workspace.repository,
 			inventory,
 			id,
-			&Selection::All,
+			selection,
 		)
 		.map_err(|error| Failure::mutate(self.workspace, &error))
 	}
@@ -257,6 +275,19 @@ impl<'a> Session<'a> {
 		compared: &DocumentDiff,
 		reread: bool,
 	) -> Result<Written, Failure> {
+		self.write_selected(id, compared, &Selection::All, reread)
+	}
+
+	/// Writes a review of the selected sources alone, as `attest` does with
+	/// `--source`. `compared` must be the comparison of that selection.
+	/// Otherwise as [`Self::write`].
+	pub(super) fn write_selected(
+		&mut self,
+		id: &DocumentId,
+		compared: &DocumentDiff,
+		selection: &Selection,
+		reread: bool,
+	) -> Result<Written, Failure> {
 		let reread = reread || compared.sources.is_empty();
 		let snapshot = self
 			.workspace
@@ -269,7 +300,7 @@ impl<'a> Session<'a> {
 			&inventory,
 			&AttestRequest {
 				document: compared.document.clone(),
-				selection: Selection::All,
+				selection: selection.clone(),
 				expectations: Some(compared.expectations.clone()),
 				reviewer: self.reviewer.clone(),
 				at: super::super::now(),

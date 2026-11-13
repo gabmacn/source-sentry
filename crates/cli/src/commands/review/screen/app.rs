@@ -2,18 +2,19 @@
 //! touches the terminal, so scripted keys can drive a whole session.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::fs;
 use std::rc::Rc;
 
 use ratatui::layout::{Position, Rect};
 
 use source_sentry_core::model::{DocumentId, Outcome};
-use source_sentry_core::mutate::DocumentDiff;
+use source_sentry_core::mutate::{DocumentDiff, Selection, SourceSpec};
 
 use super::super::changes::{self, Entry, Row};
 use super::super::closing::Closing;
 use super::super::session::{CHANGED, Session, Written};
-use super::super::state::Key as Id;
+use super::super::state::{Key as Id, Stamp};
 use crate::cli::ReviewArgs;
 use crate::describe;
 use crate::exit::Failure;
@@ -48,6 +49,8 @@ pub(super) enum Key {
 	Char(char),
 	/// Control and C.
 	Interrupt,
+	/// Shift and an arrow, down when `true`: it picks rows as it moves.
+	Extend(bool),
 	/// The mouse wheel, turned down when `true`, over a part of the screen.
 	Wheel(bool, Area),
 }
@@ -72,6 +75,8 @@ pub(super) enum Target {
 	Row(Cursor),
 	/// A changed file of the document on display, by its place.
 	Source(usize),
+	/// The name of the document on display, which the pane may have cut.
+	Title,
 	/// A field of the header.
 	Field(Field),
 	/// A key's cap, which a click presses.
@@ -86,8 +91,22 @@ pub(super) enum Target {
 	Outside,
 }
 
+/// How a click was made, which decides what it does to the picked rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Press {
+	/// An ordinary click: it moves the cursor and lets go of the picked rows.
+	Plain,
+	/// With Control held: it picks the row, or lets go of it.
+	Toggle,
+	/// With Shift held, or dragged to: it picks every row from where the
+	/// range started to this one.
+	Range,
+}
+
 /// The rows one notch of the wheel scrolls.
 const WHEEL: usize = 3;
+/// How many of the other documents are read ahead, after the cursor.
+const AHEAD: usize = 2;
 
 /// What the caller must do once a key has been handled.
 #[derive(Debug, PartialEq, Eq)]
@@ -154,6 +173,8 @@ pub(super) enum Focus {
 	Sidebar,
 	/// The changed sources of the document on display.
 	Sources,
+	/// The name of the document on display, above its sources.
+	Title,
 }
 
 /// What the pane shows, or on a wide screen, which side scrolls.
@@ -181,6 +202,13 @@ pub(super) enum Overlay {
 	Projects,
 	/// A source's whole path, which a row may have cut.
 	Path(String),
+	/// The whole name of the document on display, which the pane may have
+	/// cut.
+	Name(String),
+	/// The confirmation before the picked documents are recorded: each
+	/// frozen comparison, how many the reviewer has not seen, and whether
+	/// each review also records a reread.
+	Picked(Vec<(Id, DocumentDiff)>, usize, bool),
 }
 
 /// The document on display.
@@ -201,6 +229,9 @@ pub(super) struct Shown {
 	pub(super) compared: Option<DocumentDiff>,
 	/// Its changed files.
 	pub(super) files: Vec<Entry>,
+	/// For each changed file, the place of its source among those the
+	/// document declares. The files of a pattern share one source.
+	pub(super) owners: Vec<usize>,
 	/// How many files its sources hold, changed or not.
 	pub(super) total: usize,
 	/// When a source was last reviewed, and by whom.
@@ -211,6 +242,9 @@ pub(super) struct Shown {
 	pub(super) reason: Option<String>,
 	/// Why it could not be compared, if it could not.
 	pub(super) failure: Option<String>,
+	/// The evidence of the evaluation it was read under, which tells whether
+	/// a later evaluation leaves it as it is.
+	pub(super) stamp: Option<Stamp>,
 	/// Its lines, or why they cannot be shown.
 	pub(super) text: Result<Vec<String>, String>,
 }
@@ -255,6 +289,13 @@ pub(super) struct App<'a> {
 	pub(super) pointer: Option<(u16, u16)>,
 	/// What the pointer is over, which is drawn lightly marked.
 	pub(super) hover: Option<Target>,
+	/// The documents picked to take one answer together.
+	pub(super) picked: BTreeSet<Id>,
+	/// The sources of the document on display picked for a review of them
+	/// alone, by their place among those it declares.
+	pub(super) picked_sources: BTreeSet<usize>,
+	/// The row a range of picked rows starts from, while one is being made.
+	anchor: Option<usize>,
 }
 
 impl<'a> App<'a> {
@@ -291,6 +332,9 @@ impl<'a> App<'a> {
 			hits: Vec::new(),
 			pointer: None,
 			hover: None,
+			picked: BTreeSet::new(),
+			picked_sources: BTreeSet::new(),
+			anchor: None,
 		};
 		app.rebuild()?;
 		app.select(app.first());
@@ -339,31 +383,41 @@ impl<'a> App<'a> {
 			{
 				Some("Comparing…")
 			}
-			(Some(Overlay::All(..)), Key::Char('y' | 'Y')) => Some("Recording…"),
+			(None, Key::Char('y' | 'Y' | 'r' | 'R'))
+				if self.picked.iter().any(|id| !self.cache.contains_key(id)) =>
+			{
+				Some("Comparing…")
+			}
+			(Some(Overlay::All(..) | Overlay::Picked(..)), Key::Char('y' | 'Y')) => {
+				Some("Recording…")
+			}
 			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
 			_ => None,
 		}
 	}
 
 	/// Reads ahead one document that the reviewer may open next: from the
-	/// cursor onwards in the queue, then the others while they are listed.
-	/// Returns `false` once nothing is left to read.
+	/// cursor onwards in the queue, then the two after the cursor while it
+	/// is among the other documents. Those are many and seldom opened, so
+	/// they are not all read when their list opens. Returns `false` once
+	/// nothing is left to read.
 	pub(super) fn prefetch(&mut self) -> bool {
 		let at = match self.cursor {
 			Cursor::Open(index) => index,
 			_ => 0,
 		};
-		let listed = if self.expanded {
-			self.others.as_slice()
-		} else {
-			&[]
+		let near = match self.cursor {
+			Cursor::Other(index) if self.expanded => {
+				self.others.get(index + 1..).unwrap_or_default()
+			}
+			_ => &[],
 		};
 		let next = self
 			.open
 			.iter()
 			.skip(at)
 			.chain(self.open.iter().take(at))
-			.chain(listed.iter().map(|other| &other.id))
+			.chain(near.iter().take(AHEAD).map(|other| &other.id))
 			.find(|id| !self.cache.contains_key(*id))
 			.cloned();
 		let Some(id) = next else {
@@ -383,11 +437,23 @@ impl<'a> App<'a> {
 		shown
 	}
 
-	/// Rebuilds both lists from the latest evaluation.
+	/// Rebuilds both lists from the latest evaluation. A document read under
+	/// an earlier one stays loaded while this one finds the same evidence
+	/// for it; a caller drops what was written or edited beforehand.
 	fn rebuild(&mut self) -> Result<(), Failure> {
-		self.cache.clear();
 		self.open = self.session.pending()?;
 		let state = &self.session.state;
+		self
+			.cache
+			.retain(|id, shown| match state.documents.get(id) {
+				Some(document) => {
+					shown.stamp.as_ref() == Some(&document.stamp)
+						&& shown.outcome == Some(document.outcome())
+						&& shown.pending == document.pending
+						&& shown.facts == document.facts
+				}
+				None => shown.outcome.is_none() && state.tracked.contains(id),
+			});
 		let mut listed: BTreeSet<&Id> = self.open.iter().collect();
 		let mut others = Vec::new();
 		for (id, _) in &self.session.recorded {
@@ -414,6 +480,7 @@ impl<'a> App<'a> {
 				});
 			}
 		}
+		self.picked.retain(|id| listed.contains(id));
 		self.others = others;
 		Ok(())
 	}
@@ -454,6 +521,7 @@ impl<'a> App<'a> {
 		}
 		self.file = 0;
 		self.scroll = (0, 0);
+		self.picked_sources.clear();
 		self.shown = self.current().cloned().map(|id| self.cached(&id));
 		if let Some(failure) =
 			self.shown.as_ref().and_then(|shown| shown.failure.clone())
@@ -510,11 +578,13 @@ impl<'a> App<'a> {
 			pending: false,
 			compared: None,
 			files: Vec::new(),
+			owners: Vec::new(),
 			total: 0,
 			reviewed: None,
 			upstreams: Vec::new(),
 			reason: self.session.reasons.get(id).cloned(),
 			failure: None,
+			stamp: None,
 			text,
 		};
 		let Some(document) = self.session.state.documents.get(id) else {
@@ -523,6 +593,7 @@ impl<'a> App<'a> {
 		shown.outcome = Some(document.outcome());
 		shown.facts.clone_from(&document.facts);
 		shown.pending = document.pending;
+		shown.stamp = Some(document.stamp.clone());
 		shown.upstreams = document
 			.stamp
 			.upstreams
@@ -531,13 +602,14 @@ impl<'a> App<'a> {
 			.collect();
 		match self.session.compare_evaluated(id) {
 			Ok(compared) => {
-				let entries =
-					|| compared.sources.iter().flat_map(|source| &source.entries);
-				shown.total = entries().count();
-				shown.files = entries()
-					.filter(|entry| entry.is_changed())
-					.map(|entry| changes::entry(workspace, entry))
-					.collect();
+				for (owner, source) in compared.sources.iter().enumerate() {
+					shown.total += source.entries.len();
+					for entry in source.entries.iter().filter(|entry| entry.is_changed())
+					{
+						shown.files.push(changes::entry(workspace, entry));
+						shown.owners.push(owner);
+					}
+				}
 				shown.reviewed = compared
 					.sources
 					.iter()
@@ -586,7 +658,23 @@ impl<'a> App<'a> {
 	/// # Errors
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
+	#[cfg(test)]
 	pub(super) fn click(&mut self, target: Target) -> Result<Flow, Failure> {
+		self.click_with(target, Press::Plain)
+	}
+
+	/// Handles a click made with or without Control or Shift held. On a row,
+	/// Control picks it or lets go of it, and Shift picks the range to it; an
+	/// ordinary click lets go of every picked row.
+	///
+	/// # Errors
+	///
+	/// Fails when an evaluation or a write fails; the session then ends.
+	pub(super) fn click_with(
+		&mut self,
+		target: Target,
+		press: Press,
+	) -> Result<Flow, Failure> {
 		self.see_shown();
 		match target {
 			Target::Cap(key) => return self.key(key),
@@ -604,33 +692,65 @@ impl<'a> App<'a> {
 			Target::Box => {}
 			_ if self.overlay.is_some() => {}
 			Target::Row(row) => {
-				let again = self.cursor == row && self.focus == Focus::Sidebar;
+				let again = self.cursor == row
+					&& self.focus == Focus::Sidebar
+					&& self.picked.is_empty();
 				self.notice = None;
 				self.armed = None;
-				match row {
-					Cursor::Others => {
+				match (row, press) {
+					(Cursor::Others, _) => {
 						self.select(row);
 						self.toggle_others();
 					}
-					Cursor::Open(_) | Cursor::Other(_) if again => self.enter_sources(),
+					(Cursor::Open(_) | Cursor::Other(_), Press::Toggle) => {
+						self.select(row);
+						self.toggle_pick();
+					}
+					(Cursor::Open(_) | Cursor::Other(_), Press::Range) => {
+						self.pick_to(row);
+					}
+					(Cursor::Open(_) | Cursor::Other(_), Press::Plain) => {
+						self.picked.clear();
+						self.anchor = None;
+						if again {
+							self.enter_pane();
+						} else {
+							self.select(row);
+						}
+					}
 					_ => self.select(row),
 				}
 			}
 			Target::Source(file) => {
-				let again = self.focus == Focus::Sources && self.file == file;
+				let files = self.shown.as_ref().map_or(0, |shown| shown.files.len());
 				self.notice = None;
 				self.armed = None;
-				if again {
-					self.show_path();
-				} else if self
-					.shown
-					.as_ref()
-					.is_some_and(|shown| file < shown.files.len())
-				{
-					self.focus = Focus::Sources;
-					self.file = file;
-					self.scroll.0 = 0;
+				match press {
+					_ if file >= files => {}
+					Press::Toggle => {
+						self.select_file(file);
+						self.toggle_source();
+					}
+					Press::Range => self.pick_sources_to(file),
+					Press::Plain => {
+						let again = self.focus == Focus::Sources
+							&& self.file == file
+							&& self.picked_sources.is_empty();
+						self.picked_sources.clear();
+						self.anchor = None;
+						if again {
+							self.show_path();
+						} else {
+							self.select_file(file);
+						}
+					}
 				}
+			}
+			Target::Title => {
+				self.notice = None;
+				self.armed = None;
+				self.focus = Focus::Title;
+				self.show_name();
 			}
 			Target::Field(field) => {
 				self.notice = None;
@@ -641,6 +761,163 @@ impl<'a> App<'a> {
 			}
 		}
 		Ok(Flow::Stay)
+	}
+
+	/// Handles the pointer dragged over a row with its button held: every
+	/// row from where the button went down to this one is picked.
+	pub(super) fn drag(&mut self, target: Target) {
+		if self.overlay.is_some() {
+			return;
+		}
+		match target {
+			Target::Row(row @ (Cursor::Open(_) | Cursor::Other(_)))
+				if self.cursor != row =>
+			{
+				self.pick_to(row);
+			}
+			Target::Source(file) if self.file != file => {
+				self.pick_sources_to(file);
+			}
+			_ => {}
+		}
+	}
+
+	/// Moves the focus to a changed file of the document on display.
+	fn select_file(&mut self, file: usize) {
+		self.focus = Focus::Sources;
+		self.pane = Pane::Changes;
+		if self.file != file {
+			self.file = file;
+			self.scroll.0 = 0;
+		}
+	}
+
+	/// Picks the document under the cursor to share an answer, or lets go of
+	/// it. A sealed record takes no answer, so it cannot be picked.
+	fn toggle_pick(&mut self) {
+		let Some(id) = self.current().cloned() else {
+			return;
+		};
+		if !self.session.state.documents.contains_key(&id) {
+			self.notice = Some(
+				"A sealed record takes no answer, so it cannot be picked.".to_owned(),
+			);
+			return;
+		}
+		if !self.picked.remove(&id) {
+			self.picked.insert(id);
+		}
+		self.anchor = self.at();
+	}
+
+	/// Picks every document from where the range started to `row`, in place
+	/// of what was picked, and moves the cursor there.
+	fn pick_to(&mut self, row: Cursor) {
+		let Some(to) = self.index_of(row) else {
+			return;
+		};
+		let from = self.anchor.or_else(|| self.at()).unwrap_or(to);
+		self.select(row);
+		self.anchor = Some(from);
+		self.picked = (from.min(to)..=from.max(to))
+			.filter_map(|index| match self.row(index) {
+				Cursor::Open(open) => self.open.get(open),
+				Cursor::Other(other) => self.others.get(other).map(|other| &other.id),
+				_ => None,
+			})
+			.filter(|id| self.session.state.documents.contains_key(*id))
+			.cloned()
+			.collect();
+	}
+
+	/// Moves the cursor one document down or up and picks the range to it,
+	/// passing over the label of the other documents.
+	fn extend(&mut self, down: bool) {
+		let Some(at) = self.at() else {
+			return;
+		};
+		let step = |index: usize| {
+			if down {
+				Some(index + 1).filter(|next| *next < self.listed())
+			} else {
+				index.checked_sub(1)
+			}
+		};
+		let next = step(at).and_then(|next| {
+			if self.row(next) == Cursor::Others {
+				step(next)
+			} else {
+				Some(next)
+			}
+		});
+		if let Some(next) = next {
+			self.pick_to(self.row(next));
+		}
+	}
+
+	/// Picks the source of the selected file for a review of the picked
+	/// sources alone, or lets go of it. The files of a pattern go together,
+	/// because a pattern is reviewed as a whole.
+	fn toggle_source(&mut self) {
+		let Some(owner) = self
+			.shown
+			.as_ref()
+			.and_then(|shown| shown.owners.get(self.file).copied())
+		else {
+			return;
+		};
+		if !self.picked_sources.remove(&owner) {
+			self.picked_sources.insert(owner);
+		}
+		self.anchor = Some(self.file);
+	}
+
+	/// Picks the sources of every file from where the range started to
+	/// `file`, in place of what was picked, and selects that file.
+	fn pick_sources_to(&mut self, file: usize) {
+		let Some(shown) = &self.shown else {
+			return;
+		};
+		if file >= shown.files.len() {
+			return;
+		}
+		let from = self.anchor.unwrap_or(self.file);
+		self.picked_sources = (from.min(file)..=from.max(file))
+			.filter_map(|index| shown.owners.get(index).copied())
+			.collect();
+		self.select_file(file);
+		self.anchor = Some(from);
+	}
+
+	/// The picked sources as a review's selection, and how many they are;
+	/// `None` when the review covers every source.
+	fn selection(&self) -> Option<Selection> {
+		let compared = self.shown.as_ref()?.compared.as_ref()?;
+		if self.picked_sources.is_empty() {
+			return None;
+		}
+		Some(Selection::Declared(
+			self
+				.picked_sources
+				.iter()
+				.filter_map(|index| compared.sources.get(*index))
+				.map(|source| {
+					if source.pattern {
+						SourceSpec::Pattern(source.declared.clone())
+					} else {
+						SourceSpec::Path(source.declared.clone())
+					}
+				})
+				.collect(),
+		))
+	}
+
+	/// Opens the box with the whole name of the document on display.
+	fn show_name(&mut self) {
+		self.overlay = self
+			.shown
+			.as_ref()
+			.map(|shown| Overlay::Name(shown.name.clone()));
 	}
 
 	/// Opens the box with the selected source's whole path.
@@ -677,6 +954,10 @@ impl<'a> App<'a> {
 			return self.overlay_key(overlay, key);
 		}
 		let armed = self.armed.take();
+		// A range of picked rows ends with any key that does not extend it.
+		if !matches!(key, Key::Extend(_)) {
+			self.anchor = None;
+		}
 		// A held answer takes Enter and Escape before anything else does.
 		match (armed, key) {
 			(Some(reread), Key::Enter) => {
@@ -692,27 +973,51 @@ impl<'a> App<'a> {
 			return Ok(Flow::Stay);
 		}
 		let on_document = matches!(self.cursor, Cursor::Open(_) | Cursor::Other(_));
+		let files = self.shown.as_ref().map_or(0, |shown| shown.files.len());
+		let picking = !self.picked.is_empty();
 		match (self.focus, key) {
 			(_, Key::Interrupt | Key::Char('q' | 'Q')) => return Ok(Flow::Quit),
 			(_, Key::Char('?')) => self.overlay = Some(Overlay::Keys),
+			// Escape first lets go of what was picked.
+			(_, Key::Escape) if picking || !self.picked_sources.is_empty() => {
+				self.picked.clear();
+				self.picked_sources.clear();
+			}
 			(Focus::Sidebar, Key::Up) => self.step(false, true),
 			(Focus::Sidebar, Key::Down) => self.step(true, true),
 			(Focus::Sidebar, Key::Tab) => self.cycle(true),
 			(Focus::Sidebar, Key::BackTab) => self.cycle(false),
+			(Focus::Sidebar, Key::Extend(down)) => self.extend(down),
+			(Focus::Sidebar, Key::Char(' ')) if on_document => self.toggle_pick(),
 			(Focus::Sidebar, Key::Enter) if self.cursor == Cursor::Others => {
 				self.toggle_others();
 			}
 			(Focus::Sidebar, Key::Right | Key::Enter) if on_document => {
-				self.enter_sources();
+				self.enter_pane();
+			}
+			(Focus::Sources, Key::Up) if self.file == 0 => {
+				self.focus = Focus::Title;
 			}
 			(Focus::Sources, Key::Up) => self.move_file(false, false),
 			(Focus::Sources, Key::Down) => self.move_file(true, false),
 			(Focus::Sources, Key::Tab) => self.move_file(true, true),
 			(Focus::Sources, Key::BackTab) => self.move_file(false, true),
-			(Focus::Sources, Key::Left | Key::Escape) => {
+			(Focus::Sources, Key::Extend(down)) if files > 0 => {
+				self.pick_sources_to(if down {
+					(self.file + 1).min(files - 1)
+				} else {
+					self.file.saturating_sub(1)
+				});
+			}
+			(Focus::Sources, Key::Char(' ')) => self.toggle_source(),
+			(Focus::Sources, Key::Enter) => self.show_path(),
+			(Focus::Title, Key::Enter) => self.show_name(),
+			(Focus::Title, Key::Down | Key::Tab) if files > 0 => {
+				self.select_file(self.file);
+			}
+			(Focus::Sources | Focus::Title, Key::Left | Key::Escape) => {
 				self.focus = Focus::Sidebar;
 			}
-			(Focus::Sources, Key::Enter) => self.show_path(),
 			(_, Key::Char('o' | 'O')) => self.toggle_others(),
 			(_, Key::Char('v' | 'V')) => {
 				// The sources are out of sight while the document is shown.
@@ -720,14 +1025,14 @@ impl<'a> App<'a> {
 					Pane::Changes => Pane::Document,
 					Pane::Document => Pane::Changes,
 				};
-				if self.pane == Pane::Document {
+				if self.pane == Pane::Document && self.focus == Focus::Sources {
 					self.focus = Focus::Sidebar;
 				}
 			}
 			(_, Key::PageUp) => self.scroll_by(false),
 			(_, Key::PageDown) => self.scroll_by(true),
-			(_, Key::Char('y' | 'Y')) if on_document => self.arm(false),
-			(_, Key::Char('r' | 'R')) if on_document => self.arm(true),
+			(_, Key::Char('y' | 'Y')) if on_document || picking => self.arm(false),
+			(_, Key::Char('r' | 'R')) if on_document || picking => self.arm(true),
 			(_, Key::Char('a' | 'A')) => self.ask_all(),
 			(_, Key::Char('e' | 'E')) if on_document => return Ok(self.edit()),
 			_ => {}
@@ -802,7 +1107,10 @@ impl<'a> App<'a> {
 		match (overlay, key) {
 			(_, Key::Interrupt) => return Ok(Flow::Quit),
 			(Overlay::All(comparisons, _), Key::Char('y' | 'Y')) => {
-				self.record_all(comparisons)?;
+				self.record_all(comparisons, false)?;
+			}
+			(Overlay::Picked(comparisons, _, reread), Key::Char('y' | 'Y')) => {
+				self.record_all(comparisons, reread)?;
 			}
 			(Overlay::Reviewer(mut name), Key::Char(character)) => {
 				name.push(character);
@@ -827,6 +1135,7 @@ impl<'a> App<'a> {
 					self.contexts().get(at).map(|name| (*name).to_owned())
 				{
 					self.session.set_context(&context)?;
+					self.cache.clear();
 					self.rebuild()?;
 					self.select(self.first());
 					self.cursor = Cursor::Header(Field::Context);
@@ -845,7 +1154,12 @@ impl<'a> App<'a> {
 
 	/// The cursor's row in the sidebar, counted from its first.
 	fn at(&self) -> Option<usize> {
-		match self.cursor {
+		self.index_of(self.cursor)
+	}
+
+	/// The row of the sidebar that a cursor is on, counted from its first.
+	fn index_of(&self, cursor: Cursor) -> Option<usize> {
+		match cursor {
 			Cursor::Open(index) => Some(index),
 			Cursor::Others => Some(self.open.len()),
 			Cursor::Other(index) => Some(self.open.len() + 1 + index),
@@ -934,18 +1248,17 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Moves the focus to the changed sources of the document on display.
-	fn enter_sources(&mut self) {
-		if self
-			.shown
-			.as_ref()
-			.is_some_and(|shown| !shown.files.is_empty())
-		{
+	/// Moves the focus into the pane: to the changed sources of the document
+	/// on display, or to its name when it has none.
+	fn enter_pane(&mut self) {
+		let Some(shown) = &self.shown else {
+			return;
+		};
+		if shown.files.is_empty() {
+			self.focus = Focus::Title;
+		} else {
 			self.focus = Focus::Sources;
 			self.pane = Pane::Changes;
-		} else {
-			self.notice =
-				Some("This document has no changed source to go to.".to_owned());
 		}
 	}
 
@@ -1011,6 +1324,11 @@ impl<'a> App<'a> {
 	/// Holds an answer until Enter confirms it, when the document can take
 	/// that answer.
 	fn arm(&mut self, reread: bool) {
+		// Several documents are confirmed in a box that lists them.
+		if !self.picked.is_empty() {
+			self.ask_picked(reread);
+			return;
+		}
 		let Some(shown) = &self.shown else {
 			return;
 		};
@@ -1032,9 +1350,11 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Records the answer for the document on display, then moves on.
+	/// Records the answer for the document on display, then moves on. With
+	/// sources picked, the review covers those alone, as `attest --source`
+	/// does, and is compared again for exactly them.
 	fn record(&mut self, reread: bool) -> Result<(), Failure> {
-		let Some((id, compared)) = self.shown.as_ref().and_then(|shown| {
+		let Some((id, whole)) = self.shown.as_ref().and_then(|shown| {
 			shown
 				.compared
 				.clone()
@@ -1042,14 +1362,40 @@ impl<'a> App<'a> {
 		}) else {
 			return Ok(());
 		};
-		match self.session.write(&id, &compared, reread)? {
+		let selection = self.selection();
+		let compared = match &selection {
+			None => whole,
+			Some(selection) => match self.session.compare_selected(&id, selection) {
+				Ok(compared) => compared,
+				Err(failure) => {
+					self.notice = Some(failure.message);
+					return Ok(());
+				}
+			},
+		};
+		let covered = selection.as_ref().map(|_| self.picked_sources.len());
+		let written = self.session.write_selected(
+			&id,
+			&compared,
+			selection.as_ref().unwrap_or(&Selection::All),
+			reread,
+		)?;
+		self.cache.remove(&id);
+		match written {
 			Written::Changed => {
 				self.rebuild()?;
 				self.focus(&id);
 				self.notice = Some(CHANGED.to_owned());
 			}
 			Written::Recorded(reread) => {
-				let notice = self.session.recorded_notice(&compared, reread);
+				let mut notice = self.session.recorded_notice(&compared, reread);
+				if let Some(covered) = covered {
+					let _ = write!(
+						notice,
+						" It covers {} alone.",
+						describe::count(covered, "picked source", "picked sources")
+					);
+				}
 				self.session.settle(&id)?;
 				let was = self.cursor;
 				self.rebuild()?;
@@ -1099,19 +1445,52 @@ impl<'a> App<'a> {
 		self.overlay = Some(Overlay::All(comparisons, unseen));
 	}
 
-	/// Records every confirmed comparison that still needs review. A source
-	/// that changed since the confirmation stops the batch.
+	/// Opens the confirmation for recording the picked documents, in the
+	/// sidebar's order. A plain yes needs something to review, so it leaves
+	/// out a document that needs nothing; a reread takes every live one.
+	fn ask_picked(&mut self, reread: bool) {
+		let picked: Vec<Id> = self
+			.open
+			.iter()
+			.chain(self.others.iter().map(|other| &other.id))
+			.filter(|id| self.picked.contains(*id))
+			.cloned()
+			.collect();
+		let comparisons: Vec<_> = picked
+			.into_iter()
+			.filter_map(|id| {
+				let shown = self.cached(&id);
+				let compared = shown.compared.clone()?;
+				(reread || shown.pending).then_some((id, compared))
+			})
+			.collect();
+		if comparisons.is_empty() {
+			self.notice = Some(
+				"None of the picked documents can take that answer; r records a reread."
+					.to_owned(),
+			);
+			return;
+		}
+		let unseen = self.session.unseen(&comparisons);
+		self.overlay = Some(Overlay::Picked(comparisons, unseen, reread));
+	}
+
+	/// Records every confirmed comparison. Without a reread, one that no
+	/// longer needs review is passed over. A source that changed since the
+	/// confirmation stops the batch.
 	fn record_all(
 		&mut self,
 		comparisons: Vec<(Id, DocumentDiff)>,
+		reread: bool,
 	) -> Result<(), Failure> {
 		let mut recorded = 0;
 		let mut stopped = false;
 		for (id, compared) in comparisons {
-			if !self.session.pending()?.contains(&id) {
+			if !reread && !self.session.pending()?.contains(&id) {
 				continue;
 			}
-			match self.session.write(&id, &compared, false)? {
+			self.cache.remove(&id);
+			match self.session.write(&id, &compared, reread)? {
 				Written::Changed => {
 					stopped = true;
 					break;
@@ -1122,6 +1501,7 @@ impl<'a> App<'a> {
 				}
 			}
 		}
+		self.picked.clear();
 		self.rebuild()?;
 		self.select(self.first());
 		let count = describe::count(recorded, "review", "reviews");
@@ -1163,6 +1543,8 @@ impl<'a> App<'a> {
 		result: Result<(), Failure>,
 	) -> Result<(), Failure> {
 		self.session.refresh()?;
+		// The editor may have changed anything, the document's text included.
+		self.cache.clear();
 		self.rebuild()?;
 		if let Some(id) = self.shown.as_ref().map(|shown| shown.id.clone()) {
 			self.focus(&id);

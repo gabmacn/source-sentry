@@ -75,16 +75,25 @@ fn muted() -> Style {
 }
 
 /// How a row of the sidebar is marked: strongly under the cursor while the
-/// sidebar has the focus, and mutedly when it is only the row on display.
+/// sidebar has the focus, and mutedly when it is only the row on display or
+/// one of the picked rows.
 fn marked(app: &App, row: Cursor, id: &Id) -> Option<Style> {
 	let under = app.cursor == row;
 	let shown = app.shown.as_ref().is_some_and(|shown| &shown.id == id);
 	if under && app.focus == Focus::Sidebar {
 		Some(selected())
-	} else if under || shown {
+	} else if under || shown || app.picked.contains(id) {
 		Some(muted())
 	} else {
 		None
+	}
+}
+
+/// A cream bar at the left edge of a picked row, over `rows` rows. It tells
+/// a picked row from the one that is only on display.
+fn picked_bar(pen: &mut Pen, x: u16, y: u16, rows: u16) {
+	for row in y..y + rows {
+		pen.text(x, row, "▌", Style::new().fg(CREAM), 1);
 	}
 }
 
@@ -471,6 +480,9 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 		} else if over {
 			pen.fill(row, hovered());
 		}
+		if app.picked.contains(id) {
+			picked_bar(pen, area.x, y, 2);
+		}
 		let strong = |plain: Style| {
 			mark.map_or(plain, |style| style.add_modifier(Modifier::BOLD))
 		};
@@ -528,6 +540,9 @@ fn others(app: &App, pen: &mut Pen, area: Rect) {
 		} else if over {
 			pen.fill(row, hovered());
 		}
+		if app.picked.contains(&other.id) {
+			picked_bar(pen, area.x, y, 1);
+		}
 		let (label, color, name) = match other.kind {
 			Kind::Reviewed => (" ✓", outcome_color(Outcome::Pass), text()),
 			Kind::Live(outcome) => {
@@ -554,14 +569,25 @@ fn others(app: &App, pen: &mut Pen, area: Rect) {
 
 /// The mark in the sidebar's empty lower part, on a field of blue shade
 /// characters that thins away from the eye: ordered dithering, in cells.
+/// Where the larger mark has no room, the smaller one takes its place, and
+/// where that has none either, nothing is drawn.
 fn glow(pen: &mut Pen, area: Rect) {
-	let lines: Vec<&str> = mark::MARK.lines().collect();
-	let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
-	if area.height < height + 2 || area.width < 24 {
+	// Each mark with its grid's width and where its glow thins and ends.
+	let marks: [(&str, u16, f32, f32); 2] =
+		[(mark::MARK, 24, 8.6, 12.6), (mark::SMALL, 16, 5.7, 8.4)];
+	let Some((lines, height, columns, near, far)) =
+		marks.into_iter().find_map(|(drawn, columns, near, far)| {
+			let lines: Vec<&str> = drawn.lines().collect();
+			let height = u16::try_from(lines.len()).ok()?;
+			// The glow takes a row above the mark and one below it.
+			(area.height >= height + 2 && area.width >= columns)
+				.then_some((lines, height, columns, near, far))
+		})
+	else {
 		return;
-	}
+	};
 	let top = area.bottom() - height - 1;
-	let left = area.x + (area.width - 24) / 2;
+	let left = area.x + (area.width - columns) / 2;
 	for y in top - 1..=top + height {
 		for x in area.x..area.right() {
 			let symbol = y
@@ -574,12 +600,12 @@ fn glow(pen: &mut Pen, area: Rect) {
 				continue;
 			}
 			// A cell is about twice as tall as it is wide.
-			let across = f32::from(x) + 0.5 - f32::from(left + 12);
+			let across = f32::from(x) + 0.5 - f32::from(left + columns / 2);
 			let down = (f32::from(y) + 0.5 - f32::from(top + height / 2)) * 2.0;
 			let distance = across.hypot(down);
-			if distance < 8.6 {
+			if distance < near {
 				pen.text(x, y, "▒", Style::new().fg(BLUE), 1);
-			} else if distance < 12.6 {
+			} else if distance < far {
 				pen.text(x, y, "░", Style::new().fg(BLUE), 1);
 			}
 		}
@@ -589,21 +615,14 @@ fn glow(pen: &mut Pen, area: Rect) {
 /// The document on display: its name and details, then its changes, its
 /// text, or on a wide screen both.
 fn pane(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
-	pen.text(
-		area.x,
-		area.y,
-		&fit_path(&shown.name, area.width.saturating_sub(30)),
-		strong(),
-		area.width,
-	);
-	let end = pen.right(
+	let mut end = pen.right(
 		area.right(),
 		area.y,
 		&shown.facts.replace(", ", " · "),
 		text(),
 	);
 	if let Some(outcome) = shown.outcome {
-		pen.right(
+		end = pen.right(
 			end - 2,
 			area.y,
 			output::outcome_name(outcome),
@@ -611,6 +630,18 @@ fn pane(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 				.fg(outcome_color(outcome))
 				.add_modifier(Modifier::BOLD),
 		);
+	}
+	// The name takes what the outcome and the facts leave. It can take the
+	// focus and a click, which show it whole.
+	let room = end.saturating_sub(area.x + 2);
+	let name = fit_path(&shown.name, room);
+	let title = Rect::new(area.x, area.y, width(&name).min(room), 1);
+	let over = pen.hit(title, Target::Title);
+	pen.text(area.x, area.y, &name, strong(), room);
+	if app.focus == Focus::Title {
+		pen.fill(title, selected());
+	} else if over {
+		pen.fill(title, hovered());
 	}
 	let mut x = area.x;
 	for (label, value) in [
@@ -734,18 +765,25 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		.take(5)
 	{
 		let row = Rect::new(area.x, y, area.width, 1);
-		let mark = (index == app.file).then(|| {
-			if app.focus == Focus::Sources {
-				selected()
-			} else {
-				muted()
-			}
-		});
+		let picked = shown
+			.owners
+			.get(index)
+			.is_some_and(|owner| app.picked_sources.contains(owner));
+		let mark = if index == app.file && app.focus == Focus::Sources {
+			Some(selected())
+		} else if index == app.file || picked {
+			Some(muted())
+		} else {
+			None
+		};
 		let over = pen.hit(row, Target::Source(index));
 		if let Some(style) = mark {
 			pen.fill(row, style);
 		} else if over {
 			pen.fill(row, hovered());
+		}
+		if picked {
+			picked_bar(pen, area.x, y, 1);
 		}
 		let mut start = pen.right(
 			area.right() - 1,
@@ -924,65 +962,108 @@ fn scrollbar(pen: &mut Pen, area: Rect, at: usize, rows: usize) {
 /// One form of a key's label: its cap, its full label and its short one.
 type Answer<'t> = (&'t str, &'t str, &'t str);
 
+/// What is asked about the document on display or the picked rows: the
+/// question in its long and its short form, and the keys that answer it.
+fn asked(app: &App) -> (String, &'static str, &'static [Answer<'static>]) {
+	// A review of picked sources says so in its question.
+	let covered = if app.picked_sources.is_empty() {
+		String::new()
+	} else {
+		format!(
+			" for the {}",
+			crate::describe::count(
+				app.picked_sources.len(),
+				"picked source",
+				"picked sources"
+			)
+		)
+	};
+	match (&app.shown, app.armed, app.cursor) {
+		(_, _, Cursor::Header(_)) => (
+			"The session's settings.".to_owned(),
+			"Settings.",
+			&[
+				("Enter", "change", "change"),
+				("← →", "move", "move"),
+				("↓", "back to the documents", "back"),
+			],
+		),
+		(_, _, Cursor::Others) => (
+			"The documents that need no review now.".to_owned(),
+			"The other documents.",
+			&[("Enter", "open or close the list", "open or close")],
+		),
+		(_, _, _) if !app.picked.is_empty() => (
+			format!(
+				"Are the {} still accurate?",
+				crate::describe::count(
+					app.picked.len(),
+					"picked document",
+					"picked documents"
+				)
+			),
+			"The picked: still accurate?",
+			&[
+				("y", "yes", "yes"),
+				("r", "yes, and I reread all of each", "yes, reread"),
+				("Esc", "let go of them", "let go"),
+			],
+		),
+		(Some(shown), Some(reread), _) => (
+			format!(
+				"Record that {} is still accurate{covered}{}?",
+				shown.name,
+				if reread { ", reread in full" } else { "" }
+			),
+			if reread {
+				"Record it, reread in full?"
+			} else {
+				"Record it?"
+			},
+			&[("Enter", "record", "record"), ("Esc", "cancel", "cancel")],
+		),
+		(Some(shown), None, _) if !app.picked_sources.is_empty() => (
+			format!("Is {} still accurate{covered}?", shown.name),
+			"Accurate for the picked?",
+			&[
+				("y", "yes", "yes"),
+				("r", "yes, and I reread all of it", "yes, reread"),
+				("Esc", "let go of them", "let go"),
+			],
+		),
+		(Some(shown), None, _) if shown.pending => (
+			format!("Is {} still accurate?", shown.name),
+			"Still accurate?",
+			&[
+				("y", "yes", "yes"),
+				("r", "yes, and I reread all of it", "yes, reread"),
+				("e", "edit it", "edit"),
+				("a", "yes to all", "yes to all"),
+			],
+		),
+		(Some(shown), None, _) if shown.outcome.is_some() => (
+			"Nothing changed since the last review.".to_owned(),
+			"Nothing changed.",
+			&[("r", "record a reread", "reread"), ("e", "edit it", "edit")],
+		),
+		(Some(_), None, _) => (
+			"A sealed record: there is nothing to answer.".to_owned(),
+			"A sealed record.",
+			&[],
+		),
+		(None, _, _) => (
+			"Nothing is left to review.".to_owned(),
+			"Nothing is left.",
+			&[("q", "close", "close")],
+		),
+	}
+}
+
 /// The question about the document on display, with its keys, and below it
 /// either a notice or the keys that move around. A narrow screen gets the
 /// short form of the question, then of the labels.
 fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
-	let (long, short, keys): (String, &str, &[Answer]) =
-		match (&app.shown, app.armed, app.cursor) {
-			(_, _, Cursor::Header(_)) => (
-				"The session's settings.".to_owned(),
-				"Settings.",
-				&[
-					("Enter", "change", "change"),
-					("← →", "move", "move"),
-					("↓", "back to the documents", "back"),
-				],
-			),
-			(_, _, Cursor::Others) => (
-				"The documents that need no review now.".to_owned(),
-				"The other documents.",
-				&[("Enter", "open or close the list", "open or close")],
-			),
-			(Some(shown), Some(reread), _) => (
-				format!(
-					"Record that {} is still accurate{}?",
-					shown.name,
-					if reread { ", reread in full" } else { "" }
-				),
-				if reread {
-					"Record it, reread in full?"
-				} else {
-					"Record it?"
-				},
-				&[("Enter", "record", "record"), ("Esc", "cancel", "cancel")],
-			),
-			(Some(shown), None, _) if shown.pending => (
-				format!("Is {} still accurate?", shown.name),
-				"Still accurate?",
-				&[
-					("y", "yes", "yes"),
-					("r", "yes, and I reread all of it", "yes, reread"),
-					("e", "edit it", "edit"),
-					("a", "yes to all", "yes to all"),
-				],
-			),
-			(Some(shown), None, _) if shown.outcome.is_some() => (
-				"Nothing changed since the last review.".to_owned(),
-				"Nothing changed.",
-				&[("r", "record a reread", "reread"), ("e", "edit it", "edit")],
-			),
-			(Some(_), None, _) => (
-				"A sealed record: there is nothing to answer.".to_owned(),
-				"A sealed record.",
-				&[],
-			),
-			(None, _, _) => (
-				"Nothing is left to review.".to_owned(),
-				"Nothing is left.",
-				&[("q", "close", "close")],
-			),
-		};
+	let (long, short, keys) = asked(app);
 	let needs = |sentence: &str, brief: bool| {
 		keys
 			.iter()
@@ -1008,8 +1089,11 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		return;
 	}
 	let moves = match app.focus {
-		Focus::Sidebar => "↑↓ Tab document   → sources",
-		Focus::Sources => "↑↓ Tab source   Enter whole path   ← documents",
+		Focus::Sidebar => "↑↓ Tab document   → sources   Space pick",
+		Focus::Sources => {
+			"↑↓ Tab source   Enter whole path   Space pick   ← documents"
+		}
+		Focus::Title => "Enter whole name   ↓ sources   ← documents",
 	};
 	let swap = match app.pane {
 		Pane::Changes => "document",
@@ -1103,16 +1187,30 @@ fn frame(
 fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 	match overlay {
 		Overlay::Keys => keys_box(pen, area),
-		Overlay::Path(path) => {
-			let lines = wrap(path, 66);
-			let inside = frame(pen, area, 72, count(lines.len()) + 6, "Source");
-			for (y, line) in (inside.y..).zip(&lines) {
-				pen.text(inside.x, y, line, text(), inside.width);
-			}
-			pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
-		}
+		Overlay::Path(path) => whole_box(pen, area, "Source", path),
+		Overlay::Name(name) => whole_box(pen, area, "Document", name),
 		Overlay::All(comparisons, unseen) => {
-			all_box(app, comparisons, *unseen, pen, area);
+			let ask = format!(
+				"Record the remaining {}, including {unseen} you have not seen?",
+				crate::describe::count(comparisons.len(), "document", "documents")
+			);
+			all_box(app, comparisons, "Record all remaining", &ask, pen, area);
+		}
+		Overlay::Picked(comparisons, unseen, reread) => {
+			let ask = format!(
+				"Record the {}, including {unseen} you have not seen?",
+				crate::describe::count(
+					comparisons.len(),
+					"picked document",
+					"picked documents"
+				)
+			);
+			let title = if *reread {
+				"Record the picked, each reread in full"
+			} else {
+				"Record the picked"
+			};
+			all_box(app, comparisons, title, &ask, pen, area);
 		}
 		Overlay::Reviewer(name) => {
 			let inside = frame(pen, area, 60, 8, "Reviewer");
@@ -1185,6 +1283,16 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 	}
 }
 
+/// A box with a path or a name whole, wrapped where a row had to cut it.
+fn whole_box(pen: &mut Pen, area: Rect, title: &str, whole: &str) {
+	let lines = wrap(whole, 66);
+	let inside = frame(pen, area, 72, count(lines.len()) + 6, title);
+	for (y, line) in (inside.y..).zip(&lines) {
+		pen.text(inside.x, y, line, text(), inside.width);
+	}
+	pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
+}
+
 /// A count of rows, as a coordinate.
 fn count(rows: usize) -> u16 {
 	u16::try_from(rows).unwrap_or(u16::MAX)
@@ -1199,7 +1307,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		),
 		("→ Enter", "From a document, go to its changed sources"),
 		("← Esc", "From the sources, return to the documents"),
-		("Enter", "On a source, show its whole path"),
+		("Enter", "On a source or the name, show its whole path"),
 		(
 			"o",
 			"Open or close the other documents; Enter on their label too",
@@ -1217,8 +1325,12 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("e", "Edit the document in your editor"),
 		("q", "Quit; reviews already recorded stay"),
 		(
+			"Space",
+			"Pick a row or let go of it; Shift+↑↓ a range; Esc none",
+		),
+		(
 			"Click",
-			"Do what the key would: on a row, a header field or a cap",
+			"Like the key; Ctrl picks, Shift or a drag picks a range",
 		),
 	];
 	let inside = frame(pen, area, 78, count(keys.len()) + 4, "Keys");
@@ -1234,30 +1346,19 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 	}
 }
 
-/// The confirmation before every remaining document is recorded: each one
-/// with its outcome, and whether its comparison has been seen.
+/// The confirmation before several documents are recorded: each one with
+/// its outcome, and whether its comparison has been seen.
 fn all_box(
 	app: &App,
-	comparisons: &[(
-		super::super::state::Key,
-		source_sentry_core::mutate::DocumentDiff,
-	)],
-	unseen: usize,
+	comparisons: &[(Id, source_sentry_core::mutate::DocumentDiff)],
+	title: &str,
+	ask: &str,
 	pen: &mut Pen,
 	area: Rect,
 ) {
-	let inside = frame(
-		pen,
-		area,
-		76,
-		count(comparisons.len().min(10)) + 8,
-		"Record all remaining",
-	);
-	let ask = format!(
-		"Record the remaining {}, including {unseen} you have not seen?",
-		crate::describe::count(comparisons.len(), "document", "documents")
-	);
-	pen.text(inside.x, inside.y, &ask, strong(), inside.width);
+	let inside =
+		frame(pen, area, 76, count(comparisons.len().min(10)) + 8, title);
+	pen.text(inside.x, inside.y, ask, strong(), inside.width);
 	for (y, (id, compared)) in (inside.y + 2..).zip(comparisons.iter().take(10)) {
 		if let Some(document) = app.session.state.documents.get(id) {
 			let label = Style::new()

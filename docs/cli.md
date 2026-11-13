@@ -255,7 +255,8 @@ The screen has four parts:
 - **A sidebar** that lists the documents that need review, in queue order,
   above a collapsed list of every other document: those reviewed in this
   session first, marked with a tick, then the other live documents, then the
-  sealed records. The mark fills the space below while that list is closed.
+  sealed records. The mark fills the space below while that list is closed:
+  a smaller one where the larger has no room, and none where that has none.
 - **A pane** for the document under the cursor: its outcome and facts, when a
   source was last reviewed and by whom, its project and the upstream
   documents it waits on. Below these it shows either the changed files with
@@ -270,15 +271,20 @@ starts, and any document may be opened at any time.
 | Key | Action |
 |---|---|
 | `↑` `↓` `Tab` | Move in the list that has the focus; `Shift+Tab` moves back, and `Tab` goes round |
-| `→`, `Enter` | From a document, go to its changed files |
-| `←`, `Esc` | From the changed files, return to the documents |
-| `Enter` | On a changed file, show its whole path; on the label of the other documents, open or close them |
+| `→`, `Enter` | From a document, go to its changed files, or to its name when it has none |
+| `←`, `Esc` | From the changed files or the name, return to the documents |
+| `Enter` | On a changed file or the document's name, show it whole; on the label of the other documents, open or close them |
+| `Space` | Pick the row under the cursor, or let go of it |
+| `Shift+↑`, `Shift+↓` | Pick the range of rows to the next one |
+| `Esc` | Let go of every picked row |
 | `o` | Open or close the other documents |
 | `↑` | From the first document, enter the header |
 | `v` | Swap the pane between the changes and the document |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
-| Click | Do what the matching key does: select a document or a changed file, open or close the other documents, open a header field, press a key's cap |
+| Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap |
+| `Ctrl` and a click | Pick the row, or let go of it |
+| `Shift` and a click, or a drag | Pick the range of rows to that one |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
@@ -296,9 +302,25 @@ sidebar, where the row under the cursor is marked in a strong blue. From a
 document, `→` or Enter moves the focus to its changed files: the document's
 row turns a muted blue, selected but no longer focused, and the selected
 file takes the strong one. There, Enter shows the file's whole path, which a
-row may have cut. `←` or `Esc` returns the focus to the sidebar. The label
-of the other documents is a row of the sidebar too, between the queue and
+row may have cut. Above the first file is the document's name, which takes
+the focus too, and at once when the document has no changed file; Enter
+shows it whole. `←` or `Esc` returns the focus to the sidebar. The label of
+the other documents is a row of the sidebar too, between the queue and
 those documents.
+
+Several rows can be picked to share one answer. A picked row carries a bar
+at its left edge. With documents picked, `y` and `r` list them in a
+confirmation like that of `a`, with whether each has been seen, and record
+them on `y`. A plain `y` leaves out a picked document that needs nothing;
+`r` takes every picked document that is not a sealed record. With changed
+files picked, `y` and `r` record a review of their sources alone, as
+`attest --source` does, and the document stays in the queue while another
+source still needs review. The files of a pattern are picked together,
+because a pattern is reviewed as a whole. An ordinary click or `Esc` lets
+go of what was picked, and so does moving to another document for picked
+files. Many terminals keep `Shift` with the mouse for their own text
+selection and never report that click, which is why a drag picks a range
+as well.
 
 `y` and `r` only hold an answer: nothing is written until Enter. A recorded
 review is bound to the source versions shown, exactly as in the line mode,
@@ -307,9 +329,11 @@ The reviewed document then moves to the other documents, and the cursor to
 the next one that needs review. A document that needs nothing takes `r` but
 no `y`; a sealed record can only be read.
 
-Each document is compared once per evaluation, against the working tree as
-that evaluation read it, and the documents after the cursor are read while
-the reviewer is idle, so that moving between documents does not wait. A
+Each document is compared once, against the working tree as an evaluation
+read it, and stays so while later evaluations find the same evidence for
+it. The documents after the cursor in the queue are read while the reviewer
+is idle, so that moving between them does not wait; the other documents are
+read only as the cursor reaches them, with the next two. A
 source edited since is caught when the review is recorded: the write reads
 every source again and refuses what changed. The working tree is evaluated
 again after every write, every editor visit and every change of context.
