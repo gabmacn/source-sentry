@@ -1,5 +1,8 @@
-//! The review loop. Every accepted answer plans and applies one attestation
-//! immediately; queue decisions always follow a fresh evaluation.
+//! The review session: a fresh evaluation, the queue it yields and the
+//! reviews it records. Every accepted answer plans and applies one
+//! attestation immediately; queue decisions always follow a fresh evaluation.
+//! The line mode's loop is here; the full screen drives the same session in
+//! the reviewer's own order.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,18 +20,29 @@ use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
 use crate::workspace::{Workspace, load_project};
 
+/// What an attempt to record a review did.
+pub(super) enum Written {
+	/// The review was written; `true` when it recorded a reread.
+	Recorded(bool),
+	/// A source changed after it was shown, so nothing was written.
+	Changed,
+}
+
+/// The refusal of a review whose sources changed after they were shown.
+pub(super) const CHANGED: &str = "A source changed after it was shown; this review was not recorded. Showing the current changes again.";
+
 /// Mutable session history; the working tree remains the source of truth.
-struct Session<'a> {
+pub(super) struct Session<'a> {
 	/// The repository and path-display rules.
-	workspace: &'a Workspace,
+	pub(super) workspace: &'a Workspace,
 	/// The context used for every evaluation.
-	context: &'a str,
+	pub(super) context: String,
 	/// Explicitly named documents, or an empty set for the whole repository.
-	selected: BTreeSet<DocumentId>,
-	/// The reviewer resolved once, as for `attest`.
-	reviewer: Option<String>,
+	pub(super) selected: BTreeSet<DocumentId>,
+	/// The reviewer, resolved as for `attest` when the session begins.
+	pub(super) reviewer: Option<String>,
 	/// The latest completed evaluation.
-	state: State,
+	pub(super) state: State,
 	/// Documents needing review when the session began.
 	initial: BTreeSet<DocumentId>,
 	/// Answers that suppress unchanged repeat questions.
@@ -36,9 +50,9 @@ struct Session<'a> {
 	/// The source versions whose comparisons the user has actually seen.
 	seen: BTreeMap<DocumentId, Vec<Expectation>>,
 	/// Applied reviews, including whether each recorded a reread.
-	recorded: Vec<(DocumentId, bool)>,
+	pub(super) recorded: Vec<(DocumentId, bool)>,
 	/// The explanation of changes observed since the session began.
-	reasons: BTreeMap<DocumentId, String>,
+	pub(super) reasons: BTreeMap<DocumentId, String>,
 	/// Answered positions; retries and editor visits keep their position.
 	finished: usize,
 	/// When the session began, for its closing.
@@ -47,7 +61,7 @@ struct Session<'a> {
 
 impl<'a> Session<'a> {
 	/// Loads and validates the starting evaluation and document selection.
-	fn new(
+	pub(super) fn new(
 		workspace: &'a Workspace,
 		args: &'a ReviewArgs,
 	) -> Result<Self, Failure> {
@@ -77,7 +91,7 @@ impl<'a> Session<'a> {
 			.collect();
 		Ok(Self {
 			workspace,
-			context: &args.context,
+			context: args.context.clone(),
 			selected,
 			reviewer: super::super::person(workspace, args.reviewer.as_deref())?,
 			state,
@@ -92,8 +106,8 @@ impl<'a> Session<'a> {
 	}
 
 	/// Rebuilds the evidence after an answer or edit.
-	fn refresh(&mut self) -> Result<(), Failure> {
-		let next = State::load(self.workspace, self.context)?;
+	pub(super) fn refresh(&mut self) -> Result<(), Failure> {
+		let next = State::load(self.workspace, &self.context)?;
 		for (id, document) in &next.documents {
 			if let Some(previous) = self.state.documents.get(id) {
 				let changed =
@@ -151,12 +165,31 @@ impl<'a> Session<'a> {
 		self.state.queue(&self.selected, &self.answered)
 	}
 
+	/// Every eligible document that needs review, in queue order, whatever
+	/// was answered before: the full screen lets the reviewer return to any.
+	pub(super) fn pending(&self) -> Result<Vec<DocumentId>, Failure> {
+		self.state.queue(&self.selected, &BTreeMap::new())
+	}
+
+	/// Evaluates again under another context, which decides outcomes and
+	/// therefore the queue's order.
+	pub(super) fn set_context(&mut self, context: &str) -> Result<(), Failure> {
+		self.state = State::load(self.workspace, context)?;
+		context.clone_into(&mut self.context);
+		Ok(())
+	}
+
+	/// Notes that the reviewer has been shown this comparison.
+	pub(super) fn see(&mut self, id: &DocumentId, compared: &DocumentDiff) {
+		self.seen.insert(id.clone(), compared.expectations.clone());
+	}
+
 	/// The facts of the session ahead, given its starting queue.
-	fn opening(&self, queue: &[DocumentId]) -> Opening {
+	pub(super) fn opening(&self, queue: &[DocumentId]) -> Opening {
 		Opening {
 			reviewer: self.reviewer.clone(),
-			context: self.context.to_owned(),
-			projects: self.state.projects,
+			context: self.context.clone(),
+			projects: self.state.projects.len(),
 			queued: queue.len(),
 			tracked: if self.selected.is_empty() {
 				self.state.tracked.len()
@@ -168,7 +201,10 @@ impl<'a> Session<'a> {
 	}
 
 	/// Captures exactly the comparison whose expectations an answer approves.
-	fn compare(&self, id: &DocumentId) -> Result<DocumentDiff, Failure> {
+	pub(super) fn compare(
+		&self,
+		id: &DocumentId,
+	) -> Result<DocumentDiff, Failure> {
 		let snapshot = self
 			.workspace
 			.repository
@@ -185,15 +221,15 @@ impl<'a> Session<'a> {
 		.map_err(|error| Failure::mutate(self.workspace, &error))
 	}
 
-	/// Records one approved comparison. A changed source refuses this answer
-	/// and requests another prompt with a new comparison.
-	fn record(
+	/// Writes one approved comparison. A source that changed after it was
+	/// shown refuses the write and evaluates again; a written review still
+	/// needs [`Self::settle`], so that a caller can report it first.
+	pub(super) fn write(
 		&mut self,
 		id: &DocumentId,
 		compared: &DocumentDiff,
 		reread: bool,
-		ui: &mut impl Interface,
-	) -> Result<bool, Failure> {
+	) -> Result<Written, Failure> {
 		let reread = reread || compared.sources.is_empty();
 		let snapshot = self
 			.workspace
@@ -215,9 +251,8 @@ impl<'a> Session<'a> {
 		) {
 			Ok(planned) => planned,
 			Err(MutateError::ExpectationMismatch { .. }) => {
-				ui.message("A source changed after it was shown; this review was not recorded. Showing the current changes again.");
 				self.refresh()?;
-				return Ok(false);
+				return Ok(Written::Changed);
 			}
 			Err(error) => return Err(Failure::mutate(self.workspace, &error)),
 		};
@@ -228,11 +263,12 @@ impl<'a> Session<'a> {
 			.map_err(|error| Failure::apply(self.workspace, &error))?;
 		self.recorded.push((id.clone(), reread));
 		self.finished += 1;
-		ui.message(&format!(
-			"Recorded {}{}.",
-			self.workspace.display_document(&compared.document),
-			if reread { " (reread)" } else { "" }
-		));
+		Ok(Written::Recorded(reread))
+	}
+
+	/// Evaluates again after a written review, and remembers the resulting
+	/// state so that the line mode does not ask the same question twice.
+	pub(super) fn settle(&mut self, id: &DocumentId) -> Result<(), Failure> {
 		self.refresh()?;
 		if let Some(document) = self.state.documents.get(id)
 			&& document.pending
@@ -241,7 +277,81 @@ impl<'a> Session<'a> {
 				.answered
 				.insert(id.clone(), Checkpoint::Reviewed(document.stamp.clone()));
 		}
-		Ok(true)
+		Ok(())
+	}
+
+	/// Records one approved comparison for the line mode. A changed source
+	/// refuses this answer and requests another prompt with a new comparison.
+	fn record(
+		&mut self,
+		id: &DocumentId,
+		compared: &DocumentDiff,
+		reread: bool,
+		ui: &mut impl Interface,
+	) -> Result<bool, Failure> {
+		match self.write(id, compared, reread)? {
+			Written::Changed => {
+				ui.message(CHANGED);
+				Ok(false)
+			}
+			Written::Recorded(reread) => {
+				ui.message(&self.recorded_notice(compared, reread));
+				self.settle(id)?;
+				Ok(true)
+			}
+		}
+	}
+
+	/// The sentence that reports a written review.
+	pub(super) fn recorded_notice(
+		&self,
+		compared: &DocumentDiff,
+		reread: bool,
+	) -> String {
+		format!(
+			"Recorded {}{}.",
+			self.workspace.display_document(&compared.document),
+			if reread { " (reread)" } else { "" }
+		)
+	}
+
+	/// The current comparison of every document in `queue`, with every source
+	/// expectation frozen. `shown` is reused for the document on display.
+	pub(super) fn comparisons(
+		&self,
+		queue: &[DocumentId],
+		shown: Option<(&DocumentId, &DocumentDiff)>,
+	) -> Result<Vec<(DocumentId, DocumentDiff)>, Failure> {
+		queue
+			.iter()
+			.map(|id| {
+				let compared = match shown {
+					Some((current, compared)) if current == id => compared.clone(),
+					_ => self.compare(id)?,
+				};
+				Ok((id.clone(), compared))
+			})
+			.collect()
+	}
+
+	/// How many of `comparisons` the reviewer has not seen as they are now.
+	pub(super) fn unseen(
+		&self,
+		comparisons: &[(DocumentId, DocumentDiff)],
+	) -> usize {
+		comparisons
+			.iter()
+			.filter(|(id, compared)| !self.has_seen(id, compared))
+			.count()
+	}
+
+	/// Whether the reviewer has been shown this comparison as it is now.
+	pub(super) fn has_seen(
+		&self,
+		id: &DocumentId,
+		compared: &DocumentDiff,
+	) -> bool {
+		self.seen.get(id) == Some(&compared.expectations)
 	}
 
 	/// Captures and confirms the current queue once. Every source expectation
@@ -257,24 +367,9 @@ impl<'a> Session<'a> {
 			document: view.compared.document.clone(),
 			project: view.project.clone(),
 		};
-		let comparisons: Vec<_> = queue
-			.iter()
-			.map(|id| {
-				let compared = if id == &current {
-					Ok(view.compared.clone())
-				} else {
-					self.compare(id)
-				}?;
-				Ok((id.clone(), compared))
-			})
-			.collect::<Result<_, Failure>>()?;
-		let unseen = comparisons
-			.iter()
-			.filter(|(id, compared)| {
-				self.seen.get(id) != Some(&compared.expectations)
-			})
-			.count();
-		match ui.confirm_all(queue.len(), unseen)? {
+		let comparisons =
+			self.comparisons(queue, Some((&current, &view.compared)))?;
+		match ui.confirm_all(queue.len(), self.unseen(&comparisons))? {
 			None => return Ok(false),
 			Some(false) => return Ok(true),
 			Some(true) => {}
@@ -291,7 +386,7 @@ impl<'a> Session<'a> {
 
 	/// What the session did and what remains, from the final evaluation,
 	/// including documents outside an explicit selection.
-	fn closing(&self) -> Closing {
+	pub(super) fn closing(&self) -> Closing {
 		Closing {
 			reviewer: self.reviewer.clone(),
 			recorded: self

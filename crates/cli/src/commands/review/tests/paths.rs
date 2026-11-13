@@ -78,6 +78,7 @@ fn check_paths(case: &Value) {
 		documents: vec![DocumentArg::Path(document.into())],
 		context: "default".to_owned(),
 		reviewer: Some("Test Reviewer".to_owned()),
+		plain: false,
 	};
 	let mut script = Script::at(
 		root,

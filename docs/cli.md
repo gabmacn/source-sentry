@@ -168,6 +168,7 @@ dated. A name that matches nothing exits 2.
 ```
 source-sentry diff <document> [--source <path-or-pattern>]... [--format <human|json>]
 source-sentry review [<document>...] [--context <name>] [--reviewer <name>]
+                     [--plain]
 source-sentry attest <document> [--source <path-or-pattern>]...
                      [--expect <path@oid|path@absent>]... [--reviewer <name>]
                      [--reread] [--dry-run] [--yes]
@@ -236,6 +237,72 @@ queue to those that need review. Sealed records are never queued. A
 configuration or integrity error refuses the session before its first
 question.
 
+### The full screen
+
+Where the terminal shows 24-bit colour and has at least 80 columns and 20
+rows, `review` takes over the screen. Elsewhere, and with `--plain`,
+`--color never` or `NO_COLOR`, it runs in the line mode below. Windows
+consoles are taken to show 24-bit colour; other terminals announce it in
+`COLORTERM`. A session with nothing to review prints its closing alone.
+
+The screen has four parts:
+
+- **A header** with the reviewer, the context, the number of projects
+  traversed and the session's progress.
+- **A sidebar** that lists the documents that need review, in queue order,
+  above a collapsed list of every other document: those reviewed in this
+  session first, marked with a tick, then the other live documents, then the
+  sealed records. The mark fills the space below while that list is closed.
+- **A pane** for the document under the cursor: its outcome and facts, when a
+  source was last reviewed and by whom, its project and the upstream
+  documents it waits on. Below these it shows either the changed files with
+  the selected file's changes, or the document's own text. From 200 columns
+  it shows both, side by side.
+- **The question** about that document, in the last rows, with the keys
+  that answer it.
+
+The order is the reviewer's. The queue's order is only where the cursor
+starts, and any document may be opened at any time.
+
+| Key | Action |
+|---|---|
+| `↑` `↓` | Move between documents; `↑` from the first one enters the header |
+| `o` | Open or close the other documents |
+| `Tab`, `Shift+Tab` | Go to the next or the previous changed file |
+| `v` | Swap the pane between the changes and the document |
+| `PgUp` `PgDn` | Scroll the pane |
+| `y` | Answer that the document is still accurate |
+| `r` | Give the same answer and record a whole-document reread |
+| `Enter` | Record the answer; `Esc` or any other key withdraws it |
+| `a` | Answer `y` for every document that needs review, after a confirmation |
+| `e` | Edit the document in an editor, then evaluate again |
+| `?` | Show the keys |
+| `q`, `Ctrl+C` | Quit, preserving earlier reviews |
+
+`y` and `r` only hold an answer: nothing is written until Enter. A recorded
+review is bound to the source versions shown, exactly as in the line mode,
+and a source changed since refuses the write and shows the document again.
+The reviewed document then moves to the other documents, and the cursor to
+the next one that needs review. A document that needs nothing takes `r` but
+no `y`; a sealed record can only be read.
+
+`a` lists every document that needs review with its outcome and whether its
+current comparison has been displayed, and records them all on `y`. Any
+other key goes back. A source that changes during the batch stops it.
+
+In the header, `←` and `→` select a field and Enter changes it. The
+reviewer's name applies to the reviews recorded from then on. The context
+is chosen from those that the traversed projects declare, and the working
+tree is evaluated again under it. The projects are listed. `↓` returns to
+the documents.
+
+The screen is drawn on the terminal's alternate screen and leaves nothing
+behind, so the closing described below is printed after it. `e` hands the
+terminal to the editor chain of the line mode, and takes it back when the
+editor closes.
+
+### The line mode
+
 A session whose queue is not empty opens with the Source Sentry mark and,
 beside it, the version, the licence and the facts of the review ahead: the
 reviewer whose name each review will carry, the context, the number of
@@ -291,6 +358,8 @@ a pager, it is a file without colour, 100 columns wide. `e`
 uses the editor chain alone and supports local documents. Commands may
 include arguments. A remote document must be edited in its source
 application.
+
+### Both modes
 
 `review` requires both standard input and standard output to be terminals.
 Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.

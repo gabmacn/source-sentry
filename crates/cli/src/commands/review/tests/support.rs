@@ -68,7 +68,7 @@ impl Repo {
 	}
 
 	/// Replaces a working-tree file, creating its parent directories.
-	pub(super) fn write(&self, path: &str, text: &str) {
+	pub(in crate::commands::review) fn write(&self, path: &str, text: &str) {
 		let target = self.directory.path().join(path);
 		fs::create_dir_all(target.parent().unwrap()).unwrap();
 		fs::write(target, text).unwrap();
@@ -80,7 +80,7 @@ impl Repo {
 	}
 
 	/// Reads a document's current declaration from the fixture's lockfile.
-	pub(super) fn entry(&self, document: &str) -> Value {
+	pub(in crate::commands::review) fn entry(&self, document: &str) -> Value {
 		serde_json::from_str::<Value>(&self.read("source-sentry.lock")).unwrap()["documents"][document].clone()
 	}
 
@@ -110,7 +110,7 @@ impl Repo {
 	}
 
 	/// Prepares an already reviewed document through the ordinary planner.
-	pub(super) fn attest(&self, document: &str) {
+	pub(in crate::commands::review) fn attest(&self, document: &str) {
 		let workspace = self.workspace();
 		let snapshot = workspace.repository.working_tree_snapshot().unwrap();
 		let (_, inventory) = load(&workspace, &snapshot).unwrap();
@@ -142,7 +142,10 @@ impl Repo {
 
 	/// The arguments for a fixture session; paths are absolute because tests
 	/// share the process's current directory.
-	pub(super) fn args(&self, selected: &[&str]) -> ReviewArgs {
+	pub(in crate::commands::review) fn args(
+		&self,
+		selected: &[&str],
+	) -> ReviewArgs {
 		ReviewArgs {
 			documents: selected
 				.iter()
@@ -150,6 +153,7 @@ impl Repo {
 				.collect(),
 			context: "default".to_owned(),
 			reviewer: None,
+			plain: false,
 		}
 	}
 }

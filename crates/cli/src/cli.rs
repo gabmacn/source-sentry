@@ -106,7 +106,8 @@ pub(crate) enum Command {
 	/// Record that a document was reviewed against its sources.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
 	Attest(AttestArgs),
-	/// Review pending documents interactively on a terminal.
+	/// Review pending documents on a terminal: on the full screen where it
+	/// can be shown, and otherwise one question after another.
 	#[command(after_long_help = REVIEW_EXIT_CODES)]
 	Review(ReviewArgs),
 	/// Seal a lockfile-tracked document as a record, which must never change.
@@ -267,6 +268,9 @@ pub(crate) struct ReviewArgs {
 	/// Who reviewed. By default, git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) reviewer: Option<String>,
+	/// Ask one question after another instead of taking over the screen.
+	#[arg(long)]
+	pub(crate) plain: bool,
 }
 
 /// The arguments of `attest`.

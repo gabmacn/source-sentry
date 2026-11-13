@@ -6,6 +6,7 @@ mod closing;
 mod external;
 mod opening;
 mod render;
+mod screen;
 mod session;
 mod state;
 mod terminal;
@@ -125,13 +126,18 @@ pub(super) fn require_terminal() -> Result<(), Failure> {
 	Ok(())
 }
 
-/// Runs an interactive session after the caller verifies its terminal handles.
-/// `printer` carries `--quiet`, which leaves out the session's opening.
+/// Runs an interactive session after the caller verifies its terminal handles:
+/// on the full screen where the terminal can show it, and otherwise, or with
+/// `--plain`, one question after another. `printer` carries `--quiet`.
 pub(super) fn run(
 	workspace: &Workspace,
 	args: &ReviewArgs,
 	printer: Printer,
 ) -> Result<u8, Failure> {
-	session::run(workspace, args, &mut terminal::Terminal::new(printer))?;
+	if !args.plain && screen::supported() {
+		screen::run(workspace, args, printer)?;
+	} else {
+		session::run(workspace, args, &mut terminal::Terminal::new(printer))?;
+	}
 	Ok(exit::SUCCESS)
 }

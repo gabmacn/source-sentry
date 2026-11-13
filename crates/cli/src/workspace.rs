@@ -219,6 +219,13 @@ impl Workspace {
 		}
 	}
 
+	/// Where `path` is in the filesystem, for reading a working-tree file.
+	pub(crate) fn file(&self, path: &RepoPath) -> PathBuf {
+		let mut file = self.root_shown.clone();
+		file.extend(path.components());
+		file
+	}
+
 	/// `-C` as given, if it was.
 	pub(crate) fn repo_argument(&self) -> Option<&Path> {
 		self.repo_argument.as_deref()

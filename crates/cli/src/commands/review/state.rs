@@ -101,8 +101,10 @@ pub(super) struct State {
 	pub(super) documents: BTreeMap<Key, Document>,
 	/// Every tracked identity, including records that cannot be queued.
 	pub(super) tracked: BTreeSet<Key>,
-	/// How many projects the evaluation traversed.
-	pub(super) projects: usize,
+	/// The projects the evaluation traversed, by their roots.
+	pub(super) projects: Vec<RepoPath>,
+	/// Every context that a traversed project declares.
+	pub(super) contexts: BTreeSet<String>,
 }
 
 impl State {
@@ -124,14 +126,16 @@ impl State {
 			fallbacks: Vec::new(),
 			documents: BTreeMap::new(),
 			tracked: BTreeSet::new(),
-			projects: 0,
+			projects: Vec::new(),
+			contexts: BTreeSet::new(),
 		};
 		for project in roots.iter().filter(|project| project.starts_with(&start)) {
 			let one = Self::project(workspace, &snapshot, context, project)?;
 			state.fallbacks.extend(one.fallbacks);
 			state.documents.extend(one.documents);
 			state.tracked.extend(one.tracked);
-			state.projects += one.projects;
+			state.projects.extend(one.projects);
+			state.contexts.extend(one.contexts);
 		}
 		let edges: BTreeMap<_, _> = state
 			.documents
@@ -253,7 +257,8 @@ impl State {
 					)
 				})
 				.collect(),
-			projects: 1,
+			projects: vec![project.clone()],
+			contexts: configs.contexts().keys().cloned().collect(),
 		})
 	}
 
