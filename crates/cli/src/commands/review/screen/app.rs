@@ -841,7 +841,32 @@ impl<'a> App<'a> {
 		};
 		if !self.picked_sources.remove(&owner) {
 			self.picked_sources.insert(owner);
+			self.notice = self.pattern_notice(self.file, self.file);
 		}
+	}
+
+	/// What to tell the reviewer when picking the files from `low` to `high`
+	/// brought another file along: one of a pattern, which is reviewed as a
+	/// whole. Without it, the extra row would look like a fault.
+	fn pattern_notice(&self, low: usize, high: usize) -> Option<String> {
+		let shown = self.shown.as_ref()?;
+		let acted = shown.owners.get(low..=high)?;
+		let owner = shown
+			.owners
+			.iter()
+			.enumerate()
+			.find(|(index, owner)| {
+				!(low..=high).contains(index)
+					&& acted.contains(owner)
+					&& self.picked_sources.contains(owner)
+			})
+			.map(|(_, owner)| *owner)?;
+		let files = shown.owners.iter().filter(|other| **other == owner).count();
+		Some(format!(
+			"`{}` is a pattern, reviewed as a whole: its {} go together.",
+			shown.compared.as_ref()?.sources.get(owner)?.declared,
+			describe::count(files, "changed file", "changed files")
+		))
 	}
 
 	/// Picks the sources of every file from where the range started to
@@ -867,6 +892,7 @@ impl<'a> App<'a> {
 		self.picked_sources.extend(range);
 		self.select_file(file);
 		self.anchor = Some(from);
+		self.notice = self.pattern_notice(from.min(file), from.max(file));
 	}
 
 	/// The picked sources as a review's selection, and how many they are;
@@ -969,7 +995,11 @@ impl<'a> App<'a> {
 			(Focus::Sidebar, Key::BackTab) => self.cycle(false),
 			(Focus::Sidebar, Key::Extend(down)) => self.extend(down),
 			(Focus::Sidebar, Key::Char(' ')) if on_document => self.toggle_pick(),
-			(Focus::Sidebar, Key::Enter) if self.cursor == Cursor::Others => {
+			// The label cannot be picked, so the space bar opens it as Enter
+			// does.
+			(Focus::Sidebar, Key::Enter | Key::Char(' '))
+				if self.cursor == Cursor::Others =>
+			{
 				self.toggle_others();
 			}
 			(Focus::Sidebar, Key::Right | Key::Enter) if on_document => {

@@ -831,3 +831,47 @@ fn the_mark_gives_way_to_the_smaller_one_and_then_to_nothing() {
 	let shorter = drawn(&app, 120, 20);
 	assert!(!shows(&shorter, small) && !shows(&shorter, large));
 }
+
+/// The files of a pattern are picked together, because a pattern is
+/// reviewed as a whole, and a notice says so when picking one file brings
+/// another along.
+#[test]
+fn the_files_of_a_pattern_are_picked_together_and_a_notice_says_so() {
+	let repo =
+		Repo::new(json!({"docs/a.md": {"sources": [{"pattern": "/src/*.rs"}]}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.shown.as_ref().unwrap().files.len(), 2);
+	press(&mut app, &[Key::Right, Key::Char(' ')]);
+	assert_eq!(app.picked_sources.len(), 1);
+	let notice = app.notice.clone().unwrap();
+	assert!(notice.contains("`/src/*.rs` is a pattern"), "{notice}");
+	assert!(
+		notice.contains("its 2 changed files go together"),
+		"{notice}"
+	);
+	// Both of its rows carry the bar, at the pane's left edge.
+	let rows = drawn(&app, 120, 30);
+	let bars = rows
+		.iter()
+		.filter(|row| row.chars().nth(32) == Some('▌'))
+		.count();
+	assert_eq!(bars, 2);
+
+	// A range that already covers every file of the pattern needs no notice.
+	press(&mut app, &[Key::Escape, Key::Extend(true)]);
+	assert_eq!((app.picked_sources.len(), app.notice.as_ref()), (1, None));
+}
+
+/// On the label of the other documents nothing can be picked, so the space
+/// bar opens and closes them as Enter does.
+#[test]
+fn the_space_bar_opens_the_other_documents_on_their_label() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Down, Key::Down, Key::Char(' ')]);
+	assert_eq!((app.cursor, app.expanded), (Cursor::Others, true));
+	press(&mut app, &[Key::Char(' ')]);
+	assert_eq!((app.expanded, app.picked.is_empty()), (false, true));
+}

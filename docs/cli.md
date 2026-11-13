@@ -274,7 +274,7 @@ starts, and any document may be opened at any time.
 | `→`, `Enter` | From a document, go to its changed files, or to its name when it has none |
 | `←`, `Esc` | From the changed files or the name, return to the documents |
 | `Enter` | On a changed file or the document's name, show it whole; on the label of the other documents, open or close them |
-| `Space` | Pick the row under the cursor, or let go of it |
+| `Space` | Pick the row under the cursor, or let go of it; on the label of the other documents, open or close them |
 | `Shift+↑`, `Shift+↓` | Pick the range of rows to the next one, besides those already picked |
 | `Esc` | Let go of every picked row |
 | `o` | Open or close the other documents |
@@ -315,7 +315,8 @@ them on `y`. A plain `y` leaves out a picked document that needs nothing;
 files picked, `y` and `r` record a review of their sources alone, as
 `attest --source` does, and the document stays in the queue while another
 source still needs review. The files of a pattern are picked together,
-because a pattern is reviewed as a whole. An ordinary click or `Esc` lets
+because a pattern is reviewed as a whole; a notice names the pattern when
+picking one file brings another along. An ordinary click or `Esc` lets
 go of what was picked, and so does moving to another document for picked
 files.
 

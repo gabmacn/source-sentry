@@ -1310,7 +1310,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		("Enter", "On a source or the name, show its whole path"),
 		(
 			"o",
-			"Open or close the other documents; Enter on their label too",
+			"Open or close the others; Enter or Space on their label",
 		),
 		("↑", "From the first document, enter the header"),
 		("v", "Swap the pane between the changes and the document"),
