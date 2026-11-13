@@ -315,8 +315,9 @@ them on `y`. A plain `y` leaves out a picked document that needs nothing;
 files picked, `y` and `r` record a review of their sources alone, as
 `attest --source` does, and the document stays in the queue while another
 source still needs review. The files of a pattern are picked together,
-because a pattern is reviewed as a whole; a notice names the pattern when
-picking one file brings another along. An ordinary click or `Esc` lets
+because a pattern is reviewed as a whole. A bracket in the margin joins
+them in the list, and a notice names the pattern when picking one file
+brings another along. An ordinary click or `Esc` lets
 go of what was picked, and so does moving to another document for picked
 files.
 

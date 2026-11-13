@@ -754,7 +754,9 @@ fn changes(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 
 /// The changed files with their counts and object names: at most five at
 /// once, around the selected one, which is marked strongly while the
-/// sources have the focus. Returns the row after the last.
+/// sources have the focus. A bracket in the margin joins the files of one
+/// pattern, and gives way to the bar when they are picked. Returns the row
+/// after the last.
 fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 	let mut y = area.y + 1;
 	for (index, file) in shown
@@ -784,6 +786,8 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		}
 		if picked {
 			picked_bar(pen, area.x, y, 1);
+		} else if let Some(joint) = joint(&shown.owners, index) {
+			pen.text(area.x, y, joint, mark.unwrap_or_else(dim), 1);
 		}
 		let mut start = pen.right(
 			area.right() - 1,
@@ -816,6 +820,21 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		y += 1;
 	}
 	y
+}
+
+/// The piece of the bracket that joins a file to its neighbours of the same
+/// source in the margin. Only the files of a pattern share a source, and a
+/// pattern is reviewed as a whole, so the bracket shows which files go
+/// together before any is picked.
+pub(super) fn joint(owners: &[usize], index: usize) -> Option<&'static str> {
+	let owner = owners.get(index)?;
+	let above = index.checked_sub(1).and_then(|above| owners.get(above));
+	match (above == Some(owner), owners.get(index + 1) == Some(owner)) {
+		(false, true) => Some("┌"),
+		(true, true) => Some("│"),
+		(true, false) => Some("└"),
+		(false, false) => None,
+	}
 }
 
 /// The selected file's rows from where they are scrolled to: a line where

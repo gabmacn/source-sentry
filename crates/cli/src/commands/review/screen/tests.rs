@@ -842,8 +842,18 @@ fn the_files_of_a_pattern_are_picked_together_and_a_notice_says_so() {
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
 	assert_eq!(app.shown.as_ref().unwrap().files.len(), 2);
+	// Before any is picked, a bracket in the margin joins the two files.
+	let margin = |app: &App| -> String {
+		drawn(app, 120, 30)
+			.iter()
+			.filter_map(|row| row.chars().nth(32))
+			.filter(|symbol| matches!(symbol, '┌' | '│' | '└' | '▌'))
+			.collect()
+	};
+	assert_eq!(margin(&app), "┌└");
 	press(&mut app, &[Key::Right, Key::Char(' ')]);
 	assert_eq!(app.picked_sources.len(), 1);
+	assert_eq!(margin(&app), "▌▌", "the bar takes the bracket's place");
 	let notice = app.notice.clone().unwrap();
 	assert!(notice.contains("`/src/*.rs` is a pattern"), "{notice}");
 	assert!(
@@ -874,4 +884,15 @@ fn the_space_bar_opens_the_other_documents_on_their_label() {
 	assert_eq!((app.cursor, app.expanded), (Cursor::Others, true));
 	press(&mut app, &[Key::Char(' ')]);
 	assert_eq!((app.expanded, app.picked.is_empty()), (false, true));
+}
+
+/// The bracket joins only neighbours of one source: its first file opens
+/// it, its last closes it, and a file alone in its source has none.
+#[test]
+fn the_bracket_joins_the_files_of_one_source() {
+	let owners = [0, 1, 1, 1, 2, 3, 3];
+	let drawn: Vec<_> = (0..owners.len())
+		.map(|index| draw::joint(&owners, index).unwrap_or(" "))
+		.collect();
+	assert_eq!(drawn.concat(), " ┌│└ ┌└");
 }
