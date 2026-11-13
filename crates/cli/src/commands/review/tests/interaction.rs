@@ -1,8 +1,10 @@
 //! Queue selection, prompts, expectation refusals, and display regressions.
 
 use serde_json::json;
+use source_sentry_core::model::Outcome;
 use std::fmt::Write as _;
 
+use super::super::opening::Opening;
 use super::super::{Answer, session, state::State};
 use super::support::{Repo, Script, Step, local};
 
@@ -23,6 +25,43 @@ fn one_letter_answers_and_the_empty_default() {
 	}
 	assert_eq!(Answer::parse("s"), None);
 	assert_eq!(Answer::parse("yes"), None);
+}
+
+/// A session opens once with the facts of its starting queue, counting named
+/// documents when any were named; an empty queue has no opening.
+#[test]
+fn a_session_opens_with_its_facts_unless_the_queue_is_empty() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}]}, "docs/b.md": {}, "docs/fresh.md": {}}),
+	);
+	repo.attest("docs/fresh.md");
+	let mut script = Script::answers(&repo, &[Answer::Next, Answer::Quit]);
+	repo.run(&[], &mut script).unwrap();
+	assert_eq!(
+		script.openings,
+		[Opening {
+			reviewer: Some("Test Reviewer".to_owned()),
+			context: "default".to_owned(),
+			projects: 1,
+			queued: 2,
+			tracked: 3,
+			outcomes: vec![(Outcome::Warn, 2)],
+		}]
+	);
+	let mut script = Script::answers(&repo, &[Answer::Quit]);
+	repo
+		.run(&["docs/b.md", "docs/fresh.md"], &mut script)
+		.unwrap();
+	assert_eq!(
+		(script.openings[0].queued, script.openings[0].tracked),
+		(1, 2)
+	);
+	repo.attest("docs/a.md");
+	repo.attest("docs/b.md");
+	let mut script = Script::answers(&repo, &[]);
+	repo.run(&[], &mut script).unwrap();
+	assert_eq!(script.openings, []);
+	assert_eq!(script.shown, []);
 }
 
 /// Context severity precedes dependency and lexical ordering within a tier.

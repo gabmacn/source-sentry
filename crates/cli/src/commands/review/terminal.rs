@@ -9,15 +9,23 @@ use inquire::{Confirm, InquireError, Text};
 use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::DocumentDiff;
 
+use super::opening::Opening;
 use super::{Answer, Interface, View};
 use crate::exit::{self, Failure};
-use crate::output;
+use crate::output::{self, Printer};
 use crate::workspace::Workspace;
 
 /// The production interaction boundary, using inquire's crossterm backend.
-pub(super) struct Terminal;
+pub(super) struct Terminal {
+	/// Prints what `--quiet` leaves out: the session's opening.
+	pub(super) printer: Printer,
+}
 
 impl Interface for Terminal {
+	fn open(&mut self, opening: &Opening) {
+		self.printer.print(&opening.text());
+	}
+
 	fn show(&mut self, workspace: &Workspace, view: &View) {
 		output::data(&super::render::document(workspace, view));
 	}

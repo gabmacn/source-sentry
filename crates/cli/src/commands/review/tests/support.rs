@@ -11,6 +11,7 @@ use source_sentry_core::mutate::{
 };
 use tempfile::TempDir;
 
+use super::super::opening::Opening;
 use super::super::{Answer, Interface, View, render, session};
 use crate::cli::{DocumentArg, ReviewArgs};
 use crate::exit::Failure;
@@ -176,6 +177,8 @@ pub(super) struct Script {
 	root: std::path::PathBuf,
 	/// The remaining interactions.
 	steps: VecDeque<Step>,
+	/// Every opening presented; a session has one at most.
+	pub(super) openings: Vec<Opening>,
 	/// Every document shown, including retries.
 	pub(super) shown: Vec<DocumentId>,
 	/// Every bounded display, with paths rendered by the workspace.
@@ -207,6 +210,7 @@ impl Script {
 		Self {
 			root: root.to_path_buf(),
 			steps: steps.into_iter().collect(),
+			openings: Vec::new(),
 			shown: Vec::new(),
 			displays: Vec::new(),
 			comparisons: Vec::new(),
@@ -231,6 +235,10 @@ impl Script {
 }
 
 impl Interface for Script {
+	fn open(&mut self, opening: &Opening) {
+		self.openings.push(opening.clone());
+	}
+
 	fn show(&mut self, workspace: &Workspace, view: &View) {
 		self.shown.push(view.compared.document.clone());
 		self.displays.push(render::document(workspace, view));

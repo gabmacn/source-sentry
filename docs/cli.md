@@ -15,7 +15,9 @@ source-sentry help [<command>]
   `--format json` and, on a terminal, the review session or a change's plan
   with its question.
 - `-h` or `--help` describes a command; `-V` or `--version` prints the
-  version.
+  version. On a terminal, the top-level help opens with the Source Sentry
+  mark, drawn in half-block characters; redirected help is plain text, and a
+  command's own help never carries it.
 
 Documents are named by path or by remote identity: `abstract:onboarding-video`,
 `google-drive:1a2B3c4D5e6F7g8H9i0J`.
@@ -233,6 +235,13 @@ an outcome, then path. Named documents limit the
 queue to those that need review. Sealed records are never queued. A
 configuration or integrity error refuses the session before its first
 question.
+
+A session whose queue is not empty opens with the Source Sentry mark and,
+beside it, the facts of the review ahead: the reviewer whose name each
+review will carry, the context, the number of projects traversed, how many
+documents need review out of those tracked (out of those named, when
+documents were named), and the queue's outcomes, worst first. `--quiet`
+leaves the opening out.
 
 Each document shows its place in the queue, the pending sources' old and new
 oids, line counts and up to 40 diff lines. Changes carry `path:line`

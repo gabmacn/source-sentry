@@ -77,6 +77,9 @@ fn help_and_version_exit_0() {
 	let help = repo.run(&["check", "--help"]);
 	assert!(help.stdout.contains("--fail-on"), "{}", help.stdout);
 	assert!(help.stdout.contains("64"), "the exit codes are listed");
+	// The mark is for terminals; redirected help is plain text.
+	let top = repo.run(&["--help"]);
+	assert!(!top.stdout.contains('█'), "{}", top.stdout);
 }
 
 #[test]

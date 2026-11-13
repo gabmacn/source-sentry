@@ -10,6 +10,7 @@ use source_sentry_core::mutate::{
 	diff,
 };
 
+use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
 use super::{Answer, Interface, View};
 use crate::cli::ReviewArgs;
@@ -145,6 +146,22 @@ impl<'a> Session<'a> {
 	/// The remaining eligible queue in the current evaluation.
 	fn queue(&self) -> Result<Vec<DocumentId>, Failure> {
 		self.state.queue(&self.selected, &self.answered)
+	}
+
+	/// The facts of the session ahead, given its starting queue.
+	fn opening(&self, queue: &[DocumentId]) -> Opening {
+		Opening {
+			reviewer: self.reviewer.clone(),
+			context: self.context.to_owned(),
+			projects: self.state.projects,
+			queued: queue.len(),
+			tracked: if self.selected.is_empty() {
+				self.state.tracked.len()
+			} else {
+				self.selected.len()
+			},
+			outcomes: self.state.outcomes(queue),
+		}
 	}
 
 	/// Captures exactly the comparison whose expectations an answer approves.
@@ -328,6 +345,10 @@ pub(super) fn run(
 	ui: &mut impl Interface,
 ) -> Result<(), Failure> {
 	let mut session = Session::new(workspace, args)?;
+	let starting = session.queue()?;
+	if !starting.is_empty() {
+		ui.open(&session.opening(&starting));
+	}
 	for project in &session.state.fallbacks {
 		ui.message(&format!("Project {} does not declare context `{}`; ordering its documents by its own `default`.", workspace.display_path(project), args.context));
 	}

@@ -94,6 +94,8 @@ pub(super) struct State {
 	pub(super) documents: BTreeMap<Key, Document>,
 	/// Every tracked identity, including records that cannot be queued.
 	pub(super) tracked: BTreeSet<Key>,
+	/// How many projects the evaluation traversed.
+	pub(super) projects: usize,
 }
 
 impl State {
@@ -115,12 +117,14 @@ impl State {
 			fallbacks: Vec::new(),
 			documents: BTreeMap::new(),
 			tracked: BTreeSet::new(),
+			projects: 0,
 		};
 		for project in roots.iter().filter(|project| project.starts_with(&start)) {
 			let one = Self::project(workspace, &snapshot, context, project)?;
 			state.fallbacks.extend(one.fallbacks);
 			state.documents.extend(one.documents);
 			state.tracked.extend(one.tracked);
+			state.projects += one.projects;
 		}
 		let edges: BTreeMap<_, _> = state
 			.documents
@@ -229,11 +233,7 @@ impl State {
 			);
 		}
 		Ok(Self {
-			fallbacks: if fallback {
-				vec![project.clone()]
-			} else {
-				Vec::new()
-			},
+			fallbacks: fallback.then(|| project.clone()).into_iter().collect(),
 			documents,
 			tracked: inventory
 				.claims
@@ -246,7 +246,19 @@ impl State {
 					)
 				})
 				.collect(),
+			projects: 1,
 		})
+	}
+
+	/// How many of `queue`'s documents have each outcome, worst first.
+	pub(super) fn outcomes(&self, queue: &[Key]) -> Vec<(Outcome, usize)> {
+		let mut counts = BTreeMap::new();
+		for id in queue {
+			if let Some(document) = self.documents.get(id) {
+				*counts.entry(document.outcome).or_insert(0_usize) += 1;
+			}
+		}
+		counts.into_iter().rev().collect()
 	}
 
 	/// Orders eligible documents by decreasing outcome, then topologically

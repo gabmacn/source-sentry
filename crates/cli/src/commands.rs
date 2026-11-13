@@ -57,7 +57,7 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 		Command::Explain(args) => explain::run(&workspace, args, printer),
 		Command::Diff(args) => diff::run(&workspace, args, printer),
 		Command::Attest(args) => attest::run(&workspace, args, printer),
-		Command::Review(args) => review::run(&workspace, args),
+		Command::Review(args) => review::run(&workspace, args, printer),
 		Command::Seal(args) => records::seal(&workspace, args, printer),
 		Command::Retire(args) => records::retire(&workspace, args, printer),
 		Command::Track(args) => track::run(&workspace, args, printer),

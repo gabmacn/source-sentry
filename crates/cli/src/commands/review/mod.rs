@@ -1,6 +1,7 @@
 //! Interactive review, with terminal I/O separated from session decisions.
 
 mod external;
+mod opening;
 mod render;
 mod session;
 mod state;
@@ -16,6 +17,7 @@ use source_sentry_core::mutate::DocumentDiff;
 
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
+use crate::output::Printer;
 use crate::workspace::Workspace;
 
 /// One document's answer. Absence of an answer ends the session.
@@ -73,6 +75,9 @@ struct View {
 /// The session's human interaction boundary. Scripted tests use the same
 /// session and write path without requiring terminal handles.
 trait Interface {
+	/// Presents the session ahead, once, before its first document. A session
+	/// whose queue starts empty has no opening.
+	fn open(&mut self, opening: &opening::Opening);
 	/// Shows a document before asking for its answer.
 	fn show(&mut self, workspace: &Workspace, view: &View);
 	/// Asks for one answer; `None` means end of input or cancellation.
@@ -113,10 +118,12 @@ pub(super) fn require_terminal() -> Result<(), Failure> {
 }
 
 /// Runs an interactive session after the caller verifies its terminal handles.
+/// `printer` carries `--quiet`, which leaves out the session's opening.
 pub(super) fn run(
 	workspace: &Workspace,
 	args: &ReviewArgs,
+	printer: Printer,
 ) -> Result<u8, Failure> {
-	session::run(workspace, args, &mut terminal::Terminal)?;
+	session::run(workspace, args, &mut terminal::Terminal { printer })?;
 	Ok(exit::SUCCESS)
 }
