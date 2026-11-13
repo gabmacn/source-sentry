@@ -15,6 +15,12 @@ document gets a deadline set by its schedule. A context decides what staleness
 means for a build: a privacy policy can block a production deploy while a
 marketing page only warns.
 
+Source Sentry does not judge whether a document is right. It tells which
+documents a change may have made wrong, and records that a named reviewer
+checked them against exact versions of their sources.
+[`docs/how-it-works.md`](docs/how-it-works.md) explains the model and the
+reason for each rule.
+
 ## Installing
 
 The first release has not been published yet. Once it has, there are two ways
@@ -100,7 +106,8 @@ LFS. A file behind any other clean filter, and a submodule, cannot be
 compared, and is reported as an error. Repositories with SHA-1 and SHA-256
 object names are both supported.
 
-[`docs/cli.md`](docs/cli.md) describes every command, and
+[`docs/how-it-works.md`](docs/how-it-works.md) explains what Source Sentry
+does and why. [`docs/cli.md`](docs/cli.md) describes every command, and
 [`structure/`](structure/README.md) shows every file format with examples.
 [`recipes/`](recipes/README.md) holds CI recipes for GitHub Actions, GitLab
 CI, Forgejo Actions and Woodpecker.

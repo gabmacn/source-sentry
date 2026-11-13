@@ -1,5 +1,8 @@
 # Command-line interface
 
+This is the reference for each command. For the model behind them and the
+reason for each rule, see [`how-it-works.md`](how-it-works.md).
+
 ```
 source-sentry [-C <path>] [--color <auto|always|never>] [--quiet] <command>
 source-sentry help [<command>]
