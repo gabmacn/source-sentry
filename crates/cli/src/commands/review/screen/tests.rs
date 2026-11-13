@@ -418,9 +418,25 @@ fn a_click_does_what_the_matching_key_does() {
 	app.click(Target::Source(1)).unwrap();
 	assert!(matches!(app.overlay, Some(Overlay::Path(_))));
 
-	// Under a box, only the box takes clicks.
+	// Under a box, only the box takes clicks. One on the box itself does
+	// nothing, and one around it closes it.
 	show(&mut app, 120, 30);
-	assert_eq!(app.target_at(10, 5), None);
+	assert_eq!(app.target_at(10, 5), Some(Target::Outside));
+	let inside = app
+		.hits
+		.iter()
+		.find(|(_, target)| *target == Target::Box)
+		.map(|(area, _)| *area)
+		.unwrap();
+	assert_eq!(app.target_at(inside.x + 1, inside.y + 1), Some(Target::Box));
+	app.click(Target::Box).unwrap();
+	assert!(app.overlay.is_some());
+	app.click(Target::Outside).unwrap();
+	assert!(app.overlay.is_none());
+	assert_eq!(app.focus, Focus::Sources, "only the box closed");
+	app.click(Target::Source(1)).unwrap();
+	assert!(matches!(app.overlay, Some(Overlay::Path(_))));
+	show(&mut app, 120, 30);
 	let close = app
 		.hits
 		.iter()

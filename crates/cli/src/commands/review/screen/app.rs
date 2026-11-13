@@ -78,6 +78,12 @@ pub(super) enum Target {
 	Cap(Key),
 	/// A context in the box that lists them.
 	Context(usize),
+	/// An open box itself, away from anything in it. A click there does
+	/// nothing.
+	Box,
+	/// The screen around an open box. A click there closes the box, as
+	/// Escape does.
+	Outside,
 }
 
 /// The rows one notch of the wheel scrolls.
@@ -569,6 +575,12 @@ impl<'a> App<'a> {
 					return self.key(Key::Enter);
 				}
 			}
+			Target::Outside => {
+				if self.overlay.is_some() {
+					return self.key(Key::Escape);
+				}
+			}
+			Target::Box => {}
 			_ if self.overlay.is_some() => {}
 			Target::Row(row) => {
 				let again = self.cursor == row && self.focus == Focus::Sidebar;

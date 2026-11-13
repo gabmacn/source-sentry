@@ -312,7 +312,9 @@ again after every write, every editor visit and every change of context.
 
 A click does what the matching key does, and a second click on the row
 already under the cursor acts as Enter does there. A click never records a
-held answer, except on the cap of Enter itself. The pointer lightly marks
+held answer, except on the cap of Enter itself. While a box is open, only
+the box takes clicks, and a click around it closes it as `Esc` does. The
+pointer lightly marks
 what a click would act on; this depends on the terminal reporting the
 pointer's movement, so nothing is shown by it alone, and every action has
 its key.

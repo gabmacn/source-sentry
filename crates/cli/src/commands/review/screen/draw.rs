@@ -313,8 +313,9 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) -> Vec<(Rect, Target)> {
 	question(app, &mut pen, body.bottom() + 1, area.width);
 	if let Some(overlay) = &app.overlay {
 		step_back(pen.buffer);
-		// Under a box, only the box takes clicks.
+		// Under a box, only the box takes clicks; one around it closes it.
 		pen.hits.clear();
+		pen.hits.push((area, Target::Outside));
 		overlay_box(app, overlay, &mut pen, area);
 	}
 	pen.hits
@@ -1058,6 +1059,7 @@ fn frame(
 		columns,
 		rows,
 	);
+	pen.hits.push((inside, Target::Box));
 	// The box starts from empty cells, so that nothing it covers shows
 	// through: neither a character nor its weight.
 	for y in inside.y..inside.bottom() {
