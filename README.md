@@ -1,5 +1,10 @@
 # Source Sentry
 
+<p align="center">
+  <img src="docs/images/the-sentry-ink.png#gh-light-mode-only" width="320" alt="The Sentry: a card showing a peacock-feather eye, in blue and cream on ink">
+  <img src="docs/images/the-sentry-cream.png#gh-dark-mode-only" width="320" alt="The Sentry: a card showing a peacock-feather eye, in blue and ink on cream">
+</p>
+
 Tracks documentation and records against the repository sources they describe.
 It supports documentation roots per product, and distinguishes documentation,
 which must follow its sources, from records, which must not change once
