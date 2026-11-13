@@ -10,40 +10,40 @@
           "oid": "sha1:72d34a549ad1e772621d38808dbf15b4ef633737",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-12T22:16:28Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T00:30:10Z",
+            "by": "Claude"
           }
         },
         {
-          "oid": "sha1:a532a6a73056cda65b4cb2cb86d995c3e3b9e703",
+          "oid": "sha1:72467a3687d0fcf9b007ab5183a6a74cd32a673b",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-12T22:16:28Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T00:30:10Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-12T22:16:28Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T00:30:10Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-12T22:16:28Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T00:30:10Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-12T22:16:28Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T00:30:10Z",
+            "by": "Claude"
           }
         }
       ]
