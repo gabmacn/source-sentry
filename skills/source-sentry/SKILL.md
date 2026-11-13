@@ -31,9 +31,12 @@ command.
    changes that `diff` shows and the document itself, and correct the
    document where it no longer matches its sources.
 3. **Attest only if the person you work for allows it,** and then name
-   yourself: `--reviewer "<your name>"`. Never record a review under a
-   person's name, and never use an email address. Without permission, update
-   the documents and give the person the `attest` commands to run.
+   yourself: `--reviewer "<your name>"`. Without it, the review carries the
+   name in the person's git configuration (`source-sentry.reviewer`, or else
+   `user.name`). Never record a review under a person's name, and never use
+   an email address. Name yourself the same way with `--by` when you `seal`
+   or `retire`. Without permission, update the documents and give the person
+   the `attest` commands to run.
 4. **Never change a record.** A sealed document must never change. If it is
    wrong, write a new document that corrects it.
 5. **Never weaken the policy to pass a check.** Do not lower `--fail-on`,
