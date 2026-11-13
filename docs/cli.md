@@ -270,7 +270,8 @@ starts, and any document may be opened at any time.
 | `o` | Open or close the other documents |
 | `Tab`, `Shift+Tab` | Go to the next or the previous changed file |
 | `v` | Swap the pane between the changes and the document |
-| `PgUp` `PgDn` | Scroll the pane |
+| `PgUp` `PgDn` | Scroll the pane by a page |
+| Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record the answer; `Esc` or any other key withdraws it |
@@ -285,6 +286,16 @@ and a source changed since refuses the write and shows the document again.
 The reviewed document then moves to the other documents, and the cursor to
 the next one that needs review. A document that needs nothing takes `r` but
 no `y`; a sealed record can only be read.
+
+Each document is compared once per evaluation, against the working tree as
+that evaluation read it, and the documents after the cursor are read while
+the reviewer is idle, so that moving between documents does not wait. A
+source edited since is caught when the review is recorded: the write reads
+every source again and refuses what changed. The working tree is evaluated
+again after every write, every editor visit and every change of context.
+
+Because the screen reads the mouse for its wheel, selecting text with the
+mouse needs the terminal's own modifier, which is Shift in most terminals.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been displayed, and records them all on `y`. Any
@@ -364,8 +375,9 @@ application.
 `review` requires both standard input and standard output to be terminals.
 Otherwise it exits 1 and points to `diff` and `attest`. There is no `--yes`.
 End of input or cancellation quits. A completed or quit session exits 0;
-the closing uses a final evaluation to list what was recorded and what still
-needs review. It mirrors the opening: the mark with the reviewer, the number
+the closing lists what was recorded and what still needs review. The line
+mode evaluates the working tree once more for it; the full screen reports
+its latest evaluation. It mirrors the opening: the mark with the reviewer, the number
 of reviews recorded, the number of documents remaining and the session's
 length beside it, then each recorded review and each remaining document. Use
 `check` as the gate. Review comparisons and questions remain visible under

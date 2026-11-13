@@ -12,11 +12,14 @@ mod draw;
 mod tests;
 
 use std::io;
+use std::time::Duration;
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{
-	self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+	self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent,
+	KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
+use ratatui::crossterm::execute;
 
 use self::app::{App, Flow, Key};
 use super::external;
@@ -57,13 +60,13 @@ pub(super) fn run(
 ) -> Result<(), Failure> {
 	let mut app = App::new(workspace, args)?;
 	if !app.open.is_empty() {
-		let mut terminal = ratatui::try_init()
-			.map_err(|error| failed("cannot take over the terminal", &error))?;
+		release_mouse_on_panic();
+		let mut terminal = take_over()?;
 		let result = events(&mut terminal, &mut app);
-		ratatui::restore();
+		hand_back();
 		result?;
 	}
-	let closing = app.closing()?;
+	let closing = app.closing();
 	output::data(&if printer.is_quiet() {
 		closing.plain()
 	} else {
@@ -72,38 +75,71 @@ pub(super) fn run(
 	Ok(())
 }
 
-/// Draws, waits for a key and handles it, until the reviewer quits.
+/// Takes the terminal over: the alternate screen, every key as it is
+/// pressed, and the mouse for its wheel.
+fn take_over() -> Result<DefaultTerminal, Failure> {
+	let terminal = ratatui::try_init()
+		.map_err(|error| failed("cannot take over the terminal", &error))?;
+	execute!(io::stdout(), EnableMouseCapture)
+		.map_err(|error| failed("cannot read the mouse", &error))?;
+	Ok(terminal)
+}
+
+/// Hands the terminal back as it was.
+fn hand_back() {
+	let _ = execute!(io::stdout(), DisableMouseCapture);
+	ratatui::restore();
+}
+
+/// Makes a panic release the mouse too. The terminal library restores the
+/// rest itself, but would leave the terminal reporting every mouse movement.
+fn release_mouse_on_panic() {
+	let previous = std::panic::take_hook();
+	std::panic::set_hook(Box::new(move |information| {
+		let _ = execute!(io::stdout(), DisableMouseCapture);
+		previous(information);
+	}));
+}
+
+/// Draws, waits for a key and handles it, until the reviewer quits. While
+/// no key is waiting, it reads ahead the documents the reviewer may open.
 fn events(
 	terminal: &mut DefaultTerminal,
 	app: &mut App,
 ) -> Result<(), Failure> {
+	let read = |error: io::Error| failed("cannot read the keyboard", &error);
 	loop {
-		let rows = terminal
+		draw(terminal, app)?;
+		while !event::poll(Duration::ZERO).map_err(read)? {
+			if !app.prefetch() {
+				break;
+			}
+		}
+		let columns = terminal
 			.size()
 			.map_err(|error| failed("cannot measure the terminal", &error))?
-			.height;
-		app.page = usize::from(rows.saturating_sub(14)).max(1);
-		terminal
-			.draw(|frame| draw::draw(app, frame.buffer_mut()))
-			.map_err(|error| failed("cannot draw the review", &error))?;
-		let event = event::read()
-			.map_err(|error| failed("cannot read the keyboard", &error))?;
-		let Event::Key(pressed) = event else {
+			.width;
+		let key = match event::read().map_err(read)? {
+			Event::Key(pressed) => translate(pressed),
+			Event::Mouse(mouse) => wheel(mouse, columns),
 			// A resize, among others: draw again.
+			_ => None,
+		};
+		let Some(key) = key else {
 			continue;
 		};
-		let Some(key) = translate(pressed) else {
-			continue;
-		};
+		if let Some(note) = app.busy(key) {
+			app.notice = Some(note.to_owned());
+			draw(terminal, app)?;
+		}
 		match app.key(key)? {
 			Flow::Stay => {}
 			Flow::Quit => return Ok(()),
 			Flow::Edit(document) => {
 				// The editor needs the terminal as it was.
-				ratatui::restore();
+				hand_back();
 				let result = external::edit(app.workspace(), &document);
-				*terminal = ratatui::try_init()
-					.map_err(|error| failed("cannot take the terminal back", &error))?;
+				*terminal = take_over()?;
 				terminal
 					.clear()
 					.map_err(|error| failed("cannot draw the review", &error))?;
@@ -111,6 +147,19 @@ fn events(
 			}
 		}
 	}
+}
+
+/// Draws the screen, and notes how many rows a page of the pane holds.
+fn draw(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), Failure> {
+	let rows = terminal
+		.size()
+		.map_err(|error| failed("cannot measure the terminal", &error))?
+		.height;
+	app.page = usize::from(rows.saturating_sub(14)).max(1);
+	terminal
+		.draw(|frame| draw::draw(app, frame.buffer_mut()))
+		.map_err(|error| failed("cannot draw the review", &error))?;
+	Ok(())
 }
 
 /// The key of a press. Windows also reports releases, which are ignored.
@@ -141,6 +190,16 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 		KeyCode::Backspace => Key::Backspace,
 		_ => return None,
 	})
+}
+
+/// A turn of the wheel, with the part of the screen it happened over.
+fn wheel(mouse: MouseEvent, columns: u16) -> Option<Key> {
+	let down = match mouse.kind {
+		MouseEventKind::ScrollDown => true,
+		MouseEventKind::ScrollUp => false,
+		_ => return None,
+	};
+	Some(Key::Wheel(down, draw::area_at(columns, mouse.column)))
 }
 
 /// A terminal I/O error, with what was being done.

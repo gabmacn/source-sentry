@@ -12,6 +12,8 @@ use source_sentry_core::mutate::{
 	diff,
 };
 
+use source_sentry_git::WorkingTreeSnapshot;
+
 use super::closing::Closing;
 use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
@@ -43,6 +45,8 @@ pub(super) struct Session<'a> {
 	pub(super) reviewer: Option<String>,
 	/// The latest completed evaluation.
 	pub(super) state: State,
+	/// The snapshot that evaluation read.
+	snapshot: WorkingTreeSnapshot<'a>,
 	/// Documents needing review when the session began.
 	initial: BTreeSet<DocumentId>,
 	/// Answers that suppress unchanged repeat questions.
@@ -65,7 +69,7 @@ impl<'a> Session<'a> {
 		workspace: &'a Workspace,
 		args: &'a ReviewArgs,
 	) -> Result<Self, Failure> {
-		let state = State::load(workspace, &args.context)?;
+		let (state, snapshot) = State::load_with(workspace, &args.context)?;
 		let selected: BTreeSet<_> = args
 			.documents
 			.iter()
@@ -95,6 +99,7 @@ impl<'a> Session<'a> {
 			selected,
 			reviewer: super::super::person(workspace, args.reviewer.as_deref())?,
 			state,
+			snapshot,
 			initial,
 			answered: BTreeMap::new(),
 			seen: BTreeMap::new(),
@@ -107,7 +112,8 @@ impl<'a> Session<'a> {
 
 	/// Rebuilds the evidence after an answer or edit.
 	pub(super) fn refresh(&mut self) -> Result<(), Failure> {
-		let next = State::load(self.workspace, &self.context)?;
+		let (next, snapshot) = State::load_with(self.workspace, &self.context)?;
+		self.snapshot = snapshot;
 		for (id, document) in &next.documents {
 			if let Some(previous) = self.state.documents.get(id) {
 				let changed =
@@ -171,10 +177,31 @@ impl<'a> Session<'a> {
 		self.state.queue(&self.selected, &BTreeMap::new())
 	}
 
+	/// The comparison of `id` against the snapshot the latest evaluation
+	/// read. It skips the reading that [`Self::compare`] repeats, so the full
+	/// screen can show a document at once; a write still checks every
+	/// expectation against a fresh snapshot, and refuses what has changed.
+	pub(super) fn compare_evaluated(
+		&self,
+		id: &DocumentId,
+	) -> Result<DocumentDiff, Failure> {
+		let Some(inventory) = self.state.inventories.get(&id.project) else {
+			return self.compare(id);
+		};
+		diff(
+			&self.snapshot,
+			&self.workspace.repository,
+			inventory,
+			id,
+			&Selection::All,
+		)
+		.map_err(|error| Failure::mutate(self.workspace, &error))
+	}
+
 	/// Evaluates again under another context, which decides outcomes and
 	/// therefore the queue's order.
 	pub(super) fn set_context(&mut self, context: &str) -> Result<(), Failure> {
-		self.state = State::load(self.workspace, context)?;
+		(self.state, self.snapshot) = State::load_with(self.workspace, context)?;
 		context.clone_into(&mut self.context);
 		Ok(())
 	}

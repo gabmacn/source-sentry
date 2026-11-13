@@ -3,11 +3,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use source_sentry_core::claims::Inventory;
 use source_sentry_core::evaluate::{DocumentState, check};
 use source_sentry_core::model::{
 	DocumentId, Fact, ObjectId, Outcome, RepoPath,
 };
 use source_sentry_core::policy::Threshold;
+use source_sentry_git::WorkingTreeSnapshot;
 
 use crate::exit::{self, Failure};
 use crate::workspace::{Workspace, load_project};
@@ -105,15 +107,29 @@ pub(super) struct State {
 	pub(super) projects: Vec<RepoPath>,
 	/// Every context that a traversed project declares.
 	pub(super) contexts: BTreeSet<String>,
+	/// Each traversed project's inventory, as the evaluation discovered it.
+	pub(super) inventories: BTreeMap<RepoPath, Inventory>,
 }
 
 impl State {
 	/// Evaluates the working tree under `context`, refusing the same fatal
 	/// diagnostics as `check` before presenting any document.
+	#[cfg(test)]
 	pub(super) fn load(
 		workspace: &Workspace,
 		context: &str,
 	) -> Result<Self, Failure> {
+		Self::load_with(workspace, context).map(|(state, _)| state)
+	}
+
+	/// Evaluates the working tree under `context`, refusing the same fatal
+	/// diagnostics as `check` before presenting any document. Also returns
+	/// the snapshot that was read, so that comparisons need not read the
+	/// repository again.
+	pub(super) fn load_with<'a>(
+		workspace: &'a Workspace,
+		context: &str,
+	) -> Result<(Self, WorkingTreeSnapshot<'a>), Failure> {
 		let snapshot = workspace
 			.repository
 			.working_tree_snapshot()
@@ -128,6 +144,7 @@ impl State {
 			tracked: BTreeSet::new(),
 			projects: Vec::new(),
 			contexts: BTreeSet::new(),
+			inventories: BTreeMap::new(),
 		};
 		for project in roots.iter().filter(|project| project.starts_with(&start)) {
 			let one = Self::project(workspace, &snapshot, context, project)?;
@@ -136,6 +153,7 @@ impl State {
 			state.tracked.extend(one.tracked);
 			state.projects.extend(one.projects);
 			state.contexts.extend(one.contexts);
+			state.inventories.extend(one.inventories);
 		}
 		let edges: BTreeMap<_, _> = state
 			.documents
@@ -152,7 +170,7 @@ impl State {
 				}
 			}
 		}
-		Ok(state)
+		Ok((state, snapshot))
 	}
 
 	/// Evaluates one project's live documents under its own declared context.
@@ -259,6 +277,7 @@ impl State {
 				.collect(),
 			projects: vec![project.clone()],
 			contexts: configs.contexts().keys().cloned().collect(),
+			inventories: BTreeMap::from([(project.clone(), inventory)]),
 		})
 	}
 

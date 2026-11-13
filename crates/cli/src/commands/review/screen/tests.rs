@@ -5,7 +5,9 @@ use ratatui::layout::Rect;
 use serde_json::json;
 
 use super::super::tests::support::Repo;
-use super::app::{App, Cursor, Field, Flow, Key, Kind, Overlay};
+use std::rc::Rc;
+
+use super::app::{App, Area, Cursor, Field, Flow, Key, Kind, Overlay};
 use super::draw;
 
 /// A repository with two documents that need review, the first with a
@@ -104,7 +106,6 @@ fn everything_is_recorded_at_once_only_after_a_confirmation() {
 	assert!(
 		app
 			.closing()
-			.unwrap()
 			.plain()
 			.contains("0 documents still need review")
 	);
@@ -212,4 +213,77 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 
 	press(&mut app, &[Key::Char('?')]);
 	assert!(shows(&drawn(&app, 120, 30), "Shift+Tab to the previous"));
+}
+
+/// A document is read once per evaluation and ahead of the cursor. One that
+/// was only read ahead has not been seen.
+#[test]
+fn documents_are_read_once_and_ahead_without_counting_as_seen() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.cache.len(), 1);
+	assert!(app.prefetch());
+	assert!(!app.prefetch());
+	assert_eq!(app.cache.len(), 2);
+	press(&mut app, &[Key::Char('a')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_, 1))));
+
+	press(&mut app, &[Key::Escape]);
+	let first = Rc::clone(app.shown.as_ref().unwrap());
+	press(&mut app, &[Key::Down, Key::Up]);
+	assert!(Rc::ptr_eq(&first, app.shown.as_ref().unwrap()));
+	press(&mut app, &[Key::Char('a')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_, 0))));
+
+	press(&mut app, &[Key::Escape, Key::Char('o')]);
+	assert!(app.prefetch());
+	assert!(!app.prefetch());
+	assert_eq!(app.cache.len(), 3);
+}
+
+/// The wheel scrolls the pane it is over and moves the cursor over the
+/// sidebar. Over a pane it keeps a held answer, and it never closes a box.
+#[test]
+fn the_wheel_scrolls_the_pane_under_it() {
+	let repo = fixture();
+	repo.write("src/a.rs", &"line\n".repeat(40));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('y'), Key::Wheel(true, Area::Pane)]);
+	assert_eq!((app.scroll, app.armed), ((3, 0), Some(false)));
+	press(&mut app, &[Key::Wheel(true, Area::Document)]);
+	assert_eq!(app.scroll, (3, 0), "the document has a single line");
+	press(&mut app, &[Key::Wheel(false, Area::Changes); 2]);
+	assert_eq!(app.scroll, (0, 0));
+	press(&mut app, &[Key::Wheel(true, Area::Sidebar)]);
+	assert_eq!((app.cursor, app.armed), (Cursor::Open(1), None));
+	press(&mut app, &[Key::Char('?'), Key::Wheel(true, Area::Pane)]);
+	assert_eq!(app.overlay, Some(Overlay::Keys));
+	assert_eq!(draw::area_at(120, 10), Area::Sidebar);
+	assert_eq!(draw::area_at(120, 60), Area::Pane);
+	assert_eq!(draw::area_at(210, 60), Area::Changes);
+	assert_eq!(draw::area_at(210, 180), Area::Document);
+}
+
+/// A box clears what it covers: the weight of the text behind it does not
+/// show through in the box's own text.
+#[test]
+fn a_box_does_not_inherit_the_styles_it_covers() {
+	let repo = fixture();
+	repo.write("src/a.rs", &"line\n".repeat(40));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Up, Key::Right, Key::Right, Key::Enter]);
+	assert_eq!(app.overlay, Some(Overlay::Projects));
+	let mut buffer = Buffer::empty(Rect::new(0, 0, 120, 30));
+	draw::draw(&app, &mut buffer);
+	// The rows of the box between its title and its keys, over the diff's
+	// bold signs.
+	for y in 12..=15 {
+		for x in 30..90 {
+			let cell = &buffer[(x, y)];
+			assert!(cell.modifier.is_empty(), "({x}, {y}): {cell:?}");
+		}
+	}
 }

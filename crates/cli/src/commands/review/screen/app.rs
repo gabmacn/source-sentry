@@ -1,8 +1,9 @@
 //! The full screen's state, and what each key does to it. Nothing here
 //! touches the terminal, so scripted keys can drive a whole session.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::rc::Rc;
 
 use source_sentry_core::model::{DocumentId, Outcome};
 use source_sentry_core::mutate::DocumentDiff;
@@ -45,7 +46,25 @@ pub(super) enum Key {
 	Char(char),
 	/// Control and C.
 	Interrupt,
+	/// The mouse wheel, turned down when `true`, over a part of the screen.
+	Wheel(bool, Area),
 }
+
+/// The part of the screen the pointer is over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Area {
+	/// The sidebar and the header.
+	Sidebar,
+	/// The single pane, whatever it shows.
+	Pane,
+	/// The changes, on a wide screen.
+	Changes,
+	/// The document, on a wide screen.
+	Document,
+}
+
+/// The rows one notch of the wheel scrolls.
+const WHEEL: usize = 3;
 
 /// What the caller must do once a key has been handled.
 #[derive(Debug, PartialEq, Eq)]
@@ -154,6 +173,8 @@ pub(super) struct Shown {
 	pub(super) upstreams: Vec<String>,
 	/// Why it joined or returned during the session.
 	pub(super) reason: Option<String>,
+	/// Why it could not be compared, if it could not.
+	pub(super) failure: Option<String>,
 	/// Its lines, or why they cannot be shown.
 	pub(super) text: Result<Vec<String>, String>,
 }
@@ -171,7 +192,10 @@ pub(super) struct App<'a> {
 	/// Where the cursor is.
 	pub(super) cursor: Cursor,
 	/// The document under the cursor, loaded.
-	pub(super) shown: Option<Shown>,
+	pub(super) shown: Option<Rc<Shown>>,
+	/// Every document loaded since the latest evaluation, so that returning
+	/// to one costs nothing.
+	pub(super) cache: BTreeMap<Id, Rc<Shown>>,
 	/// What the pane shows.
 	pub(super) pane: Pane,
 	/// Which changed file is selected.
@@ -211,6 +235,7 @@ impl<'a> App<'a> {
 			expanded: false,
 			cursor: Cursor::None,
 			shown: None,
+			cache: BTreeMap::new(),
 			pane: Pane::Changes,
 			file: 0,
 			scroll: (0, 0),
@@ -250,14 +275,63 @@ impl<'a> App<'a> {
 			.collect()
 	}
 
-	/// The session's final evaluation, for its closing.
-	pub(super) fn closing(&mut self) -> Result<Closing, Failure> {
-		self.session.refresh()?;
-		Ok(self.session.closing())
+	/// The closing, from the latest evaluation: the one that followed the
+	/// last write, the last editor visit or the last change of context.
+	pub(super) fn closing(&self) -> Closing {
+		self.session.closing()
+	}
+
+	/// What to tell the reviewer before a key whose work takes a moment.
+	pub(super) fn busy(&self, key: Key) -> Option<&'static str> {
+		match (&self.overlay, key) {
+			(None, Key::Enter) if self.armed.is_some() => Some("Recording…"),
+			(Some(Overlay::All(..)), Key::Char('y' | 'Y')) => Some("Recording…"),
+			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
+			_ => None,
+		}
+	}
+
+	/// Reads ahead one document that the reviewer may open next: from the
+	/// cursor onwards in the queue, then the others while they are listed.
+	/// Returns `false` once nothing is left to read.
+	pub(super) fn prefetch(&mut self) -> bool {
+		let at = match self.cursor {
+			Cursor::Open(index) => index,
+			_ => 0,
+		};
+		let listed = if self.expanded {
+			self.others.as_slice()
+		} else {
+			&[]
+		};
+		let next = self
+			.open
+			.iter()
+			.skip(at)
+			.chain(self.open.iter().take(at))
+			.chain(listed.iter().map(|other| &other.id))
+			.find(|id| !self.cache.contains_key(*id))
+			.cloned();
+		let Some(id) = next else {
+			return false;
+		};
+		self.cached(&id);
+		true
+	}
+
+	/// The loaded document, read once per evaluation.
+	fn cached(&mut self, id: &Id) -> Rc<Shown> {
+		if let Some(shown) = self.cache.get(id) {
+			return Rc::clone(shown);
+		}
+		let shown = Rc::new(self.read(id));
+		self.cache.insert(id.clone(), Rc::clone(&shown));
+		shown
 	}
 
 	/// Rebuilds both lists from the latest evaluation.
 	fn rebuild(&mut self) -> Result<(), Failure> {
+		self.cache.clear();
 		self.open = self.session.pending()?;
 		let state = &self.session.state;
 		let mut listed: BTreeSet<&Id> = self.open.iter().collect();
@@ -317,7 +391,16 @@ impl<'a> App<'a> {
 		}
 		self.file = 0;
 		self.scroll = (0, 0);
-		self.shown = self.current().cloned().map(|id| self.read(&id));
+		self.shown = self.current().cloned().map(|id| self.cached(&id));
+		// Only a document on display has been seen; one read ahead has not.
+		if let Some(shown) = &self.shown {
+			if let Some(compared) = &shown.compared {
+				self.session.see(&shown.id, compared);
+			}
+			if shown.failure.is_some() {
+				self.notice.clone_from(&shown.failure);
+			}
+		}
 	}
 
 	/// Puts the cursor back on `id` after the lists changed, wherever it is
@@ -338,7 +421,7 @@ impl<'a> App<'a> {
 	}
 
 	/// Loads a document: its comparison, its changed files and its text.
-	fn read(&mut self, id: &Id) -> Shown {
+	fn read(&self, id: &Id) -> Shown {
 		let workspace = self.workspace();
 		let text = match &id.document {
 			DocumentId::Local(path) => fs::read_to_string(workspace.file(path))
@@ -360,6 +443,7 @@ impl<'a> App<'a> {
 			reviewed: None,
 			upstreams: Vec::new(),
 			reason: self.session.reasons.get(id).cloned(),
+			failure: None,
 			text,
 		};
 		let Some(document) = self.session.state.documents.get(id) else {
@@ -374,9 +458,8 @@ impl<'a> App<'a> {
 			.iter()
 			.map(|path| workspace.display_path(path))
 			.collect();
-		match self.session.compare(id) {
+		match self.session.compare_evaluated(id) {
 			Ok(compared) => {
-				self.session.see(id, &compared);
 				let entries =
 					|| compared.sources.iter().flat_map(|source| &source.entries);
 				shown.total = entries().count();
@@ -398,7 +481,7 @@ impl<'a> App<'a> {
 					});
 				shown.compared = Some(compared);
 			}
-			Err(failure) => self.notice = Some(failure.message),
+			Err(failure) => shown.failure = Some(failure.message),
 		}
 		shown
 	}
@@ -409,6 +492,13 @@ impl<'a> App<'a> {
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
 	pub(super) fn key(&mut self, key: Key) -> Result<Flow, Failure> {
+		// The wheel only looks: it keeps a held answer, a notice and a box.
+		if let Key::Wheel(down, area) = key {
+			if self.overlay.is_none() {
+				self.wheel(down, area);
+			}
+			return Ok(Flow::Stay);
+		}
 		self.notice = None;
 		if let Some(overlay) = self.overlay.take() {
 			return self.overlay_key(overlay, key);
@@ -601,12 +691,31 @@ impl<'a> App<'a> {
 		self.scroll.0 = 0;
 	}
 
-	/// Scrolls what the pane shows by one page, within its rows.
+	/// Scrolls what the pane shows by one page.
 	fn scroll_by(&mut self, down: bool) {
+		self.scroll_rows(self.pane, down, self.page.max(1));
+	}
+
+	/// Turns the wheel over a part of the screen: the documents move under
+	/// the cursor in the sidebar, and a pane scrolls.
+	fn wheel(&mut self, down: bool, area: Area) {
+		match area {
+			Area::Sidebar => {
+				self.armed = None;
+				self.step(down);
+			}
+			Area::Pane => self.scroll_rows(self.pane, down, WHEEL),
+			Area::Changes => self.scroll_rows(Pane::Changes, down, WHEEL),
+			Area::Document => self.scroll_rows(Pane::Document, down, WHEEL),
+		}
+	}
+
+	/// Scrolls the changes or the document by `step` rows, within its rows.
+	fn scroll_rows(&mut self, pane: Pane, down: bool, step: usize) {
 		let Some(shown) = &self.shown else {
 			return;
 		};
-		let (scroll, rows) = match self.pane {
+		let (scroll, rows) = match pane {
 			Pane::Changes => (
 				&mut self.scroll.0,
 				shown.files.get(self.file).map_or(0, |file| file.rows.len()),
@@ -615,11 +724,10 @@ impl<'a> App<'a> {
 				(&mut self.scroll.1, shown.text.as_ref().map_or(0, Vec::len))
 			}
 		};
-		let page = self.page.max(1);
 		*scroll = if down {
-			(*scroll + page).min(rows.saturating_sub(1))
+			(*scroll + step).min(rows.saturating_sub(1))
 		} else {
-			scroll.saturating_sub(page)
+			scroll.saturating_sub(step)
 		};
 	}
 

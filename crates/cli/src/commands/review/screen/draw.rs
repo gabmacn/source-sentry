@@ -12,7 +12,7 @@ use ratatui::text::Span;
 use source_sentry_core::model::Outcome;
 
 use super::super::changes::Row;
-use super::app::{App, Cursor, Field, Kind, Overlay, Pane, Shown};
+use super::app::{App, Area, Cursor, Field, Kind, Overlay, Pane, Shown};
 use crate::{mark, output};
 
 /// The smallest screen the layout fits: columns, then rows.
@@ -178,6 +178,19 @@ impl Pen<'_> {
 			x = self.text(x, y, &format!(" {key} "), cap(), u16::MAX);
 			x = self.text(x + 1, y, label, text(), u16::MAX) + 4;
 		}
+	}
+}
+
+/// The part of a screen `columns` wide that column `x` belongs to.
+pub(super) fn area_at(columns: u16, x: u16) -> Area {
+	if x <= SIDEBAR {
+		Area::Sidebar
+	} else if columns < WIDE {
+		Area::Pane
+	} else if x <= SIDEBAR + 3 + (columns - SIDEBAR - 6) / 2 {
+		Area::Changes
+	} else {
+		Area::Document
 	}
 }
 
@@ -895,6 +908,7 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 /// Sends the screen behind a box back: its text fades and its fills dim.
 fn step_back(buffer: &mut Buffer) {
 	for cell in &mut buffer.content {
+		cell.modifier = Modifier::empty();
 		if cell.bg == BLUE {
 			cell.bg = DIM_BLUE;
 			cell.fg = FAINT;
@@ -924,10 +938,16 @@ fn frame(
 		columns,
 		rows,
 	);
-	pen.fill(inside, Style::new().fg(CREAM).bg(INK));
+	// The box starts from empty cells, so that nothing it covers shows
+	// through: neither a character nor its weight.
 	for y in inside.y..inside.bottom() {
-		pen.rule(inside.x, y, inside.width, " ", text());
+		for x in inside.x..inside.right() {
+			if let Some(cell) = pen.buffer.cell_mut((x, y)) {
+				cell.reset();
+			}
+		}
 	}
+	pen.fill(inside, Style::new().fg(CREAM).bg(INK));
 	pen.rule(inside.x, inside.y, inside.width, "─", text());
 	pen.rule(inside.x, inside.bottom() - 1, inside.width, "─", text());
 	for y in inside.y..inside.bottom() {
@@ -1048,7 +1068,10 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 			"Go to the next changed source; Shift+Tab to the previous",
 		),
 		("v", "Swap the pane between the changes and the document"),
-		("PgUp PgDn", "Scroll the pane"),
+		(
+			"PgUp PgDn",
+			"Scroll the pane by a page; the wheel by three rows",
+		),
 		("y", "Answer yes: the document is still accurate"),
 		("r", "Answer yes, and record that all of it was reread"),
 		("Enter", "Record the answer; Esc cancels it"),
