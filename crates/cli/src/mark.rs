@@ -74,12 +74,13 @@ pub(crate) struct Gradient {
 	pub(crate) run: Run,
 }
 
-/// The gradient of the mark in the command's own output. Its colours stay in
-/// the middle range of lightness, because one gradient has to read on dark
-/// and on light terminals alike: each keeps a contrast of at least 3 to 1
-/// against a near-black and a near-white ground.
+/// The gradient of the mark in the command's own output: a peacock feather's
+/// eye, from the blue of the pupil through teal to the bronze of the feather
+/// tips. Its colours stay in the middle range of lightness, because one
+/// gradient has to read on dark and on light terminals alike: each keeps a
+/// contrast of at least 3 to 1 against a near-black and a near-white ground.
 pub(crate) const GRADIENT: Gradient = Gradient {
-	stops: &[(0x7a, 0x85, 0xff), (0x55, 0x60, 0xff), (0x3f, 0x4a, 0xff)],
+	stops: &[(0x3f, 0x4a, 0xff), (0x0e, 0x8f, 0x9c), (0xc9, 0x70, 0x1a)],
 	run: Run::Radial,
 };
 

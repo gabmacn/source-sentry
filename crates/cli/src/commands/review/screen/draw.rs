@@ -256,7 +256,7 @@ impl Pen<'_> {
 	}
 
 	/// Writes caps with their labels in the styles given, `gap` cells apart,
-	/// for as long as a whole one fits before column `end`.
+	/// each one that fits whole before column `end`.
 	fn caps(
 		&mut self,
 		mut x: u16,
@@ -267,8 +267,10 @@ impl Pen<'_> {
 		end: u16,
 	) {
 		for (key, action) in keys {
+			// One that does not fit whole is left out; a shorter one after it
+			// may still fit.
 			if x + width(key) + 3 + width(action) > end {
-				break;
+				continue;
 			}
 			let start = x;
 			x = self.text(x, y, &format!(" {key} "), cap, u16::MAX);
@@ -1160,20 +1162,48 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 }
 
 /// The buttons of the last row: one for each action that has no row or cap
-/// of its own, so that the mouse reaches every action. Scrolling has none,
-/// because the wheel does it.
+/// of its own, so that the mouse reaches every action. Only the actions
+/// that apply to what is selected are there: a history is that of a source,
+/// the list of sources that of a document. Scrolling has no button, because
+/// the wheel does it.
 fn buttons(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 	const GAP: u16 = 2;
-	let fixed = |swap| {
-		[
-			("?", "keys"),
-			("q", "quit"),
-			("v", swap),
-			("s", "sources"),
-			("u", "undo"),
-			("h", "history"),
-			("Space", "pick"),
-		]
+	let on_document = matches!(app.cursor, Cursor::Open(_) | Cursor::Other(_));
+	let shown = app.shown.as_deref();
+	let on_source = on_document && app.focus == Focus::Sources;
+	// A sealed record takes no answer, so it is not picked either.
+	let on_live_row = on_document
+		&& app.focus == Focus::Sidebar
+		&& shown.is_some_and(|shown| shown.outcome.is_some());
+	// What Enter does where the selection is. The question's own caps say
+	// it for a held answer, the header and the label of the others.
+	let enter = match (app.armed, app.focus) {
+		_ if !on_document => None,
+		(Some(_), _) => None,
+		(None, Focus::Sources) => Some("whole path"),
+		(None, Focus::Title) => Some("whole name"),
+		(None, Focus::Sidebar) => {
+			let files = shown.map_or(0, |shown| shown.files.len());
+			Some(if files > 0 { "its files" } else { "its name" })
+		}
+	};
+	let row = |swap: &'static str| {
+		let mut row = vec![("?", "keys"), ("q", "quit"), ("u", "undo")];
+		if shown.is_some() {
+			row.push(("v", swap));
+		}
+		if on_document && shown.is_some_and(|shown| shown.total > 0) {
+			row.push(("s", "sources"));
+		}
+		if on_live_row || on_source {
+			row.push(("Space", "pick"));
+		}
+		if on_source {
+			row.push(("h", "history"));
+		}
+		row.extend(enter.map(|shows| ("Enter", shows)));
+		row.push(("o", "others"));
+		row
 	};
 	let needs = |buttons: &[(&str, &str)]| {
 		buttons.iter().fold(1, |total, (key, action)| {
@@ -1181,23 +1211,15 @@ fn buttons(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		}) - GAP
 	};
 	// The pane's swap names where it leads, unless that costs a button.
-	let long = fixed(match app.pane {
+	let long = row(match app.pane {
 		Pane::Changes => "document",
 		Pane::Document => "changes",
 	});
-	let mut buttons = if needs(&long) > columns {
-		fixed("view").to_vec()
+	let buttons = if needs(&long) > columns {
+		row("view")
 	} else {
-		long.to_vec()
+		long
 	};
-	buttons.push(("o", "others"));
-	// What Enter shows where the focus is, unless it would record an answer.
-	// It comes last, so that the buttons before it never move.
-	match (app.armed, app.focus) {
-		(None, Focus::Sources) => buttons.push(("Enter", "whole path")),
-		(None, Focus::Title) => buttons.push(("Enter", "whole name")),
-		_ => {}
-	}
 	pen.caps(1, y, &buttons, (button(), dim()), GAP, columns);
 }
 
@@ -1681,38 +1703,42 @@ fn count(rows: usize) -> u16 {
 
 /// The list of keys.
 fn keys_box(pen: &mut Pen, area: Rect) {
+	// Each key says what it acts on, because it acts only on that.
 	let keys = [
 		(
 			"↑ ↓ Tab",
 			"Move in the list that has the focus; Shift+Tab moves back",
 		),
-		("→ Enter", "From a document, go to its changed sources"),
-		("← Esc", "From the sources, return to the documents"),
-		("Enter", "On a source or the name, show its whole path"),
+		("→ Enter", "On a document: go to its changed files"),
+		("← Esc", "On a source or the name: return to the documents"),
+		("Enter", "On a source or the name: show it whole"),
+		(
+			"Space",
+			"On a document or a source: pick it; Shift+↑↓ a range",
+		),
+		("y", "On a document: answer yes, it is still accurate"),
+		(
+			"r",
+			"On a document: answer yes, and that all of it was reread",
+		),
+		("Enter", "Record a held answer; Esc withdraws it"),
+		("e", "On a document: edit it in your editor"),
+		("s", "On a document: list every source, changed or not"),
+		("h", "On a source: list the commits that changed it"),
+		("a", "Answer yes to every document, after a confirmation"),
+		("u", "List this session's answers; u there takes one back"),
+		("v", "Swap the pane between the changes and the document"),
+		(
+			"PgUp PgDn",
+			"Scroll the pane by a page; the wheel by three rows",
+		),
 		(
 			"o",
 			"Open or close the others; Enter or Space on their label",
 		),
 		("↑", "From the first document, enter the header"),
-		("v", "Swap the pane between the changes and the document"),
-		("s", "List every source of the document, changed or not"),
-		("h", "List the commits that changed the selected source"),
-		(
-			"PgUp PgDn",
-			"Scroll the pane by a page; the wheel by three rows",
-		),
-		("y", "Answer yes: the document is still accurate"),
-		("r", "Answer yes, and record that all of it was reread"),
-		("Enter", "Record a held answer; Esc withdraws it"),
-		("a", "Answer yes to every document, after a confirmation"),
-		("u", "List this session's answers; u there takes one back"),
-		("e", "Edit the document in your editor"),
-		("q", "Quit; reviews already recorded stay"),
-		(
-			"Space",
-			"Pick a row or let go of it; Shift+↑↓ a range; Esc none",
-		),
 		("Click", "Like the key; a drag over rows picks that range"),
+		("q", "Quit; reviews already recorded stay"),
 	];
 	let inside = frame(pen, area, 78, count(keys.len()) + 4, "Keys");
 	// On a short screen the box holds what fits; nothing is drawn below it.

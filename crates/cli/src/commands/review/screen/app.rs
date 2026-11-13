@@ -475,7 +475,9 @@ impl<'a> App<'a> {
 			}
 			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
 			(Some(Overlay::Log(_)), Key::Char('u' | 'U')) => Some("Taking back…"),
-			(None, Key::Char('h' | 'H')) => Some("Reading its history…"),
+			(None, Key::Char('h' | 'H')) if self.focus == Focus::Sources => {
+				Some("Reading its history…")
+			}
 			_ => None,
 		}
 	}
@@ -1210,8 +1212,24 @@ impl<'a> App<'a> {
 	}
 
 	/// Opens the box with the commits that changed the selected source since
-	/// its review. A failure to read them is reported, and ends nothing.
+	/// its review, when a source is selected. A failure to read them is
+	/// reported, and ends nothing.
 	fn show_history(&mut self) {
+		// A history is that of a source: elsewhere the key only says so.
+		if self.focus != Focus::Sources {
+			let files = self.shown.as_ref().map_or(0, |shown| shown.files.len());
+			let on_document =
+				matches!(self.cursor, Cursor::Open(_) | Cursor::Other(_));
+			self.notice = Some(
+				if on_document && files == 0 {
+					"This document has no changed source, so there is no history to list."
+				} else {
+					"A history is that of a source: select a changed source first, then press h."
+				}
+				.to_owned(),
+			);
+			return;
+		}
 		match self.past() {
 			Ok(Some(past)) => self.overlay = Some(Overlay::History(past, 0)),
 			Ok(None) => {
@@ -1430,7 +1448,9 @@ impl<'a> App<'a> {
 				self.focus = Focus::Sidebar;
 			}
 			(_, Key::Char('o' | 'O')) => self.toggle_others(),
-			(_, Key::Char('s' | 'S')) => self.list_sources(),
+			// A key acts on what is selected: the list of sources belongs to a
+			// document, and a history to one of its sources.
+			(_, Key::Char('s' | 'S')) if on_document => self.list_sources(),
 			(_, Key::Char('u' | 'U')) => self.open_log(),
 			(_, Key::Char('h' | 'H')) => self.show_history(),
 			(_, Key::Char('v' | 'V')) => {

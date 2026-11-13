@@ -285,8 +285,8 @@ starts, and any document may be opened at any time.
 | `o` | Open or close the other documents |
 | `↑` | From the first document, enter the header |
 | `v` | Swap the pane between the changes and the document |
-| `s` | List every source of the document, changed or not |
-| `h` | List the commits that changed the selected source since its review |
+| `s` | On a document, list every source it declares, changed or not |
+| `h` | On a changed file, list the commits that changed it since its review |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
 | Click | Do what the matching key does: select a document or a changed file, show the document's name whole, open or close the other documents, open a header field, press a key's cap or a button of the last row |
@@ -379,14 +379,24 @@ pointer lightly marks what a click would act on; this depends on the
 terminal reporting the pointer's movement, so nothing is shown by it alone,
 and every action has its key.
 
+A key acts on what is selected, and does nothing to what is not. `y`,
+`r`, `e` and `s` belong to a document, so they need the cursor on one,
+whether the focus is on its row, its changed files or its name. `h` belongs
+to a changed file, so it needs the focus on one; elsewhere it only says so.
+The space bar picks a document or a changed file, and nothing on the
+document's name. In the header and on the label of the other documents no
+document is selected, although the pane still shows the last one.
+
 Every action can be reached with the mouse as well. Those without a row or
-a cap of their own have a button in the last row: the keys, quitting, the
-pane's swap, the list of sources, undoing, the history of a source, picking
-and the other documents, then Enter where it shows a path or a name whole.
-A click on a button does what its key does. Scrolling has no button,
-because the wheel does it. A narrow screen shows as many buttons as fit
-whole, from the left, and names the pane's swap `view` where naming the
-pane it leads to would cost a button.
+a cap of their own have a button in the last row, and only the buttons that
+apply to the selection are there. The keys, quitting, undoing and the other
+documents always are, and the pane's swap whenever a document is shown. A
+document adds the list of its sources and picking; a changed file adds its
+history; and Enter is named after what it does there: go to the document's
+files or its name, or show a path or a name whole. A click on a button does
+what its key does. Scrolling has no button, because the wheel does it. A
+narrow screen leaves out the buttons that do not fit whole, and names the
+pane's swap `view` where naming the pane it leads to would cost a button.
 
 Because the screen reads the mouse, selecting text with the mouse needs the
 terminal's own modifier, which is Shift in most terminals.

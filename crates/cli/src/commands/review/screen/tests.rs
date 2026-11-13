@@ -219,7 +219,7 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 	// own name would cost one, a shorter name stands for it.
 	assert_eq!(
 		narrow[23],
-		"  ?  keys   q  quit   v  view   s  sources   u  undo   h  history   Space  pick"
+		"  ?  keys   q  quit   u  undo   v  view   s  sources   Space  pick   o  others"
 	);
 	assert!(rows[28].contains(" y  yes"), "{}", rows[28]);
 	assert!(
@@ -228,7 +228,7 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 		rows[29]
 	);
 	assert!(
-		rows[29].ends_with(" Space  pick   o  others"),
+		rows[29].ends_with(" Space  pick   Enter  its files   o  others"),
 		"{}",
 		rows[29]
 	);
@@ -251,7 +251,10 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 	);
 
 	press(&mut app, &[Key::Char('?')]);
-	assert!(shows(&drawn(&app, 120, 30), "show its whole path"));
+	assert!(shows(
+		&drawn(&app, 120, 30),
+		"On a source: list the commits that changed it"
+	));
 }
 
 /// A document is read once per evaluation and ahead of the cursor. One that
@@ -352,7 +355,11 @@ fn the_focus_moves_between_the_documents_and_their_sources() {
 	);
 
 	let rows = drawn(&app, 120, 30);
-	assert!(rows[29].contains(" Enter  whole path"), "{}", rows[29]);
+	assert!(
+		rows[29].contains(" h  history   Enter  whole path"),
+		"{}",
+		rows[29]
+	);
 	let mut buffer = Buffer::empty(Rect::new(0, 0, 120, 30));
 	draw::draw(&app, &mut buffer);
 	assert_eq!(
@@ -937,8 +944,8 @@ fn the_buttons_of_the_last_row_take_clicks() {
 		Key::Char('o'),
 		Key::Char('s'),
 		Key::Char('u'),
-		Key::Char('h'),
 		Key::Char(' '),
+		Key::Enter,
 	] {
 		assert!(button(&app, key).is_some(), "{key:?}");
 	}
@@ -1194,7 +1201,17 @@ fn the_commits_that_changed_a_source_are_listed() {
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
 
+	// A history is that of a source: on the document the key only says so.
 	press(&mut app, &[Key::Char('h')]);
+	assert!(app.overlay.is_none());
+	assert!(
+		app
+			.notice
+			.as_ref()
+			.unwrap()
+			.starts_with("A history is that of a source")
+	);
+	press(&mut app, &[Key::Right, Key::Char('h')]);
 	let Some(Overlay::History(past, 0)) = &app.overlay else {
 		panic!("expected the history, not {:?}", app.overlay);
 	};
@@ -1240,4 +1257,88 @@ fn the_commits_that_changed_a_source_are_listed() {
 		&[Key::Escape, Key::Char(' '), Key::Char('y'), Key::Enter],
 	);
 	assert!(app.log()[0].1.ends_with("docs/a.md · 1 source alone"));
+}
+
+/// A key acts on what is selected, and the last row offers only what
+/// applies to it: a history on a source, the list of sources and picking on
+/// a document, neither on the document's name, the header or the label of
+/// the other documents.
+#[test]
+fn keys_and_buttons_keep_to_what_is_selected() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let last = |app: &App| drawn(app, 120, 30)[29].clone();
+
+	// On a document: its sources, picking and its files, but no history.
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   s  sources   Space  pick   Enter  its files   o  others"
+	);
+	// On one of its sources: its history, and Enter shows its path.
+	press(&mut app, &[Key::Right]);
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   s  sources   Space  pick   h  history   Enter  whole path   o  others"
+	);
+	// On its name: nothing to pick, and no history.
+	press(&mut app, &[Key::Up]);
+	assert_eq!(app.focus, Focus::Title);
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   s  sources   Enter  whole name   o  others"
+	);
+	press(&mut app, &[Key::Char('h')]);
+	assert!(app.overlay.is_none() && app.notice.is_some());
+
+	// A document without a source has no list of them, and Enter leads to
+	// its name. A held answer leaves Enter to the question.
+	press(&mut app, &[Key::Left, Key::Down]);
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   Space  pick   Enter  its name   o  others"
+	);
+	press(&mut app, &[Key::Char('h')]);
+	assert_eq!(
+		app.notice.as_deref(),
+		Some(
+			"This document has no changed source, so there is no history to list."
+		)
+	);
+	press(&mut app, &[Key::Char('y')]);
+	assert!(!last(&app).contains("Enter"), "{}", last(&app));
+	press(&mut app, &[Key::Escape]);
+
+	// On the label of the other documents and in the header, no document is
+	// selected: the keys of a document do nothing there.
+	press(&mut app, &[Key::Down]);
+	assert_eq!(app.cursor, Cursor::Others);
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   o  others"
+	);
+	press(&mut app, &[Key::Char('s')]);
+	assert!(app.overlay.is_none());
+	press(&mut app, &[Key::Up, Key::Up, Key::Up]);
+	assert!(matches!(app.cursor, Cursor::Header(_)));
+	press(&mut app, &[Key::Char('s'), Key::Char('y')]);
+	assert_eq!((app.overlay.is_none(), app.armed), (true, None));
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   o  others"
+	);
+
+	// A sealed record takes no answer and declares no source to list, so
+	// it has no button for picking nor for its sources.
+	let repo = Repo::new(json!({"docs/a.md": {}}));
+	let oid = repo.git(&["hash-object", "docs/a.md"]);
+	repo.write("source-sentry.lock", &json!({"schema": 1, "retired": {}, "documents": {"docs/a.md": {"seal": {"oid": format!("sha1:{oid}"), "at": "2026-10-02T10:00:00Z", "by": "Earlier Reviewer"}}}}).to_string());
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('o'), Key::Down, Key::Down]);
+	assert_eq!(app.cursor, Cursor::Other(0));
+	assert_eq!(
+		last(&app),
+		"  ?  keys   q  quit   u  undo   v  document   Enter  its name   o  others"
+	);
 }
