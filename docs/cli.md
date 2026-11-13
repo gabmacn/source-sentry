@@ -266,19 +266,31 @@ starts, and any document may be opened at any time.
 
 | Key | Action |
 |---|---|
-| `↑` `↓` | Move between documents; `↑` from the first one enters the header |
+| `↑` `↓` `Tab` | Move in the list that has the focus; `Shift+Tab` moves back, and `Tab` goes round |
+| `→`, `Enter` | From a document, go to its changed files |
+| `←`, `Esc` | From the changed files, return to the documents |
+| `Enter` | On a changed file, show its whole path; on the label of the other documents, open or close them |
 | `o` | Open or close the other documents |
-| `Tab`, `Shift+Tab` | Go to the next or the previous changed file |
+| `↑` | From the first document, enter the header |
 | `v` | Swap the pane between the changes and the document |
 | `PgUp` `PgDn` | Scroll the pane by a page |
 | Mouse wheel | Scroll the pane under the pointer by three rows; over the sidebar, move the cursor |
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
-| `Enter` | Record the answer; `Esc` or any other key withdraws it |
+| `Enter` | Record a held answer; `Esc` or any other key withdraws it |
 | `a` | Answer `y` for every document that needs review, after a confirmation |
 | `e` | Edit the document in an editor, then evaluate again |
 | `?` | Show the keys |
 | `q`, `Ctrl+C` | Quit, preserving earlier reviews |
+
+The arrow keys and Tab move in the list that has the focus. It starts in the
+sidebar, where the row under the cursor is marked in a strong blue. From a
+document, `→` or Enter moves the focus to its changed files: the document's
+row turns a muted blue, selected but no longer focused, and the selected
+file takes the strong one. There, Enter shows the file's whole path, which a
+row may have cut. `←` or `Esc` returns the focus to the sidebar. The label
+of the other documents is a row of the sidebar too, between the queue and
+those documents.
 
 `y` and `r` only hold an answer: nothing is written until Enter. A recorded
 review is bound to the source versions shown, exactly as in the line mode,

@@ -116,10 +116,21 @@ pub(super) enum Cursor {
 	None,
 	/// On a document that needs review, by its place in the queue.
 	Open(usize),
+	/// On the label of the other documents, which opens and closes them.
+	Others,
 	/// On another document, by its place in that list.
 	Other(usize),
 	/// On a field of the header.
 	Header(Field),
+}
+
+/// The list that the arrow keys and Tab move in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Focus {
+	/// The documents, in the sidebar.
+	Sidebar,
+	/// The changed sources of the document on display.
+	Sources,
 }
 
 /// What the pane shows, or on a wide screen, which side scrolls.
@@ -145,6 +156,8 @@ pub(super) enum Overlay {
 	Contexts(usize),
 	/// The projects the session traverses.
 	Projects,
+	/// A source's whole path, which a row may have cut.
+	Path(String),
 }
 
 /// The document on display.
@@ -191,6 +204,8 @@ pub(super) struct App<'a> {
 	pub(super) expanded: bool,
 	/// Where the cursor is.
 	pub(super) cursor: Cursor,
+	/// Which list the arrow keys and Tab move in.
+	pub(super) focus: Focus,
 	/// The document under the cursor, loaded.
 	pub(super) shown: Option<Rc<Shown>>,
 	/// Every document loaded since the latest evaluation, so that returning
@@ -234,6 +249,7 @@ impl<'a> App<'a> {
 			others: Vec::new(),
 			expanded: false,
 			cursor: Cursor::None,
+			focus: Focus::Sidebar,
 			shown: None,
 			cache: BTreeMap::new(),
 			pane: Pane::Changes,
@@ -378,15 +394,17 @@ impl<'a> App<'a> {
 		match self.cursor {
 			Cursor::Open(index) => self.open.get(index),
 			Cursor::Other(index) => self.others.get(index).map(|other| &other.id),
-			Cursor::None | Cursor::Header(_) => None,
+			Cursor::None | Cursor::Others | Cursor::Header(_) => None,
 		}
 	}
 
-	/// Moves the cursor and loads the document under it. The header keeps the
-	/// last document on display.
+	/// Moves the cursor and loads the document under it. The header and the
+	/// label of the other documents keep the last document on display. The
+	/// focus returns to the sidebar.
 	fn select(&mut self, cursor: Cursor) {
 		self.cursor = cursor;
-		if matches!(cursor, Cursor::Header(_)) {
+		self.focus = Focus::Sidebar;
+		if matches!(cursor, Cursor::Header(_) | Cursor::Others) {
 			return;
 		}
 		self.file = 0;
@@ -504,36 +522,65 @@ impl<'a> App<'a> {
 			return self.overlay_key(overlay, key);
 		}
 		let armed = self.armed.take();
+		// A held answer takes Enter and Escape before anything else does.
+		match (armed, key) {
+			(Some(reread), Key::Enter) => {
+				self.record(reread)?;
+				return Ok(Flow::Stay);
+			}
+			(Some(_), Key::Escape) => return Ok(Flow::Stay),
+			_ => {}
+		}
 		if let Cursor::Header(field) = self.cursor
 			&& self.header_key(field, key)
 		{
 			return Ok(Flow::Stay);
 		}
-		match key {
-			Key::Interrupt | Key::Char('q' | 'Q') => return Ok(Flow::Quit),
-			Key::Char('?') => self.overlay = Some(Overlay::Keys),
-			Key::Up => self.step(false),
-			Key::Down => self.step(true),
-			Key::Char('o' | 'O') => self.toggle_others(),
-			Key::Tab => self.next_file(true),
-			Key::BackTab => self.next_file(false),
-			Key::Char('v' | 'V') => {
+		let on_document = matches!(self.cursor, Cursor::Open(_) | Cursor::Other(_));
+		match (self.focus, key) {
+			(_, Key::Interrupt | Key::Char('q' | 'Q')) => return Ok(Flow::Quit),
+			(_, Key::Char('?')) => self.overlay = Some(Overlay::Keys),
+			(Focus::Sidebar, Key::Up) => self.step(false),
+			(Focus::Sidebar, Key::Down) => self.step(true),
+			(Focus::Sidebar, Key::Tab) => self.cycle(true),
+			(Focus::Sidebar, Key::BackTab) => self.cycle(false),
+			(Focus::Sidebar, Key::Enter) if self.cursor == Cursor::Others => {
+				self.toggle_others();
+			}
+			(Focus::Sidebar, Key::Right | Key::Enter) if on_document => {
+				self.enter_sources();
+			}
+			(Focus::Sources, Key::Up) => self.move_file(false, false),
+			(Focus::Sources, Key::Down) => self.move_file(true, false),
+			(Focus::Sources, Key::Tab) => self.move_file(true, true),
+			(Focus::Sources, Key::BackTab) => self.move_file(false, true),
+			(Focus::Sources, Key::Left | Key::Escape) => {
+				self.focus = Focus::Sidebar;
+			}
+			(Focus::Sources, Key::Enter) => {
+				self.overlay = self
+					.shown
+					.as_ref()
+					.and_then(|shown| shown.files.get(self.file))
+					.map(|file| Overlay::Path(file.path.clone()));
+			}
+			(_, Key::Char('o' | 'O')) => self.toggle_others(),
+			(_, Key::Char('v' | 'V')) => {
+				// The sources are out of sight while the document is shown.
 				self.pane = match self.pane {
 					Pane::Changes => Pane::Document,
 					Pane::Document => Pane::Changes,
 				};
-			}
-			Key::PageUp => self.scroll_by(false),
-			Key::PageDown => self.scroll_by(true),
-			Key::Char('y' | 'Y') => self.arm(false),
-			Key::Char('r' | 'R') => self.arm(true),
-			Key::Enter => {
-				if let Some(reread) = armed {
-					self.record(reread)?;
+				if self.pane == Pane::Document {
+					self.focus = Focus::Sidebar;
 				}
 			}
-			Key::Char('a' | 'A') => self.ask_all()?,
-			Key::Char('e' | 'E') => return Ok(self.edit()),
+			(_, Key::PageUp) => self.scroll_by(false),
+			(_, Key::PageDown) => self.scroll_by(true),
+			(_, Key::Char('y' | 'Y')) if on_document => self.arm(false),
+			(_, Key::Char('r' | 'R')) if on_document => self.arm(true),
+			(_, Key::Char('a' | 'A')) => self.ask_all()?,
+			(_, Key::Char('e' | 'E')) if on_document => return Ok(self.edit()),
 			_ => {}
 		}
 		Ok(Flow::Stay)
@@ -642,53 +689,100 @@ impl<'a> App<'a> {
 		Ok(Flow::Stay)
 	}
 
+	/// How many rows the sidebar lists: the queue, the label of the other
+	/// documents, and those documents while they are open.
+	fn listed(&self) -> usize {
+		self.open.len() + 1 + if self.expanded { self.others.len() } else { 0 }
+	}
+
+	/// The cursor's row in the sidebar, counted from its first.
+	fn at(&self) -> Option<usize> {
+		match self.cursor {
+			Cursor::Open(index) => Some(index),
+			Cursor::Others => Some(self.open.len()),
+			Cursor::Other(index) => Some(self.open.len() + 1 + index),
+			Cursor::None | Cursor::Header(_) => None,
+		}
+	}
+
+	/// The cursor for a row of the sidebar.
+	fn row(&self, index: usize) -> Cursor {
+		match index.checked_sub(self.open.len()) {
+			None => Cursor::Open(index),
+			Some(0) => Cursor::Others,
+			Some(other) => Cursor::Other(other - 1),
+		}
+	}
+
 	/// Moves the cursor one row down or up. Above the first row is the header.
 	fn step(&mut self, down: bool) {
-		let rows =
-			self.open.len() + if self.expanded { self.others.len() } else { 0 };
-		let at = match self.cursor {
-			Cursor::Open(index) => Some(index),
-			Cursor::Other(index) => Some(self.open.len() + index),
-			Cursor::None | Cursor::Header(_) => None,
-		};
-		let next = match (at, down) {
-			(None, true) if rows > 0 => 0,
-			(Some(at), true) if at + 1 < rows => at + 1,
+		let next = match (self.at(), down) {
+			(None, true) => 0,
+			(Some(at), true) if at + 1 < self.listed() => at + 1,
 			(Some(at), false) if at > 0 => at - 1,
 			(_, false) => {
 				self.cursor = Cursor::Header(Field::Reviewer);
+				self.focus = Focus::Sidebar;
 				return;
 			}
 			_ => return,
 		};
-		self.select(if next < self.open.len() {
-			Cursor::Open(next)
-		} else {
-			Cursor::Other(next - self.open.len())
-		});
+		self.select(self.row(next));
 	}
 
-	/// Opens or closes the other documents. Closing them takes the cursor
-	/// back to the queue.
+	/// Moves the cursor as an arrow key does, but round: from the last row to
+	/// the first, and back.
+	fn cycle(&mut self, down: bool) {
+		let rows = self.listed();
+		let next = match (self.at(), down) {
+			(None, _) => 0,
+			(Some(at), true) => (at + 1) % rows,
+			(Some(at), false) => (at + rows - 1) % rows,
+		};
+		self.select(self.row(next));
+	}
+
+	/// Opens or closes the other documents. Closing them leaves the cursor
+	/// on their label when it was among them.
 	fn toggle_others(&mut self) {
 		self.expanded = !self.expanded;
 		if !self.expanded && matches!(self.cursor, Cursor::Other(_)) {
-			self.select(self.first());
+			self.select(Cursor::Others);
 		}
 	}
 
-	/// Selects the next or the previous changed file.
-	fn next_file(&mut self, forward: bool) {
+	/// Moves the focus to the changed sources of the document on display.
+	fn enter_sources(&mut self) {
+		if self
+			.shown
+			.as_ref()
+			.is_some_and(|shown| !shown.files.is_empty())
+		{
+			self.focus = Focus::Sources;
+			self.pane = Pane::Changes;
+		} else {
+			self.notice =
+				Some("This document has no changed source to go to.".to_owned());
+		}
+	}
+
+	/// Selects the next or the previous changed file. `around` goes from the
+	/// last to the first and back, where an arrow key would stop.
+	fn move_file(&mut self, forward: bool, around: bool) {
 		let files = self.shown.as_ref().map_or(0, |shown| shown.files.len());
 		if files == 0 {
 			return;
 		}
-		self.file = if forward {
-			(self.file + 1) % files
-		} else {
-			(self.file + files - 1) % files
+		let next = match (forward, around) {
+			(true, true) => (self.file + 1) % files,
+			(false, true) => (self.file + files - 1) % files,
+			(true, false) => (self.file + 1).min(files - 1),
+			(false, false) => self.file.saturating_sub(1),
 		};
-		self.scroll.0 = 0;
+		if next != self.file {
+			self.file = next;
+			self.scroll.0 = 0;
+		}
 	}
 
 	/// Scrolls what the pane shows by one page.

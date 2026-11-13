@@ -12,7 +12,8 @@ use ratatui::text::Span;
 use source_sentry_core::model::Outcome;
 
 use super::super::changes::Row;
-use super::app::{App, Area, Cursor, Field, Kind, Overlay, Pane, Shown};
+use super::super::state::Key as Id;
+use super::app::{App, Area, Cursor, Field, Focus, Kind, Overlay, Pane, Shown};
 use crate::{mark, output};
 
 /// The smallest screen the layout fits: columns, then rows.
@@ -32,6 +33,8 @@ const BLUE: Color = Color::Rgb(31, 43, 255);
 const DIM: Color = Color::Rgb(149, 141, 127);
 const FAINT: Color = Color::Rgb(75, 70, 61);
 const DIM_BLUE: Color = Color::Rgb(25, 26, 86);
+/// The selection in a list that does not have the focus.
+pub(super) const MUTED_BLUE: Color = Color::Rgb(27, 32, 140);
 const ADDED: (Color, Color) =
 	(Color::Rgb(195, 230, 171), Color::Rgb(26, 41, 21));
 const REMOVED: (Color, Color) =
@@ -60,6 +63,25 @@ fn faint() -> Style {
 /// The selection: cream on blue.
 fn selected() -> Style {
 	Style::new().fg(CREAM).bg(BLUE)
+}
+
+/// The selection in a list without the focus: cream on a muted blue.
+fn muted() -> Style {
+	Style::new().fg(CREAM).bg(MUTED_BLUE)
+}
+
+/// How a row of the sidebar is marked: strongly under the cursor while the
+/// sidebar has the focus, and mutedly when it is only the row on display.
+fn marked(app: &App, row: Cursor, id: &Id) -> Option<Style> {
+	let under = app.cursor == row;
+	let shown = app.shown.as_ref().is_some_and(|shown| &shown.id == id);
+	if under && app.focus == Focus::Sidebar {
+		Some(selected())
+	} else if under || shown {
+		Some(muted())
+	} else {
+		None
+	}
 }
 
 /// A key's cap: ink on cream.
@@ -314,15 +336,29 @@ fn sidebar(app: &App, pen: &mut Pen, area: Rect) {
 	if y >= area.bottom() {
 		return;
 	}
+	let on = app.cursor == Cursor::Others;
+	if on {
+		pen.fill(Rect::new(area.x, y, area.width, 1), selected());
+	}
+	let label = if on {
+		selected().add_modifier(Modifier::BOLD)
+	} else {
+		dim().add_modifier(Modifier::BOLD)
+	};
 	let arrow = if app.expanded { "▾" } else { "▸" };
 	pen.text(
 		area.x + 1,
 		y,
 		&format!("{arrow} OTHER DOCUMENTS"),
-		dim().add_modifier(Modifier::BOLD),
+		label,
 		u16::MAX,
 	);
-	pen.right(area.right() - 1, y, &app.others.len().to_string(), dim());
+	pen.right(
+		area.right() - 1,
+		y,
+		&app.others.len().to_string(),
+		if on { selected() } else { dim() },
+	);
 	let below = Rect::new(
 		area.x,
 		y + 1,
@@ -364,25 +400,30 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 		.skip(at.saturating_sub(room - 1))
 		.take(room)
 	{
-		let on = app.cursor == Cursor::Open(index);
-		if on {
-			pen.fill(Rect::new(area.x, y, area.width, 2), selected());
+		let mark = marked(app, Cursor::Open(index), id);
+		if let Some(style) = mark {
+			pen.fill(Rect::new(area.x, y, area.width, 2), style);
 		}
+		let strong = |plain: Style| {
+			mark.map_or(plain, |style| style.add_modifier(Modifier::BOLD))
+		};
 		if let Some(document) = app.session.state.documents.get(id) {
 			let outcome = document.outcome();
-			let label = if on {
-				selected().add_modifier(Modifier::BOLD)
-			} else {
-				Style::new()
-					.fg(outcome_color(outcome))
-					.add_modifier(Modifier::BOLD)
-			};
-			pen.text(area.x + 1, y, output::outcome_name(outcome), label, 4);
+			let label = Style::new()
+				.fg(outcome_color(outcome))
+				.add_modifier(Modifier::BOLD);
+			pen.text(
+				area.x + 1,
+				y,
+				output::outcome_name(outcome),
+				strong(label),
+				4,
+			);
 			pen.text(
 				area.x + 7,
 				y + 1,
 				&fit(&document.facts.replace(", ", " · "), name_width),
-				if on { selected() } else { dim() },
+				mark.unwrap_or_else(dim),
 				name_width,
 			);
 		}
@@ -390,11 +431,7 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 			area.x + 7,
 			y,
 			&fit_path(&id.display(workspace), name_width),
-			if on {
-				selected().add_modifier(Modifier::BOLD)
-			} else {
-				text()
-			},
+			strong(text()),
 			name_width,
 		);
 		y += 2;
@@ -416,9 +453,9 @@ fn others(app: &App, pen: &mut Pen, area: Rect) {
 	for (y, (index, other)) in
 		(area.y..).zip(app.others.iter().enumerate().skip(first).take(room))
 	{
-		let on = app.cursor == Cursor::Other(index);
-		if on {
-			pen.fill(Rect::new(area.x, y, area.width, 1), selected());
+		let mark = marked(app, Cursor::Other(index), &other.id);
+		if let Some(style) = mark {
+			pen.fill(Rect::new(area.x, y, area.width, 1), style);
 		}
 		let (label, color, name) = match other.kind {
 			Kind::Reviewed => (" ✓", outcome_color(Outcome::Pass), text()),
@@ -431,18 +468,14 @@ fn others(app: &App, pen: &mut Pen, area: Rect) {
 			area.x + 1,
 			y,
 			label,
-			if on {
-				selected()
-			} else {
-				Style::new().fg(color)
-			},
+			mark.unwrap_or_else(|| Style::new().fg(color)),
 			4,
 		);
 		pen.text(
 			area.x + 7,
 			y,
 			&fit_path(&other.id.display(workspace), name_width),
-			if on { selected() } else { name },
+			mark.unwrap_or(name),
 			name_width,
 		);
 	}
@@ -618,7 +651,8 @@ fn changes(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 }
 
 /// The changed files with their counts and object names: at most five at
-/// once, around the selected one. Returns the row after the last.
+/// once, around the selected one, which is marked strongly while the
+/// sources have the focus. Returns the row after the last.
 fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 	let mut y = area.y + 1;
 	for (index, file) in shown
@@ -628,29 +662,34 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		.skip(app.file.saturating_sub(4))
 		.take(5)
 	{
-		let on = index == app.file;
-		if on {
-			pen.fill(Rect::new(area.x, y, area.width, 1), selected());
+		let mark = (index == app.file).then(|| {
+			if app.focus == Focus::Sources {
+				selected()
+			} else {
+				muted()
+			}
+		});
+		if let Some(style) = mark {
+			pen.fill(Rect::new(area.x, y, area.width, 1), style);
 		}
-		let plain = |style: Style| if on { selected() } else { style };
 		let mut start = pen.right(
 			area.right() - 1,
 			y,
 			&format!("{} → {}", file.old, file.new),
-			plain(dim()),
+			mark.unwrap_or_else(dim),
 		);
 		if let Some((added, removed)) = file.counts {
 			start = pen.right(
 				start - 3,
 				y,
 				&format!("-{removed}"),
-				plain(Style::new().fg(REMOVED.0)),
+				mark.unwrap_or(Style::new().fg(REMOVED.0)),
 			);
 			start = pen.right(
 				start - 1,
 				y,
 				&format!("+{added}"),
-				plain(Style::new().fg(ADDED.0)),
+				mark.unwrap_or(Style::new().fg(ADDED.0)),
 			);
 		}
 		let room = start.saturating_sub(area.x + 4);
@@ -658,11 +697,7 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 			area.x + 1,
 			y,
 			&fit_path(&file.path, room),
-			if on {
-				selected().add_modifier(Modifier::BOLD)
-			} else {
-				text()
-			},
+			mark.map_or_else(text, |style| style.add_modifier(Modifier::BOLD)),
 			room,
 		);
 		y += 1;
@@ -829,6 +864,11 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 					("↓", "back to the documents", "back"),
 				],
 			),
+			(_, _, Cursor::Others) => (
+				"The documents that need no review now.".to_owned(),
+				"The other documents.",
+				&[("Enter", "open or close the list", "open or close")],
+			),
 			(Some(shown), Some(reread), _) => (
 				format!(
 					"Record that {} is still accurate{}?",
@@ -892,6 +932,10 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		pen.text(1, y + 1, notice, text(), columns.saturating_sub(2));
 		return;
 	}
+	let moves = match app.focus {
+		Focus::Sidebar => "↑↓ Tab document   → sources",
+		Focus::Sources => "↑↓ Tab source   Enter whole path   ← documents",
+	};
 	let swap = match app.pane {
 		Pane::Changes => "document",
 		Pane::Document => "changes",
@@ -899,7 +943,9 @@ fn question(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 	pen.text(
 		1,
 		y + 1,
-		&format!("? keys   q quit   ↑↓ document   Tab source   v {swap}   o other documents   PgUp PgDn scroll"),
+		&format!(
+			"? keys   q quit   {moves}   v {swap}   o other documents   PgUp PgDn scroll"
+		),
 		dim(),
 		columns.saturating_sub(2),
 	);
@@ -981,6 +1027,14 @@ fn frame(
 fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 	match overlay {
 		Overlay::Keys => keys_box(pen, area),
+		Overlay::Path(path) => {
+			let lines = wrap(path, 66);
+			let inside = frame(pen, area, 72, count(lines.len()) + 6, "Source");
+			for (y, line) in (inside.y..).zip(&lines) {
+				pen.text(inside.x, y, line, text(), inside.width);
+			}
+			pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
+		}
 		Overlay::All(comparisons, unseen) => {
 			all_box(app, comparisons, *unseen, pen, area);
 		}
@@ -1059,14 +1113,17 @@ fn count(rows: usize) -> u16 {
 fn keys_box(pen: &mut Pen, area: Rect) {
 	let keys = [
 		(
-			"↑ ↓",
-			"Move between documents; ↑ from the first enters the header",
+			"↑ ↓ Tab",
+			"Move in the list that has the focus; Shift+Tab moves back",
 		),
-		("o", "Open or close the other documents"),
+		("→ Enter", "From a document, go to its changed sources"),
+		("← Esc", "From the sources, return to the documents"),
+		("Enter", "On a source, show its whole path"),
 		(
-			"Tab",
-			"Go to the next changed source; Shift+Tab to the previous",
+			"o",
+			"Open or close the other documents; Enter on their label too",
 		),
+		("↑", "From the first document, enter the header"),
 		("v", "Swap the pane between the changes and the document"),
 		(
 			"PgUp PgDn",
@@ -1074,7 +1131,7 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 		),
 		("y", "Answer yes: the document is still accurate"),
 		("r", "Answer yes, and record that all of it was reread"),
-		("Enter", "Record the answer; Esc cancels it"),
+		("Enter", "Record a held answer; Esc withdraws it"),
 		("a", "Answer yes to every document, after a confirmation"),
 		("e", "Edit the document in your editor"),
 		("q", "Quit; reviews already recorded stay"),

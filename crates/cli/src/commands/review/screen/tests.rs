@@ -7,7 +7,7 @@ use serde_json::json;
 use super::super::tests::support::Repo;
 use std::rc::Rc;
 
-use super::app::{App, Area, Cursor, Field, Flow, Key, Kind, Overlay};
+use super::app::{App, Area, Cursor, Field, Flow, Focus, Key, Kind, Overlay};
 use super::draw;
 
 /// A repository with two documents that need review, the first with a
@@ -118,7 +118,7 @@ fn a_passing_document_takes_a_reread_but_no_yes() {
 	let repo = fixture();
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
-	press(&mut app, &[Key::Char('o'), Key::Down, Key::Down]);
+	press(&mut app, &[Key::Char('o'), Key::Down, Key::Down, Key::Down]);
 	assert_eq!(app.cursor, Cursor::Other(0));
 	assert!(app.shown.as_ref().unwrap().name.ends_with("fresh.md"));
 	assert!(shows(
@@ -212,7 +212,7 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 	);
 
 	press(&mut app, &[Key::Char('?')]);
-	assert!(shows(&drawn(&app, 120, 30), "Shift+Tab to the previous"));
+	assert!(shows(&drawn(&app, 120, 30), "show its whole path"));
 }
 
 /// A document is read once per evaluation and ahead of the cursor. One that
@@ -286,4 +286,77 @@ fn a_box_does_not_inherit_the_styles_it_covers() {
 			assert!(cell.modifier.is_empty(), "({x}, {y}): {cell:?}");
 		}
 	}
+}
+
+/// The arrow keys and Tab move in the list that has the focus. From a
+/// document, the right arrow or Enter goes to its changed sources, where
+/// Enter shows a whole path; the left arrow or Escape returns.
+#[test]
+fn the_focus_moves_between_the_documents_and_their_sources() {
+	let repo = Repo::new(
+		json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}]}, "docs/b.md": {}}),
+	);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!((app.focus, app.cursor), (Focus::Sidebar, Cursor::Open(0)));
+	press(&mut app, &[Key::Tab]);
+	assert_eq!(app.cursor, Cursor::Open(1));
+	press(&mut app, &[Key::Right]);
+	assert_eq!(app.focus, Focus::Sidebar, "no changed source to go to");
+	assert!(app.notice.is_some());
+	press(&mut app, &[Key::BackTab, Key::Enter]);
+	assert_eq!(
+		(app.focus, app.cursor, app.file),
+		(Focus::Sources, Cursor::Open(0), 0)
+	);
+
+	let rows = drawn(&app, 120, 30);
+	assert!(rows[29].contains("Enter whole path"), "{}", rows[29]);
+	let mut buffer = Buffer::empty(Rect::new(0, 0, 120, 30));
+	draw::draw(&app, &mut buffer);
+	assert_eq!(
+		buffer[(1, 3)].bg,
+		draw::MUTED_BLUE,
+		"the document steps back"
+	);
+
+	press(&mut app, &[Key::Down, Key::Down]);
+	assert_eq!((app.file, app.cursor), (1, Cursor::Open(0)));
+	press(&mut app, &[Key::Tab]);
+	assert_eq!(app.file, 0);
+	press(&mut app, &[Key::Enter]);
+	let Some(Overlay::Path(path)) = &app.overlay else {
+		panic!("expected the whole path");
+	};
+	assert!(path.ends_with("a.rs"));
+	press(&mut app, &[Key::Escape]);
+	assert_eq!((app.overlay.is_none(), app.focus), (true, Focus::Sources));
+	press(&mut app, &[Key::Char('y'), Key::Escape]);
+	assert_eq!((app.armed, app.focus), (None, Focus::Sources));
+	press(&mut app, &[Key::Left]);
+	assert_eq!(app.focus, Focus::Sidebar);
+}
+
+/// The label of the other documents is a row of its own: Enter on it opens
+/// and closes them, as `o` does anywhere.
+#[test]
+fn the_label_of_the_other_documents_opens_and_closes_them() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Down, Key::Down]);
+	assert_eq!(app.cursor, Cursor::Others);
+	assert!(app.shown.as_ref().unwrap().name.ends_with("b.md"));
+	press(&mut app, &[Key::Char('y')]);
+	assert_eq!(app.armed, None, "the label is not a document");
+	press(&mut app, &[Key::Down]);
+	assert_eq!(app.cursor, Cursor::Others, "nothing is listed below it yet");
+	press(&mut app, &[Key::Enter]);
+	assert!(app.expanded);
+	press(&mut app, &[Key::Down]);
+	assert_eq!(app.cursor, Cursor::Other(0));
+	press(&mut app, &[Key::Char('o')]);
+	assert_eq!((app.expanded, app.cursor), (false, Cursor::Others));
+	press(&mut app, &[Key::Tab]);
+	assert_eq!(app.cursor, Cursor::Open(0), "Tab goes round");
 }
