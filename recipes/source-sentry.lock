@@ -2,8 +2,8 @@
   "documents": {
     "README.md": {
       "reviewed": {
-        "at": "2026-11-12T22:31:11Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:20Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
@@ -12,327 +12,327 @@
               "oid": "sha1:80044f0c2b7e61c83dd90336354c9edd35e7ddd1",
               "path": "forgejo-actions.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             },
             {
               "oid": "sha1:d213e07f47f626a2f260a377d62ed6d492e4bda9",
               "path": "github-actions.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             },
             {
               "oid": "sha1:2be15cbf7d48af7ac8b4b93d6e75af275d4f2450",
               "path": "gitlab-ci.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             },
             {
               "oid": "sha1:9bf5903bcb7ce04b32ffc0aaf72a0aae99168498",
               "path": "woodpecker/source-sentry-continue.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             },
             {
               "oid": "sha1:bfd29e4d747637bc673ebbee999b791d7d4d15c7",
               "path": "woodpecker/source-sentry-deploy.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             },
             {
               "oid": "sha1:03767ca53b6c491df1aa36a2a2e5393db56f0f70",
               "path": "woodpecker/source-sentry-report.yml",
               "reviewed": {
-                "at": "2026-11-12T22:31:11Z",
-                "by": "Sol (Codex)"
+                "at": "2026-11-13T04:32:20Z",
+                "by": "gabmacn"
               }
             }
           ],
           "pattern": "**/*.yml",
           "reviewed": {
-            "at": "2026-11-12T22:31:11Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:20Z",
+            "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:11Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:20Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:11Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:20Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:11Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:20Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
           "path": "../crates/core/src/config/parse.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:11Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:20Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "forgejo-actions.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:04Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:13Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:04Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:13Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:04Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:13Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:04Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:13Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:04Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:13Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "github-actions.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:05Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:14Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:05Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:14Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:05Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:14Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:05Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:14Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:05Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:14Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "gitlab-ci.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:06Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:15Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:06Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:15Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:06Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:15Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:06Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:15Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:06Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:15Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "woodpecker/source-sentry-continue.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:08Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:16Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:08Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:16Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:08Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:16Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:08Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:16Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:08Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:16Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "woodpecker/source-sentry-deploy.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:09Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:17Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:09Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:17Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:09Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:17Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:09Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:17Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:09Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:17Z",
+            "by": "gabmacn"
           }
         }
       ]
     },
     "woodpecker/source-sentry-report.yml": {
       "reviewed": {
-        "at": "2026-11-12T22:31:10Z",
-        "by": "Sol (Codex)"
+        "at": "2026-11-13T04:32:19Z",
+        "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:f13201f87faaf19775f5ba2ce0bc628ab60aeb49",
+          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:10Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:19Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:10Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:19Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:10Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:19Z",
+            "by": "gabmacn"
           }
         },
         {
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-12T22:31:10Z",
-            "by": "Sol (Codex)"
+            "at": "2026-11-13T04:32:19Z",
+            "by": "gabmacn"
           }
         }
       ]
