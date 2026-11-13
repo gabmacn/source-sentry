@@ -176,32 +176,72 @@ impl GitRepository {
 		CommitSnapshot::new(self, commit)
 	}
 
-	/// The reviewer name `attest` records by default: git's `user.name`, or
-	/// `None` when it is unset or empty. It reads git's own
-	/// configuration, so every level and include git honours applies.
+	/// The name recorded by default for a review, a seal, a retirement or a
+	/// rename: `source-sentry.reviewer` from git's configuration when it is
+	/// set, or else git's `user.name`; `None` when both are unset or empty.
+	/// It reads git's own configuration, so every level and include git
+	/// honours applies.
 	///
 	/// # Errors
 	///
 	/// Fails with [`BackendErrorKind::GitExecutable`] when `git` cannot run or
-	/// fails, and with [`BackendErrorKind::Git`] when the name is not UTF-8.
+	/// fails, and with [`BackendErrorKind::Git`] when a name is not UTF-8.
 	pub fn default_reviewer(&self) -> Result<Option<String>, BackendError> {
-		let args = ["config", "--get", "user.name"];
+		let args = [
+			"config",
+			"--null",
+			"--get-regexp",
+			r"^(source-sentry\.reviewer|user\.name)$",
+		];
 		let finished = self.git.run(&args, None)?;
 		match finished.status.code() {
 			Some(0) => {}
-			// Git exits with 1 when the key is unset.
+			// Git exits with 1 when neither key is set.
 			Some(1) => return Ok(None),
 			_ => return Err(exit_failure(&args, &finished)),
 		}
-		let name = String::from_utf8(finished.stdout).map_err(|source| {
+		let listed = String::from_utf8(finished.stdout).map_err(|source| {
 			caused(
 				BackendErrorKind::Git,
-				"git's user.name is not UTF-8",
+				"git's configured name is not UTF-8",
 				source,
 			)
 		})?;
-		let name = name.trim_end_matches(['\r', '\n']);
-		Ok((!name.trim().is_empty()).then(|| name.to_owned()))
+		// Each entry is `<key>\n<value>` and ends with a NUL. A key set at
+		// several levels is listed once for each; git uses the last.
+		let named = |key: &str| {
+			listed
+				.split('\0')
+				.filter_map(|entry| entry.split_once('\n'))
+				.filter(|(name, value)| *name == key && !value.trim().is_empty())
+				.map(|(_, value)| value.to_owned())
+				.next_back()
+		};
+		Ok(named(REVIEWER_KEY).or_else(|| named("user.name")))
+	}
+
+	/// Remembers `name` as this repository's default reviewer, in its local
+	/// git configuration, or forgets the remembered name when `None`.
+	///
+	/// # Errors
+	///
+	/// Fails with [`BackendErrorKind::GitExecutable`] when `git` cannot run or
+	/// fails.
+	pub fn remember_reviewer(
+		&self,
+		name: Option<&str>,
+	) -> Result<(), BackendError> {
+		let args = match name {
+			Some(name) => vec!["config", "--local", "--", REVIEWER_KEY, name],
+			None => vec!["config", "--local", "--unset-all", REVIEWER_KEY],
+		};
+		let finished = self.git.run(&args, None)?;
+		match finished.status.code() {
+			Some(0) => Ok(()),
+			// Git exits with 5 when there is nothing to unset.
+			Some(5) if name.is_none() => Ok(()),
+			_ => Err(exit_failure(&args, &finished)),
+		}
 	}
 
 	/// The working-tree files that git neither tracks nor ignores, sorted:
@@ -338,3 +378,6 @@ impl GitRepository {
 		(!text.is_empty()).then(|| PathBuf::from(text))
 	}
 }
+
+/// The key under which git's configuration remembers the name to record.
+const REVIEWER_KEY: &str = "source-sentry.reviewer";

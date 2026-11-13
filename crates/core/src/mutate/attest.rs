@@ -31,8 +31,9 @@ pub struct AttestRequest {
 	/// pattern membership included. When `None`, the current state is
 	/// recorded.
 	pub expectations: Option<Vec<Expectation>>,
-	/// The reviewer's name: `--reviewer`, or else git's `user.name`, which
-	/// the CLI passes in. `None` records an unknown reviewer.
+	/// The reviewer's name: `--reviewer`, or else the name git's
+	/// configuration holds, which the CLI passes in. `None` records an
+	/// unknown reviewer.
 	pub reviewer: Option<String>,
 	/// The instant of the review, which is truncated to the second.
 	pub at: DateTime<Utc>,

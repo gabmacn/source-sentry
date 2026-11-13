@@ -265,7 +265,8 @@ pub(crate) struct ReviewArgs {
 	/// The context that decides the order of outcomes.
 	#[arg(long, value_name = "NAME", default_value = "default")]
 	pub(crate) context: String,
-	/// Who reviewed. By default, git's `user.name`.
+	/// Who reviewed. By default, `source-sentry.reviewer` in git's
+	/// configuration, or else git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) reviewer: Option<String>,
 	/// Ask one question after another instead of taking over the screen.
@@ -290,7 +291,8 @@ pub(crate) struct AttestArgs {
 	/// exactly; otherwise the current state is recorded.
 	#[arg(long = "expect", value_name = "PATH@STATE", value_parser = parse_expectation)]
 	pub(crate) expectations: Vec<ExpectationArg>,
-	/// Who reviewed. By default, git's `user.name`.
+	/// Who reviewed. By default, `source-sentry.reviewer` in git's
+	/// configuration, or else git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) reviewer: Option<String>,
 	/// Also record that the whole document was reread.
@@ -307,7 +309,8 @@ pub(crate) struct RecordArgs {
 	/// identity.
 	#[arg(value_name = "DOCUMENT", value_parser = parse_document)]
 	pub(crate) document: DocumentArg,
-	/// Who seals or retires it. By default, git's `user.name`.
+	/// Who seals or retires it. By default, `source-sentry.reviewer` in
+	/// git's configuration, or else git's `user.name`.
 	#[arg(long, value_name = "NAME")]
 	pub(crate) by: Option<String>,
 	#[command(flatten)]

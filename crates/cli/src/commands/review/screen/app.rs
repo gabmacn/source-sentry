@@ -664,8 +664,7 @@ impl<'a> App<'a> {
 				self.overlay = Some(Overlay::Reviewer(name));
 			}
 			(Overlay::Reviewer(name), Key::Enter) => {
-				let name = name.trim();
-				self.session.reviewer = (!name.is_empty()).then(|| name.to_owned());
+				self.set_reviewer(name.trim())?;
 			}
 			(Overlay::Contexts(at), Key::Up) => {
 				self.overlay = Some(Overlay::Contexts(at.saturating_sub(1)));
@@ -712,6 +711,36 @@ impl<'a> App<'a> {
 			Some(0) => Cursor::Others,
 			Some(other) => Cursor::Other(other - 1),
 		}
+	}
+
+	/// Uses `name` for the reviews recorded from now on, and remembers it
+	/// for the repository in git's configuration. An empty name forgets the
+	/// remembered one and returns to git's own.
+	fn set_reviewer(&mut self, name: &str) -> Result<(), Failure> {
+		let repository = &self.workspace().repository;
+		let remembered =
+			repository.remember_reviewer((!name.is_empty()).then_some(name));
+		self.session.reviewer = if name.is_empty() {
+			repository
+				.default_reviewer()
+				.map_err(|error| Failure::backend(&error))?
+		} else {
+			Some(name.to_owned())
+		};
+		let recorded = self.session.reviewer.as_deref().unwrap_or("nobody");
+		self.notice = Some(match remembered {
+			Ok(()) if name.is_empty() => {
+				format!("Reviews are recorded as {recorded}, git's own name, again.")
+			}
+			Ok(()) => format!(
+				"Reviews are recorded as {recorded}, in this session and later ones."
+			),
+			Err(error) => format!(
+				"Reviews are recorded as {recorded} in this session; the name could not be remembered: {}",
+				Failure::backend(&error).message
+			),
+		});
+		Ok(())
 	}
 
 	/// Moves the cursor one row down or up. Above the first row is the header.

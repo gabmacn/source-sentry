@@ -11,7 +11,8 @@
 //! - [`GitRepository::apply`] applies a [`WritePlan`] all or nothing. It is the
 //!   only code in Source Sentry that writes files, and `check` never calls it.
 //!   Files it creates are marked intent-to-add.
-//! - [`GitRepository::default_reviewer`] reads git's `user.name`.
+//! - [`GitRepository::default_reviewer`] reads the name to record from git's
+//!   configuration, and [`GitRepository::remember_reviewer`] stores one there.
 //!
 //! `git2` reads history and objects. The `git` executable, which must be on
 //! the `PATH`, lists the index and computes canonical blob oids for the

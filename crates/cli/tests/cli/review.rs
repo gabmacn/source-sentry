@@ -247,6 +247,20 @@ fn attest_without_expectations_binds_the_current_state() {
 	assert_eq!(states, ["fresh", "unattested"]);
 }
 
+/// A name remembered in git's configuration comes before `user.name`.
+#[test]
+fn a_remembered_reviewer_precedes_the_git_user_name() {
+	let repo = TestRepo::init();
+	repo.git(&["config", "source-sentry.reviewer", "Remembered Name"]);
+	repo.reviewed_guide();
+	let lockfile: serde_json::Value =
+		serde_json::from_str(&repo.read("docs/source-sentry.lock")).unwrap();
+	assert_eq!(
+		lockfile["documents"]["guide.md"]["sources"][0]["reviewed"]["by"],
+		"Remembered Name"
+	);
+}
+
 /// The reviewer defaults to git's `user.name`.
 #[test]
 fn the_reviewer_defaults_to_the_git_user_name() {

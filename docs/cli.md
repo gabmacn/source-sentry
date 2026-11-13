@@ -213,7 +213,10 @@ whether or not anything changed.
   Each source also carries its own `reviewed` (`at` and `by`) when present;
   a pattern's review is independent of its files' baselines.
 
-`--reviewer` defaults to git's `user.name`. `--reread` also records that the
+`--reviewer` defaults to `source-sentry.reviewer` in git's configuration when
+it is set, and otherwise to git's `user.name`. Set it with
+`git config source-sentry.reviewer "<name>"`, at any level git offers, or
+from the header of the full-screen review. `--reread` also records that the
 whole document was reread.
 
 Attesting a selected pattern records its own `reviewed` and the same review
@@ -314,7 +317,9 @@ current comparison has been displayed, and records them all on `y`. Any
 other key goes back. A source that changes during the batch stops it.
 
 In the header, `←` and `→` select a field and Enter changes it. The
-reviewer's name applies to the reviews recorded from then on. The context
+reviewer's name applies to the reviews recorded from then on, and is
+remembered for the repository as `source-sentry.reviewer` in its local git
+configuration; an empty name forgets it. The context
 is chosen from those that the traversed projects declare, and the working
 tree is evaluated again under it. The projects are listed. `↓` returns to
 the documents.
@@ -415,7 +420,7 @@ source-sentry retire <document> [--by <name>] [--dry-run] [--yes]
   first; equal instants retain their order. The living head of a series is
   retired only with its series.
 
-`--by` defaults to git's `user.name`.
+`--by` has the same default as `--reviewer`.
 
 ## Tracking
 
@@ -510,7 +515,8 @@ source-sentry migrate [--dry-run] [--yes]
 
   Every source review, the document's `reviewed`, its seal and `completed`
   are kept. The declaration appends `renamed: [{from, at, by}]`, newest last,
-  with the current time and git's `user.name` (or `null`). `from` uses
+  with the current time and the same name `--reviewer` defaults to (or
+  `null`). `from` uses
   `/docs/old.md` from the destination project's root, or `:/other/old.md`
   from the repository root when the former path is outside that project.
   Project moves also re-express earlier provenance entries and show each

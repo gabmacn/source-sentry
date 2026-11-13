@@ -12,7 +12,7 @@ use crate::exit::Failure;
 use crate::output::{self, Printer};
 use crate::workspace::{Workspace, load};
 
-/// Runs `seal` on the working tree. `--by` defaults to git's `user.name`.
+/// Runs `seal` on the working tree. `--by` defaults as `--reviewer` does.
 ///
 /// # Errors
 ///
@@ -43,7 +43,7 @@ pub(super) fn seal(
 	)
 }
 
-/// Runs `retire` on the working tree. `--by` defaults to git's `user.name`.
+/// Runs `retire` on the working tree. `--by` defaults as `--reviewer` does.
 ///
 /// # Errors
 ///

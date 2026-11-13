@@ -1039,26 +1039,25 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			all_box(app, comparisons, *unseen, pen, area);
 		}
 		Overlay::Reviewer(name) => {
-			let inside = frame(pen, area, 60, 7, "Reviewer");
-			pen.text(
-				inside.x,
-				inside.y,
-				"The name each review recorded from now on will carry.",
-				dim(),
-				inside.width,
-			);
+			let inside = frame(pen, area, 60, 8, "Reviewer");
+			for (y, line) in (inside.y..).zip([
+				"The name of each review recorded from now on.",
+				"Git's configuration remembers it for this repository.",
+			]) {
+				pen.text(inside.x, y, line, dim(), inside.width);
+			}
 			let end = pen.text(
 				inside.x,
-				inside.y + 1,
+				inside.y + 2,
 				name,
 				strong(),
 				inside.width.saturating_sub(1),
 			);
-			pen.text(end, inside.y + 1, "█", text(), 1);
+			pen.text(end, inside.y + 2, "█", text(), 1);
 			pen.keys(
 				inside.x,
-				inside.y + 3,
-				&[("Enter", "keep"), ("Esc", "cancel")],
+				inside.y + 4,
+				&[("Enter", "keep and remember"), ("Esc", "cancel")],
 			);
 		}
 		Overlay::Contexts(at) => {

@@ -335,6 +335,26 @@ fn opening_outside_a_repository_fails() {
 	assert_eq!(error.kind, BackendErrorKind::Git);
 }
 
+/// A name remembered for Source Sentry comes before git's own, until it is
+/// forgotten; forgetting twice is not an error.
+#[test]
+fn a_remembered_reviewer_precedes_git_user_name_until_forgotten() {
+	let repo = TestRepo::init();
+	repo.git(&["config", "user.name", "Test Reviewer"]);
+	let repository = repo.open();
+	repository.remember_reviewer(Some("-A Name")).unwrap();
+	assert_eq!(
+		repository.default_reviewer().unwrap().as_deref(),
+		Some("-A Name")
+	);
+	repository.remember_reviewer(None).unwrap();
+	repository.remember_reviewer(None).unwrap();
+	assert_eq!(
+		repository.default_reviewer().unwrap().as_deref(),
+		Some("Test Reviewer")
+	);
+}
+
 #[test]
 fn the_default_reviewer_is_git_user_name() {
 	let repo = TestRepo::init();

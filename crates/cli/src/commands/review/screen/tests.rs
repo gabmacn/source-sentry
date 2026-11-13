@@ -154,6 +154,14 @@ fn the_reviewer_and_the_context_change_in_the_header() {
 		&[Key::Char('A'), Key::Char('n'), Key::Char('n'), Key::Enter],
 	);
 	assert_eq!(app.session.reviewer.as_deref(), Some("Ann"));
+	assert_eq!(
+		repo
+			.git(&["config", "--get", "source-sentry.reviewer"])
+			.trim(),
+		"Ann"
+	);
+	let later = App::new(&workspace, &args).unwrap();
+	assert_eq!(later.session.reviewer.as_deref(), Some("Ann"));
 
 	press(&mut app, &[Key::Right, Key::Enter]);
 	assert!(matches!(app.overlay, Some(Overlay::Contexts(_))));
@@ -165,6 +173,18 @@ fn the_reviewer_and_the_context_change_in_the_header() {
 	assert_eq!(
 		repo.entry("docs/a.md")["sources"][0]["reviewed"]["by"],
 		"Ann"
+	);
+
+	// An empty name forgets the remembered one and returns to git's own.
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Up, Key::Enter]);
+	press(&mut app, &[Key::Backspace; 3]);
+	press(&mut app, &[Key::Enter]);
+	assert_eq!(app.session.reviewer.as_deref(), Some("Test Reviewer"));
+	assert!(
+		!repo
+			.git(&["config", "--local", "--list"])
+			.contains("source-sentry.reviewer")
 	);
 }
 
