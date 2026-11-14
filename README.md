@@ -88,6 +88,102 @@ fish, PowerShell and elvish.
 Source Sentry runs `git` for some operations, so git must be on the `PATH`.
 [`CHANGELOG.md`](CHANGELOG.md) lists the changes in each release.
 
+## Five minutes with Source Sentry
+
+[source-sentry-example](https://github.com/gabmacn/source-sentry-example) is
+a small repository with Source Sentry already set up: `docs/guide.md`
+describes the settings in `src/settings.py`, and records which version of
+that file it was last reviewed against. Clone it, with Source Sentry
+installed:
+
+```sh
+git clone https://github.com/gabmacn/source-sentry-example
+cd source-sentry-example
+source-sentry check
+```
+
+```
+Context default · 2026-11-14 20:45:37 UTC · working tree on 4297608
+
+2 passing · exit 0
+```
+
+Both documents match their sources. Now change the code: set `PORT = 9090`
+in `src/settings.py`, and check again.
+
+```
+$ source-sentry check
+Context default · 2026-11-14 20:45:37 UTC · working tree on 4297608
+
+warn  docs/guide.md  due (review at once)
+      src/settings.py changed in the working tree
+
+1 warning · 1 passing · exit 1
+```
+
+Source Sentry does not know whether the guide is now wrong, only that a file
+it describes has changed since its last review. `due (review at once)` comes
+from the guide's schedule: with the default, a document must follow its
+sources at once. `diff` shows what changed since that review:
+
+```
+$ source-sentry diff docs/guide.md
+docs/guide.md · 1 file changed since attested
+
+`../src/settings.py`
+  src/settings.py  changed: 34255e9 → 7db3392
+  --- src/settings.py (34255e9)
+  +++ src/settings.py (7db3392)
+  @@ -1,7 +1,7 @@
+   """Settings of the example web service."""
+
+   # The port the service listens on.
+  -PORT = 8080
+  +PORT = 9090
+
+   # How many requests one client may make per minute.
+   RATE_LIMIT_PER_MINUTE = 60
+
+After the review, record exactly what was shown with:
+  source-sentry attest docs/guide.md --expect src/settings.py@sha1:7db3392d28ef19e1e56a6db947a73c00d2e42511
+```
+
+The guide says port 8080, so update it to 9090, then record the review with
+the command `diff` printed. `--expect` binds the review to the exact version
+you read: if the file changed again in the meantime, `attest` refuses. On a
+terminal it asks before writing; `--yes` skips the question.
+
+```
+$ source-sentry attest docs/guide.md --expect src/settings.py@sha1:7db3392d28ef19e1e56a6db947a73c00d2e42511 --yes
+Attest docs/guide.md (docs/guide.md `source-sentry`)
+  `../src/settings.py`
+    src/settings.py  34255e9 → 7db3392
+Reviewed by Ada at 2026-11-14 20:45:46 UTC
+Matches the expectations:
+  src/settings.py@sha1:7db3392d28ef19e1e56a6db947a73c00d2e42511
+
+Files:
+  write   docs/guide.md
+Applied: 1 file changed.
+
+$ source-sentry check
+Context default · 2026-11-14 20:45:47 UTC · working tree on 4297608
+
+2 passing · exit 0
+```
+
+The review is recorded in the guide's frontmatter, with the reviewer's name,
+the time and the version of `src/settings.py` it was checked against, so it
+travels with the commit. In CI, the same check runs as two gates: the example
+repository's [pull request #1](https://github.com/gabmacn/source-sentry-example/pull/1)
+makes this change without updating the guide, and fails the report gate
+while the required continue gate passes. Its `production` context goes
+further, and blocks a deploy while `docs/privacy.md` does not match
+`src/storage.py`. [`recipes/`](recipes/README.md) explains both.
+
+`source-sentry review` walks through every pending document on a terminal,
+showing each diff and recording each review in turn.
+
 ## Using
 
 ```sh

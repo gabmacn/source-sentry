@@ -2,7 +2,7 @@
   "documents": {
     "CONTRIBUTING.md": {
       "reviewed": {
-        "at": "2026-11-14T20:14:04Z",
+        "at": "2026-11-14T20:46:25Z",
         "by": "Claude"
       },
       "sources": [
@@ -10,15 +10,15 @@
           "oid": "sha1:ad0d266a8669bcc8ee80e587545c0ad94ee73d80",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T20:14:04Z",
+            "at": "2026-11-14T20:46:25Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:de0772ebb59be5c28fd6202fa57a55ec22de1809",
+          "oid": "sha1:53e7c76384f4462241d0e416bb98fdec501b746d",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-14T20:14:04Z",
+            "at": "2026-11-14T20:46:25Z",
             "by": "Claude"
           }
         },
@@ -26,7 +26,7 @@
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-14T20:14:04Z",
+            "at": "2026-11-14T20:46:25Z",
             "by": "Claude"
           }
         },
@@ -34,7 +34,7 @@
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-14T20:14:04Z",
+            "at": "2026-11-14T20:46:25Z",
             "by": "Claude"
           }
         },
@@ -42,7 +42,7 @@
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-14T20:14:04Z",
+            "at": "2026-11-14T20:46:25Z",
             "by": "Claude"
           }
         }
