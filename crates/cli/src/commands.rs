@@ -5,6 +5,7 @@
 mod apply;
 mod attest;
 mod check;
+mod completions;
 mod diff;
 mod explain;
 mod init;
@@ -31,6 +32,9 @@ use crate::workspace::Workspace;
 ///
 /// Returns the failure that ended the command, with its exit code.
 pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
+	if let Command::Completions(args) = &cli.command {
+		return completions::run(args);
+	}
 	if matches!(&cli.command, Command::Review(_)) {
 		review::require_terminal()?;
 	}
@@ -65,6 +69,8 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 		Command::Rename(args) => rename::run(&workspace, args, printer),
 		Command::Init(args) => init::run(&workspace, args, printer),
 		Command::Migrate(args) => migrate::run(&workspace, args, printer),
+		// Handled above, before a repository is required.
+		Command::Completions(args) => completions::run(args),
 	}
 }
 

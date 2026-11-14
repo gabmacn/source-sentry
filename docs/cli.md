@@ -700,6 +700,23 @@ source-sentry migrate [--dry-run] [--yes]
   only one so far, so it confirms that every lockfile is current, and refuses
   a schema it does not know.
 
+## Shell completions
+
+```
+source-sentry completions <bash|zsh|fish|powershell|elvish>
+```
+
+`completions` prints the completion script for a shell, generated from the
+command line's own definition, so it always matches the binary that printed
+it. It needs no repository and changes no file: install the script where the
+shell looks for completions, as `source-sentry completions --help` shows for
+each shell. It exits 0, 4 when standard output cannot be written, or 64 for
+an unknown shell.
+
+The scripts complete commands and options. For document paths, they leave
+completion to the shell's own file name completion, where the shell offers
+it.
+
 ## Confirmation
 
 A command that changes files, except `review`, prints its plan first. On a

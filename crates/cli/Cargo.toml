@@ -15,6 +15,7 @@ categories = ["command-line-utilities", "development-tools"]
 source-sentry-core.workspace = true
 source-sentry-git.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 serde_json.workspace = true
 similar.workspace = true
 anstream.workspace = true

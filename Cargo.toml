@@ -27,6 +27,9 @@ source-sentry-core = { path = "crates/core", version = "=0.1.0-rc.2", registry =
 source-sentry-git = { path = "crates/git", version = "=0.1.0-rc.2", registry = "gmn" }
 # Command-line parsing through derive macros.
 clap = { version = "4.6", features = ["derive"] }
+# Writes the shell completion scripts of `completions` from clap's own
+# description of the command line.
+clap_complete = "4.6"
 # Typed errors for the libraries and the binary.
 thiserror = "2.0"
 

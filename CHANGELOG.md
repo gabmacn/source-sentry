@@ -23,6 +23,11 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+### Added
+
+- `source-sentry completions <shell>` prints shell completions for bash, zsh,
+  fish, PowerShell and elvish.
+
 ## [0.1.0-rc.2] - 2026-11-14
 
 ### Added

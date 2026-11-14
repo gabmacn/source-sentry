@@ -137,6 +137,34 @@ pub(crate) enum Command {
 	/// Migrate lockfiles to the current schema.
 	#[command(after_long_help = MUTATION_EXIT_CODES)]
 	Migrate(MigrateArgs),
+	/// Print the shell completion script for SHELL. It needs no repository.
+	#[command(after_long_help = COMPLETIONS_HELP)]
+	Completions(CompletionsArgs),
+}
+
+/// How to install each shell's completion script.
+const COMPLETIONS_HELP: &str = "\
+Install the script where your shell looks for completions, for example:
+  bash        source-sentry completions bash > ~/.local/share/bash-completion/completions/source-sentry
+  zsh         source-sentry completions zsh > ~/.zfunc/_source-sentry
+              (with ~/.zfunc in $fpath before compinit runs)
+  fish        source-sentry completions fish > ~/.config/fish/completions/source-sentry.fish
+  powershell  source-sentry completions powershell | Out-String | Invoke-Expression
+              (in your $PROFILE, so that every session loads it)
+  elvish      eval (source-sentry completions elvish | slurp)
+              (in ~/.config/elvish/rc.elv)
+
+Exit codes:
+  0   Printed
+  4   Standard output could not be written
+  64  Invalid command-line usage";
+
+/// The arguments of `completions`.
+#[derive(Debug, Args)]
+pub(crate) struct CompletionsArgs {
+	/// The shell to complete for.
+	#[arg(value_enum, value_name = "SHELL")]
+	pub(crate) shell: clap_complete::Shell,
 }
 
 /// The exit codes of `check`.

@@ -93,3 +93,24 @@ fn outside_a_repository_the_check_cannot_run() {
 		.unwrap();
 	assert_eq!(output.status.code(), Some(4));
 }
+
+#[test]
+fn completions_print_without_a_repository() {
+	let directory = tempfile::tempdir().unwrap();
+	let run = |shell: &str| {
+		std::process::Command::new(env!("CARGO_BIN_EXE_source-sentry"))
+			.args(["completions", shell])
+			.current_dir(directory.path())
+			.env("GIT_CEILING_DIRECTORIES", directory.path())
+			.output()
+			.unwrap()
+	};
+	for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+		let output = run(shell);
+		assert_eq!(output.status.code(), Some(0), "{shell}");
+		let script = String::from_utf8(output.stdout).unwrap();
+		assert!(script.contains("source-sentry"), "{shell}: {script}");
+		assert!(output.stderr.is_empty(), "{shell}");
+	}
+	assert_eq!(run("tcsh").status.code(), Some(64));
+}
