@@ -129,6 +129,10 @@ pub(crate) fn is_absence(error: &io::Error) -> bool {
 
 /// A link target as git stores it: the target's bytes.
 #[cfg(unix)]
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the signature is shared with the Windows version, which can fail"
+)]
 fn link_bytes(
 	target: PathBuf,
 	_path: &RepoPath,
