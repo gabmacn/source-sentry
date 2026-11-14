@@ -14,9 +14,9 @@
 # The report gate asks "Is anything wrong?" It fails on a warning or a
 # failure, and so does this workflow's status,
 # ci/woodpecker/<event>/source-sentry-report. That status prompts a fix; do
-# not require it. On a cron run it fails on a failure only, so that a
-# notification step added for failures fires when something fails, not every
-# day while anything warns; it still lists the warnings.
+# not require it. On a cron run it fails on a warning too, so that a
+# notification step added for failures fires on a document's review day, when
+# it becomes due and warns.
 #
 # Woodpecker substitutes its own variables throughout this file, comments
 # included, before running it, so variables meant for the shell are written
@@ -115,7 +115,6 @@ steps:
     commands:
       - '[ "$(git rev-parse HEAD)" = "$${CI_COMMIT_SHA}" ] || { echo "Checked out $(git rev-parse HEAD), but this pipeline is for $${CI_COMMIT_SHA}." >&2; exit 1; }'
       - AT="$(date -u -d "@$${CI_PIPELINE_CREATED}" +%Y-%m-%dT%H:%M:%SZ)"
-      - FAIL_ON=warn; [ "$${CI_PIPELINE_EVENT}" != cron ] || FAIL_ON=fail
       - >-
         /woodpecker/source-sentry/bin/source-sentry check
-        --context default --fail-on "$${FAIL_ON}" --at "$${AT}"
+        --context default --fail-on warn --at "$${AT}"

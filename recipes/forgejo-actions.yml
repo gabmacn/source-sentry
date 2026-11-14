@@ -120,9 +120,8 @@ jobs:
 
   # The report gate asks "Is anything wrong?" It fails on a warning or a
   # failure, to show a failing mark that prompts a fix. Do not make it a
-  # required check. On a scheduled run it fails on a failure only, so that
-  # the daily run emails when something fails, not every day while anything
-  # warns; it still lists the warnings.
+  # required check. On a scheduled run it fails on a warning too, so that a
+  # document's review day, when it becomes due and warns, emails someone.
   report-gate:
     name: Source Sentry report gate
     needs: prepare
@@ -157,11 +156,10 @@ jobs:
       - name: Check (report gate)
         env:
           AT: ${{ needs.prepare.outputs.at }}
-          FAIL_ON: ${{ github.event_name == 'schedule' && 'fail' || 'warn' }}
         run: |
           tar -xf /tmp/source-sentry/source-sentry.tar -C /tmp/source-sentry
           /tmp/source-sentry/source-sentry check \
-            --context default --fail-on "$FAIL_ON" \
+            --context default --fail-on warn \
             --at "${AT:?The prepare job provided no evaluation instant.}"
 
   # The continue gate asks "May the build continue?" It fails only on a

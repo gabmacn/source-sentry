@@ -18,8 +18,9 @@
 #
 # Scheduled runs: create a daily schedule for the default branch under
 # Build > Pipeline schedules. Deadlines pass without anyone committing, so the
-# schedule is what reports them. A warning lets the pipeline succeed, so a
-# scheduled pipeline notifies on a failure only, as in the other recipes.
+# schedule is what reports them. A scheduled pipeline fails on a warning too,
+# so that a document's review day, when it becomes due and warns, notifies
+# someone, as in the other recipes.
 #
 # Merge requests: on Premium and Ultimate, enable merged results pipelines
 # (Settings > Merge requests > Merge options), so that a merge request is
@@ -119,12 +120,17 @@ source-sentry-install:
 # everything passes, 1 for a warning, and 2 or more for a failure or an
 # error. GitLab tolerates exit 1 only: a warning shows the job with an orange
 # warning while the pipeline still succeeds (the report gate), and anything
-# worse fails the pipeline and blocks the merge (the continue gate).
+# worse fails the pipeline and blocks the merge (the continue gate). A
+# scheduled pipeline tolerates nothing, so that a warning notifies.
 source-sentry-gates:
   stage: check
   needs: [source-sentry-install]
   allow_failure:
     exit_codes: [1]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      allow_failure: false
+    - when: on_success
   script:
     - chmod +x .source-sentry-install/bin/source-sentry
     - >-

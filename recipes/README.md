@@ -40,7 +40,7 @@ runs on Linux.
 | Full history | `fetch-depth: 0` | `GIT_DEPTH: 0`, `GIT_STRATEGY: clone` | `fetch-depth: 0` | `depth: 0`, `partial: false` |
 | Schedule | `on.schedule` in the file | A pipeline schedule, set in the UI | `on.schedule` in the file | A cron job, set in the settings |
 | Who is notified | The user who last changed the cron line | The pipeline's creator, presumably the schedule's owner | The repository's owner | Nobody, unless a step is added |
-| Scheduled runs notify on | A failure | A failure | A failure | A failure, through a step you add |
+| Scheduled runs notify on | A warning or a failure | A warning or a failure | A warning or a failure | A warning or a failure, through a step you add |
 | Binary | Downloaded once, shared as an artifact | Downloaded once, shared as an artifact | Downloaded once, shared as an artifact | Downloaded in each workflow, against the same pins |
 
 ## The two gates
@@ -49,8 +49,8 @@ The two gates ask two questions of the same result:
 
 - **The report gate**: "Is anything wrong?" It runs `check --fail-on warn`
   and fails on a warning or a failure. Its failing mark prompts a fix, so it
-  is **not required**. On a scheduled run it uses `--fail-on fail` instead
-  (see [Scheduled runs](#scheduled-runs)).
+  is **not required**. On a scheduled run its failure is what notifies (see
+  [Scheduled runs](#scheduled-runs)).
 - **The continue gate**: "May the build continue?" It runs
   `check --fail-on fail` and fails only on a failure, or on an error. It **is
   required** before merging.
@@ -330,8 +330,8 @@ does.
 - **GitLab:** create a pipeline schedule for the default branch under
   **Build > Pipeline schedules**. It runs with its owner's permissions, and
   pipeline notifications go to the pipeline's creator, which for a schedule
-  is presumably its owner. Warnings are allowed failures, so only a failure
-  sends an email.
+  is presumably its owner. In a scheduled pipeline a warning is not an
+  allowed failure, so it sends an email.
 - **Forgejo:** `on.schedule` runs from the default branch only, in UTC unless
   a time zone is set. `enable-email-notifications: true` (Forgejo 12 or
   later) emails the repository's owner, or the organisation's contact
@@ -343,45 +343,47 @@ does.
   `when: status: [failure]` to each workflow concerned, using the
   notification plugin of your choice.
 
-Any daily time reports a deadline within a day of its passing. Deadlines fall
-at the end of a day in the configured time zone, so a run shortly
-after that midnight reports them soonest. The exception is a document with
-no cadence and a grace period of 0 days, the default: a change to its
-sources is due at once, so the next run of any kind reports it.
+Any daily time reports a review day on that day. Due days begin at midnight
+in the configured time zone, so a run shortly after that midnight reports
+them soonest. The exception is a document with no cadence and a grace period
+of 0 days, the default: a change to its sources is due at once, so the next
+run of any kind reports it.
 
-A scheduled run notifies on a failure only, on every engine. Its report gate
-uses `--fail-on fail` rather than `--fail-on warn`, so warnings are listed in
-the run's log but never fail it. On GitLab nothing changes, since a warning
-already lets the pipeline succeed. A daily notification for a warning would
-say nothing new after the first. Under the built-in default context, every
-finding warns except a missed series entry, including a document that is
-stale but still within its grace period.
+A scheduled run's report gate fails on a warning, as on every other run, and
+its failure is what notifies. Under the built-in default context, a stale
+document is a notice until it is due and a warning from its due day, so the
+scheduled run notifies on a document's review day, and every day after until
+it is reviewed. A document that is stale but not due yet is listed in the
+log as a notice and notifies nobody.
 
-With the built-in default context, no document fails, so a scheduled run
-notifies only on a configuration, integrity or operational error. To be
-notified when a deadline passes, make `overdue` a failure in the
-repository's `default` context:
+> **Why.** Under the built-in default, being due is a warning, not a
+> failure. A scheduled run that failed only on failures would let a review
+> day pass unnoticed, and the only prompt left would be unrelated pull
+> requests turning red.
+
+To block work as well once a deadline has passed, make `overdue` a failure
+in the repository's `default` context:
 
 ```yaml
 # In .source-sentry/source-sentry.yaml.
 define:
   contexts:
     # Defining `default` replaces the built-in default context, so this
-    # repeats its rule for missed series entries.
+    # repeats its rules for stale documents and missed series entries.
     default:
       fallback: warn
       rules:
+        - facts: ['stale', 'upstream-stale']
+          outcome: notice
         - facts: ['missed']
           outcome: notice
         - facts: ['overdue']
           outcome: fail
 ```
 
-The scheduled run then fails, and notifies, from the first run after a
-deadline passes until the document is reviewed. The same rule also fails the
-continue gate of every pull request and push while the document is overdue.
-Add `classes` to the rule to limit it to the documents whose deadlines should
-block work.
+The same rule then fails the continue gate of every pull request and push
+while the document is overdue. Add `classes` to the rule to limit it to the
+documents whose deadlines should block work.
 
 ## Deploying
 
@@ -647,13 +649,14 @@ the push to the default branch:
 | Scenario | Report gate | Continue gate | Production gate | Merge | Deploy |
 |---|---|---|---|---|---|
 | Every document fresh | passes | passes | passes | allowed | runs |
-| An ordinary document stale | fails (1) | passes | passes | allowed | runs |
+| An ordinary document stale, without a schedule | fails (1) | passes | passes | allowed | runs |
+| A document with a cadence stale before its review day | passes, with a notice | passes | passes | allowed | runs |
 | The privacy policy stale | fails (1) | passes | fails (2) | allowed | blocked |
 | A rule maps a fact to `fail` in `default` only | fails (2) | fails (2) | passes | blocked | runs |
 | A malformed lockfile or unknown context | fails (3) | fails (3) | fails (3) | blocked | blocked |
 | A shallow clone, forced for the test, with a stale document whose change it cannot date | fails (4) | fails (4) | fails (4) | blocked | blocked |
 | The install step fails | skipped or failed | fails, never skipped | does not run | blocked | blocked |
-| A deadline passes with no commit | the scheduled run lists it, and fails (2) only if `overdue` maps to `fail` | | | | |
+| A review day arrives with no commit | the scheduled run fails (1), and fails (2) once `overdue` maps to `fail` | | | | |
 
 Each test should also confirm:
 
@@ -720,7 +723,8 @@ Each test should also confirm:
 - Woodpecker's report gate has its own workflow file, so the forge shows its
   status.
 - Scheduled runs use the default context only.
-- Scheduled runs notify on failures only, on every engine.
+- Scheduled runs notify on warnings and failures, on every engine, so that a
+  review day prompts someone.
 - Deployment needs production's continue gate only.
 - Pull requests are checked at their merge commit, where the engine provides
   one.
