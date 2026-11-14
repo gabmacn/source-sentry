@@ -63,12 +63,12 @@ Sentry:
   index = "sparse+https://git.gabmacn.com/api/packages/gmn/cargo/"
   ```
 
-  Then install, with `--locked` so the dependency versions that were tested
-  are the ones used, and with the version you want: Cargo never picks a
-  release candidate, such as `0.1.0-rc.3`, unless it is named.
+  Then install, with `--locked` so that the dependency versions that were
+  tested are the ones used. Cargo installs the latest release; it picks a
+  release candidate, such as `0.1.0-rc.3`, only when `--version` names it.
 
   ```sh
-  cargo install --locked --registry gmn --version <version> source-sentry
+  cargo install --locked --registry gmn source-sentry
   ```
 
 [`install/`](install/README.md) holds quicker ways to the prebuilt binaries:
@@ -79,7 +79,7 @@ project, so that a monorepo's teams run `moon run source-sentry:review`
 without installing anything by hand:
 
 ```sh
-curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh -s -- --version <version>
+curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh
 ```
 
 `source-sentry completions <shell>` prints shell completions for bash, zsh,

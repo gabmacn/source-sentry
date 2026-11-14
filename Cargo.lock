@@ -1390,7 +1390,7 @@ checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 
 [[package]]
 name = "source-sentry"
-version = "0.1.0-rc.3"
+version = "0.1.0"
 dependencies = [
  "anstream",
  "chrono",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "source-sentry-core"
-version = "0.1.0-rc.3"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "globset",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "source-sentry-git"
-version = "0.1.0-rc.3"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "git2",

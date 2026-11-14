@@ -3,7 +3,7 @@ members = ["crates/core", "crates/git", "crates/cli"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-rc.3"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"
@@ -22,9 +22,9 @@ publish = ["gmn"]
 # equal `workspace.package.version`.
 #
 # Shared documentation tracking logic used by the CLI.
-source-sentry-core = { path = "crates/core", version = "=0.1.0-rc.3", registry = "gmn" }
+source-sentry-core = { path = "crates/core", version = "=0.1.0", registry = "gmn" }
 # The git backend: snapshots, history and atomic writes.
-source-sentry-git = { path = "crates/git", version = "=0.1.0-rc.3", registry = "gmn" }
+source-sentry-git = { path = "crates/git", version = "=0.1.0", registry = "gmn" }
 # Command-line parsing through derive macros.
 clap = { version = "4.6", features = ["derive"] }
 # Writes the shell completion scripts of `completions` from clap's own

@@ -23,6 +23,29 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-14
+
+### Added
+
+- The README walks through Source Sentry in five minutes, with real output,
+  on a public example repository.
+
+### Changed
+
+- 0.1.0 is the first release. Source Sentry itself behaves as in
+  0.1.0-rc.3; the other changes are to its documentation.
+- The GitHub Actions and Forgejo Actions recipes have run on real CI. The
+  GitLab CI and Woodpecker recipes are released untested, and their headers
+  say so.
+- The install guide's commands and `cargo install` no longer name a version:
+  they install the latest release.
+
+### Fixed
+
+- The Forgejo Actions recipe is copied to `.forgejo/workflows/source-sentry.yml`.
+  Its guide named `source-sentry.yaml`, which Source Sentry reads as a
+  directory config, so every gate stopped with exit 3.
+
 ## [0.1.0-rc.3] - 2026-11-14
 
 ### Added

@@ -28,13 +28,16 @@ change `PATH` or any shell configuration: when the directory is not on
 `PATH`, they print how to add it.
 
 Without a version, they install the latest release that is not a release
-candidate. Until 0.1.0 is released there is none, so name a version.
+candidate.
 
 ### Linux and macOS
 
 ```sh
-curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh -s -- --version 0.1.0-rc.3
+curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh
 ```
+
+To choose the version or the directory, pass options after `sh -s --`, such
+as `| sh -s -- --version 0.1.0 --dir ~/bin`.
 
 The binary goes to `~/.local/bin`, or to the directory given with `--dir` or
 in `SOURCE_SENTRY_INSTALL_DIR`. The script needs `curl` or `wget`, `tar`, and
@@ -45,11 +48,16 @@ downloads is not quarantined by macOS, so it runs without `xattr`.
 ### Windows
 
 ```powershell
-& ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0-rc.3
+irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1 | iex
 ```
 
-Once 0.1.0 is released, `irm <url> | iex` installs the latest release. The
-binary goes to `%LOCALAPPDATA%\Programs\source-sentry`, or to the directory
+To pass parameters, run the script as a script block:
+
+```powershell
+& ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0
+```
+
+The binary goes to `%LOCALAPPDATA%\Programs\source-sentry`, or to the directory
 given with `-Dir` or in `SOURCE_SENTRY_INSTALL_DIR`; `SOURCE_SENTRY_VERSION`
 can name the version instead of `-Version`. The script runs in Windows
 PowerShell 5.1 and later. On Windows 11 on Arm it installs the x86_64
@@ -76,7 +84,7 @@ release binary in place of compiling the crate, from the metadata in the
 [README](../README.md#installing) shows:
 
 ```sh
-cargo binstall --registry gmn --version <version> source-sentry
+cargo binstall --registry gmn source-sentry
 ```
 
 It works from 0.1.0-rc.3, the first version published with the metadata. cargo-binstall does not check `SHA256SUMS`; it relies on HTTPS.
@@ -88,7 +96,7 @@ pinned in the repository's `.prototools`, through the plugin
 [`proto-plugin.toml`](proto-plugin.toml):
 
 ```toml
-source-sentry = "0.1.0-rc.3"
+source-sentry = "0.1.0"
 
 [plugins.tools]
 source-sentry = "https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/proto-plugin.toml"
