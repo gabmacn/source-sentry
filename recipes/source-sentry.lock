@@ -2,7 +2,7 @@
   "documents": {
     "README.md": {
       "reviewed": {
-        "at": "2026-11-14T19:58:29Z",
+        "at": "2026-11-14T20:45:27Z",
         "by": "Claude"
       },
       "sources": [
@@ -12,15 +12,15 @@
               "oid": "sha1:2432ec51b53bf0725f903dc8d55077d6c763a4e4",
               "path": "forgejo-actions.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             },
             {
-              "oid": "sha1:7ccfd4df4e17c088e412a077feb77cbc2f534da0",
+              "oid": "sha1:92756e960a7d98331d114222f98217778ac2fa7d",
               "path": "github-actions.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             },
@@ -28,7 +28,7 @@
               "oid": "sha1:2ab960cd83cb283d440e548e6805e4acd4362d21",
               "path": "gitlab-ci.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             },
@@ -36,7 +36,7 @@
               "oid": "sha1:9bf5903bcb7ce04b32ffc0aaf72a0aae99168498",
               "path": "woodpecker/source-sentry-continue.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             },
@@ -44,7 +44,7 @@
               "oid": "sha1:bfd29e4d747637bc673ebbee999b791d7d4d15c7",
               "path": "woodpecker/source-sentry-deploy.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             },
@@ -52,14 +52,14 @@
               "oid": "sha1:45dc192a168a7cc657d9bebfd3ee49f3362bbb2a",
               "path": "woodpecker/source-sentry-report.yml",
               "reviewed": {
-                "at": "2026-11-14T19:58:29Z",
+                "at": "2026-11-14T20:45:27Z",
                 "by": "Claude"
               }
             }
           ],
           "pattern": "**/*.yml",
           "reviewed": {
-            "at": "2026-11-14T19:58:29Z",
+            "at": "2026-11-14T20:45:27Z",
             "by": "Claude"
           }
         },
@@ -67,7 +67,7 @@
           "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:29Z",
+            "at": "2026-11-14T20:45:27Z",
             "by": "Claude"
           }
         },
@@ -75,7 +75,7 @@
           "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:29Z",
+            "at": "2026-11-14T20:45:27Z",
             "by": "Claude"
           }
         },
@@ -83,7 +83,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:29Z",
+            "at": "2026-11-14T20:45:27Z",
             "by": "Claude"
           }
         },
@@ -91,7 +91,7 @@
           "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
           "path": "../crates/core/src/config/parse.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:29Z",
+            "at": "2026-11-14T20:45:27Z",
             "by": "Claude"
           }
         }

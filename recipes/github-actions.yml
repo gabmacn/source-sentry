@@ -4,9 +4,10 @@
 # this recipe explains the gates, the branch protection they need and the
 # files to protect.
 #
-# This recipe has not yet run on real CI. The installation step in the
-# `prepare` job pins a release of Source Sentry by version and checksum; its
-# values are placeholders that you must replace.
+# This recipe ran on real CI on 2026-11-14, with 0.1.0-rc.3, in
+# https://github.com/gabmacn/source-sentry-example. The installation step in
+# the `prepare` job pins a release of Source Sentry by version and checksum;
+# its values are placeholders that you must replace.
 #
 # Contexts: pull requests, pushes and scheduled runs use `default`. The deploy
 # job uses `production`, which the repository config

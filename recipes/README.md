@@ -10,9 +10,10 @@ are those of [cli.md](../docs/cli.md).
 | Forgejo Actions | [forgejo-actions.yml](forgejo-actions.yml) | `.forgejo/workflows/source-sentry.yaml` |
 | Woodpecker | the three files in [woodpecker/](woodpecker/) | `.woodpecker/`, under the same names |
 
-> **Status.** None of these recipes has run on real CI yet. Each must be
-> tested on its engine before the first release; [Testing before
-> release](#testing-before-release) lists what each one needs. Every recipe
+> **Status.** The GitHub Actions recipe ran on real CI on 2026-11-14; the
+> other three have not run yet. Each must be tested on its engine before the
+> first release; [Testing before release](#testing-before-release) lists
+> what was tested and what each one still needs. Every recipe
 > installs a release of Source Sentry pinned by version and checksum, and
 > those pins are placeholders until you replace them
 > ([Installation](#installation)). Until 0.1.0 is released, pin a release
@@ -635,9 +636,9 @@ one.
 
 ## Testing before release
 
-The recipes have not run on real CI. The four recipes are part of the
-release's acceptance tests, so each must be tested on its engine before the
-first release.
+The four recipes are part of the release's acceptance tests, so each must be
+tested on its engine before the first release. Only the GitHub Actions recipe
+has run so far ([GitHub Actions, tested](#github-actions-tested)).
 
 ### A fixture repository
 
@@ -672,16 +673,42 @@ Each test should also confirm:
   [Pull requests](#pull-requests-the-commit-that-is-checked) describes for
   its engine.
 
+### GitHub Actions, tested
+
+On 2026-11-14 the recipe ran on GitHub's `ubuntu-24.04` runners in
+<https://github.com/gabmacn/source-sentry-example>, unchanged apart from its
+pins, which named 0.1.0-rc.3. That repository uses the example repository
+config's `default` and `production` contexts, with a `privacy` document.
+
+| Scenario | Report gate | Continue gate | Production gate | Deploy |
+|---|---|---|---|---|
+| Every document fresh, pushed to `main` | passed | passed | passed | ran |
+| A pull request that changes a source of an ordinary document | failed (1) | passed | skipped | skipped |
+| A push to `main` that changes a source of the privacy policy | failed (1) | passed | failed (2) | skipped |
+| The privacy policy updated and attested, pushed to `main` | passed | passed | passed | ran |
+| A pull request with a wrong x86_64 checksum pin | skipped | failed | skipped | skipped |
+
+They confirmed that:
+
+- the install step downloads the pinned archive from `git.gabmacn.com`,
+  checks it (`OK`), and runs `--version`; with a wrong pin it prints
+  `FAILED`, stops before extracting, and the continue gate fails rather than
+  being skipped, through `always()`;
+- the binary survives the tar round trip through the artifact;
+- every gate of a run prints the same instant and the same commit;
+- a pull request is checked at GitHub's merge commit,
+  `refs/pull/<number>/merge`;
+- the production gate and the deploy run only on pushes to `main`.
+
 ### What each engine still needs
 
 - **GitHub:**
-  - the check's name as branch protection lists it;
-  - that `always()` keeps the continue gate from being skipped when
-    `prepare` fails, and that the merge is then blocked;
+  - the check's name as branch protection lists it, and that a failing or
+    skipped-by-failure continue gate then blocks the merge (the example
+    repository has no branch protection);
   - that a pull request with a merge conflict starts no run, and stays
     blocked;
-  - the tar round trip through the artifact;
-  - who receives the scheduled run's failure email.
+  - the scheduled run, and who receives its failure email.
 - **GitLab:**
   - that exit 1 shows the orange warning while the pipeline succeeds and the
     merge check passes;
