@@ -24,12 +24,13 @@ reason for each rule.
 ## Installing
 
 Releases are published at
-<https://git.gabmacn.com/gmn/source-sentry/releases>, and versions before
-0.1.0 are release candidates. There are two ways to install Source Sentry:
+<https://git.gabmacn.com/gmn/source-sentry/releases> and copied, with the
+same files, to <https://github.com/gabmacn/source-sentry/releases>. Versions
+before 0.1.0 are release candidates. There are two ways to install Source
+Sentry:
 
 - **Prebuilt binaries** for Linux (x86_64 and aarch64), macOS (Apple silicon)
-  and Windows (x86_64), attached to each release at
-  <https://git.gabmacn.com/gmn/source-sentry/releases>. Each comes in an
+  and Windows (x86_64), attached to each release. Each comes in an
   archive named `source-sentry-<version>-<target>`, a `.tar.gz` for Linux and
   macOS and a `.zip` for Windows. It holds a folder of the same name with the
   binary, `LICENSE` and `THIRD-PARTY-LICENSES.txt`. Every release includes a

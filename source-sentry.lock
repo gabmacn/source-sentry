@@ -2,7 +2,7 @@
   "documents": {
     "CONTRIBUTING.md": {
       "reviewed": {
-        "at": "2026-11-14T06:37:18Z",
+        "at": "2026-11-14T18:44:56Z",
         "by": "Claude"
       },
       "sources": [
@@ -10,15 +10,15 @@
           "oid": "sha1:12ea6b2beb1f5d265d267e631fad0b483b0fe84b",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T08:36:37Z",
+            "at": "2026-11-14T18:44:56Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:1b669bd85d68e07e638038aa3ced35195ab1dc3f",
+          "oid": "sha1:130bd75df3bdf3be5094c6da3adf311e7e27ffe4",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-14T08:36:37Z",
+            "at": "2026-11-14T18:44:56Z",
             "by": "Claude"
           }
         },
@@ -26,7 +26,7 @@
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-14T08:36:37Z",
+            "at": "2026-11-14T18:44:56Z",
             "by": "Claude"
           }
         },
@@ -34,7 +34,7 @@
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-14T08:36:37Z",
+            "at": "2026-11-14T18:44:56Z",
             "by": "Claude"
           }
         },
@@ -42,7 +42,7 @@
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-14T08:36:37Z",
+            "at": "2026-11-14T18:44:56Z",
             "by": "Claude"
           }
         }
