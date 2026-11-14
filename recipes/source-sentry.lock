@@ -2,33 +2,33 @@
   "documents": {
     "README.md": {
       "reviewed": {
-        "at": "2026-11-13T04:32:20Z",
+        "at": "2026-11-14T05:42:52Z",
         "by": "gabmacn"
       },
       "sources": [
         {
           "members": [
             {
-              "oid": "sha1:80044f0c2b7e61c83dd90336354c9edd35e7ddd1",
+              "oid": "sha1:2432ec51b53bf0725f903dc8d55077d6c763a4e4",
               "path": "forgejo-actions.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             },
             {
-              "oid": "sha1:d213e07f47f626a2f260a377d62ed6d492e4bda9",
+              "oid": "sha1:7ccfd4df4e17c088e412a077feb77cbc2f534da0",
               "path": "github-actions.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             },
             {
-              "oid": "sha1:2be15cbf7d48af7ac8b4b93d6e75af275d4f2450",
+              "oid": "sha1:2ab960cd83cb283d440e548e6805e4acd4362d21",
               "path": "gitlab-ci.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             },
@@ -36,7 +36,7 @@
               "oid": "sha1:9bf5903bcb7ce04b32ffc0aaf72a0aae99168498",
               "path": "woodpecker/source-sentry-continue.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             },
@@ -44,38 +44,38 @@
               "oid": "sha1:bfd29e4d747637bc673ebbee999b791d7d4d15c7",
               "path": "woodpecker/source-sentry-deploy.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             },
             {
-              "oid": "sha1:03767ca53b6c491df1aa36a2a2e5393db56f0f70",
+              "oid": "sha1:45dc192a168a7cc657d9bebfd3ee49f3362bbb2a",
               "path": "woodpecker/source-sentry-report.yml",
               "reviewed": {
-                "at": "2026-11-13T04:32:20Z",
+                "at": "2026-11-14T05:42:52Z",
                 "by": "gabmacn"
               }
             }
           ],
           "pattern": "**/*.yml",
           "reviewed": {
-            "at": "2026-11-13T04:32:20Z",
+            "at": "2026-11-14T05:42:52Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:20Z",
+            "at": "2026-11-14T05:42:52Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:20Z",
+            "at": "2026-11-14T05:42:52Z",
             "by": "gabmacn"
           }
         },
@@ -83,7 +83,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:20Z",
+            "at": "2026-11-14T05:42:52Z",
             "by": "gabmacn"
           }
         },
@@ -91,7 +91,7 @@
           "oid": "sha1:9eab54ce44c54c57a9d6f437a04633f78d636888",
           "path": "../crates/core/src/config/parse.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:20Z",
+            "at": "2026-11-14T05:42:52Z",
             "by": "gabmacn"
           }
         }
@@ -99,23 +99,23 @@
     },
     "forgejo-actions.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:13Z",
+        "at": "2026-11-14T05:42:44Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:13Z",
+            "at": "2026-11-14T05:42:44Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:13Z",
+            "at": "2026-11-14T05:42:44Z",
             "by": "gabmacn"
           }
         },
@@ -123,7 +123,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:13Z",
+            "at": "2026-11-14T05:42:44Z",
             "by": "gabmacn"
           }
         },
@@ -131,7 +131,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:13Z",
+            "at": "2026-11-14T05:42:44Z",
             "by": "gabmacn"
           }
         }
@@ -139,23 +139,23 @@
     },
     "github-actions.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:14Z",
+        "at": "2026-11-14T05:42:45Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:14Z",
+            "at": "2026-11-14T05:42:45Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:14Z",
+            "at": "2026-11-14T05:42:45Z",
             "by": "gabmacn"
           }
         },
@@ -163,7 +163,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:14Z",
+            "at": "2026-11-14T05:42:45Z",
             "by": "gabmacn"
           }
         },
@@ -171,7 +171,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:14Z",
+            "at": "2026-11-14T05:42:45Z",
             "by": "gabmacn"
           }
         }
@@ -179,23 +179,23 @@
     },
     "gitlab-ci.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:15Z",
+        "at": "2026-11-14T05:42:47Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:15Z",
+            "at": "2026-11-14T05:42:47Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:15Z",
+            "at": "2026-11-14T05:42:47Z",
             "by": "gabmacn"
           }
         },
@@ -203,7 +203,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:15Z",
+            "at": "2026-11-14T05:42:47Z",
             "by": "gabmacn"
           }
         },
@@ -211,7 +211,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:15Z",
+            "at": "2026-11-14T05:42:47Z",
             "by": "gabmacn"
           }
         }
@@ -219,23 +219,23 @@
     },
     "woodpecker/source-sentry-continue.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:16Z",
+        "at": "2026-11-14T05:42:48Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:16Z",
+            "at": "2026-11-14T05:42:48Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:16Z",
+            "at": "2026-11-14T05:42:48Z",
             "by": "gabmacn"
           }
         },
@@ -243,7 +243,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:16Z",
+            "at": "2026-11-14T05:42:48Z",
             "by": "gabmacn"
           }
         },
@@ -251,7 +251,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:16Z",
+            "at": "2026-11-14T05:42:48Z",
             "by": "gabmacn"
           }
         }
@@ -259,23 +259,23 @@
     },
     "woodpecker/source-sentry-deploy.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:17Z",
+        "at": "2026-11-14T05:42:50Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:17Z",
+            "at": "2026-11-14T05:42:50Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:17Z",
+            "at": "2026-11-14T05:42:50Z",
             "by": "gabmacn"
           }
         },
@@ -283,7 +283,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:17Z",
+            "at": "2026-11-14T05:42:50Z",
             "by": "gabmacn"
           }
         },
@@ -291,7 +291,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:17Z",
+            "at": "2026-11-14T05:42:50Z",
             "by": "gabmacn"
           }
         }
@@ -299,23 +299,23 @@
     },
     "woodpecker/source-sentry-report.yml": {
       "reviewed": {
-        "at": "2026-11-13T04:32:19Z",
+        "at": "2026-11-14T05:42:51Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:19Z",
+            "at": "2026-11-14T05:42:51Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+          "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:19Z",
+            "at": "2026-11-14T05:42:51Z",
             "by": "gabmacn"
           }
         },
@@ -323,7 +323,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:19Z",
+            "at": "2026-11-14T05:42:51Z",
             "by": "gabmacn"
           }
         },
@@ -331,7 +331,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-13T04:32:19Z",
+            "at": "2026-11-14T05:42:51Z",
             "by": "gabmacn"
           }
         }

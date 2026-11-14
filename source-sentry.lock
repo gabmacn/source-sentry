@@ -2,7 +2,7 @@
   "documents": {
     "CONTRIBUTING.md": {
       "reviewed": {
-        "at": "2026-11-13T07:21:42Z",
+        "at": "2026-11-14T05:42:41Z",
         "by": "gabmacn"
       },
       "sources": [
@@ -10,7 +10,7 @@
           "oid": "sha1:fab008ffa43b72f24d4667dafe77c16fdb0b3b2a",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:42Z",
+            "at": "2026-11-14T05:42:41Z",
             "by": "gabmacn"
           }
         },
@@ -18,7 +18,7 @@
           "oid": "sha1:a11f22a414a40e587aaae8cfd1210edcc9931cf5",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-13T07:21:42Z",
+            "at": "2026-11-14T05:42:41Z",
             "by": "gabmacn"
           }
         },
@@ -26,7 +26,7 @@
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:42Z",
+            "at": "2026-11-14T05:42:41Z",
             "by": "gabmacn"
           }
         },
@@ -34,7 +34,7 @@
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:42Z",
+            "at": "2026-11-14T05:42:41Z",
             "by": "gabmacn"
           }
         },
@@ -42,7 +42,7 @@
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:42Z",
+            "at": "2026-11-14T05:42:41Z",
             "by": "gabmacn"
           }
         }
@@ -50,7 +50,7 @@
     },
     "README.md": {
       "reviewed": {
-        "at": "2026-11-13T07:21:41Z",
+        "at": "2026-11-14T05:42:40Z",
         "by": "gabmacn"
       },
       "sources": [
@@ -58,7 +58,7 @@
           "oid": "sha1:4320bd8685c253e8b20ee57b47079482804b031f",
           "path": ".cargo/config.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         },
@@ -66,7 +66,7 @@
           "oid": "sha1:fab008ffa43b72f24d4667dafe77c16fdb0b3b2a",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         },
@@ -76,7 +76,7 @@
               "oid": "sha1:55eac8bf812a2d459342ed2f2fc352f86c877bf1",
               "path": "crates/cli/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-13T07:21:41Z",
+                "at": "2026-11-14T05:42:40Z",
                 "by": "gabmacn"
               }
             },
@@ -84,7 +84,7 @@
               "oid": "sha1:2fbbc1c7c50cd3d9f3c795e84e638f247137a17c",
               "path": "crates/core/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-13T07:21:41Z",
+                "at": "2026-11-14T05:42:40Z",
                 "by": "gabmacn"
               }
             },
@@ -92,22 +92,22 @@
               "oid": "sha1:14c001e458e630536df99cf6f7abcad69c2fbb5d",
               "path": "crates/git/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-13T07:21:41Z",
+                "at": "2026-11-14T05:42:40Z",
                 "by": "gabmacn"
               }
             }
           ],
           "pattern": "crates/*/Cargo.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         },
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         },
@@ -115,7 +115,7 @@
           "oid": "sha1:8d6424216efb659f5dd3a98e5ef0773e5e8e41cc",
           "path": "crates/git/src/lib.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         },
@@ -123,7 +123,7 @@
           "oid": "sha1:35440c48c9e69d34a72a2882f2cdd7bf9ba631f3",
           "path": "rust-toolchain.toml",
           "reviewed": {
-            "at": "2026-11-13T07:21:41Z",
+            "at": "2026-11-14T05:42:40Z",
             "by": "gabmacn"
           }
         }
@@ -131,15 +131,15 @@
     },
     "skills/source-sentry/SKILL.md": {
       "reviewed": {
-        "at": "2026-11-13T07:21:46Z",
+        "at": "2026-11-14T05:42:54Z",
         "by": "gabmacn"
       },
       "sources": [
         {
-          "oid": "sha1:b91a14a8f69434ce1d1fd8491bd076ccb802e929",
+          "oid": "sha1:771ce05115abb89c81dfab4e9aa7500d2f9ed4e5",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:46Z",
+            "at": "2026-11-14T05:42:54Z",
             "by": "gabmacn"
           }
         },
@@ -149,7 +149,7 @@
               "oid": "sha1:6f2248e850ce1eaf2c31d39b2d109de4ccc2ebb4",
               "path": "../../crates/cli/src/commands/apply.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -157,15 +157,15 @@
               "oid": "sha1:1422291d0b15f2ce7b1e8babe55cac1a9e039a53",
               "path": "../../crates/cli/src/commands/attest.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
             {
-              "oid": "sha1:04710d57986ccb432e7b2f17027d438c35154b3b",
+              "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
               "path": "../../crates/cli/src/commands/check.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -173,15 +173,15 @@
               "oid": "sha1:4091b07652c91a750bfddc26eb3ff356be36c097",
               "path": "../../crates/cli/src/commands/diff.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
             {
-              "oid": "sha1:24375d4912f2c7500f28e50827dffacad124c738",
+              "oid": "sha1:91b3592b255023782a49be62a0a778997286a46f",
               "path": "../../crates/cli/src/commands/explain.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -189,7 +189,7 @@
               "oid": "sha1:19601e308c245127fdd0ceae1e5ca342cbfff1c4",
               "path": "../../crates/cli/src/commands/init.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -197,7 +197,7 @@
               "oid": "sha1:c147747f3723cd795af9bf691946a44a54c43a19",
               "path": "../../crates/cli/src/commands/migrate.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -205,7 +205,7 @@
               "oid": "sha1:48a3ad9ecb3cca3fe87924809c06384d7a4a8084",
               "path": "../../crates/cli/src/commands/records.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -213,7 +213,7 @@
               "oid": "sha1:80a70cb5df2c4c07a8729b5f0ca093f73a16e3ca",
               "path": "../../crates/cli/src/commands/rename.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -221,7 +221,7 @@
               "oid": "sha1:b3ba18469a43672c51d5ba8318e9e36c1995b5fd",
               "path": "../../crates/cli/src/commands/track.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -229,14 +229,14 @@
               "oid": "sha1:ab4f5be7e6259afeedbd7d08acc2fb2ba29f0f57",
               "path": "../../crates/cli/src/commands/untrack.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             }
           ],
           "pattern": "../../crates/cli/src/commands/*.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:46Z",
+            "at": "2026-11-14T05:42:54Z",
             "by": "gabmacn"
           }
         },
@@ -244,7 +244,7 @@
           "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:46Z",
+            "at": "2026-11-14T05:42:54Z",
             "by": "gabmacn"
           }
         },
@@ -252,7 +252,7 @@
           "oid": "sha1:0760554214369924ad0ddb9521ba0b997e6744b1",
           "path": "../../crates/core/src/claims/diagnostic.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:46Z",
+            "at": "2026-11-14T05:42:54Z",
             "by": "gabmacn"
           }
         },
@@ -262,7 +262,7 @@
               "oid": "sha1:ba910757d7227e83306731907eb2d7d15d3a3fcc",
               "path": "../../crates/core/src/mutate/attest.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -270,7 +270,7 @@
               "oid": "sha1:7976d5895deacb65f84ce9c33b4be439c571dfe8",
               "path": "../../crates/core/src/mutate/diff.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -278,7 +278,7 @@
               "oid": "sha1:804846704a89a765ca3ec1bc6d789b796d538490",
               "path": "../../crates/core/src/mutate/edits.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -286,7 +286,7 @@
               "oid": "sha1:8e1278664f1cd89d5f9e5531ee980fe3aa780005",
               "path": "../../crates/core/src/mutate/error.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -294,7 +294,7 @@
               "oid": "sha1:0ea1d21b0915bcb2f449e960400138617ef41d64",
               "path": "../../crates/core/src/mutate/expectation.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -302,7 +302,7 @@
               "oid": "sha1:bf4c87f8cd7501f93ca20afbdc95d9d5a58061ed",
               "path": "../../crates/core/src/mutate/init.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -310,7 +310,7 @@
               "oid": "sha1:983f4331f23150c1cdddaaa4792f3c3f9581cc8f",
               "path": "../../crates/core/src/mutate/migrate.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -318,7 +318,7 @@
               "oid": "sha1:9b10344798f1378d8b5ed83a03b3641c54107ad8",
               "path": "../../crates/core/src/mutate/mod.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -326,7 +326,7 @@
               "oid": "sha1:61df70595f2d15ed68f51b8230ca0cf9d5d737d2",
               "path": "../../crates/core/src/mutate/relocate.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -334,7 +334,7 @@
               "oid": "sha1:353201a50cb60165bcb182df8a1c517abd5db51f",
               "path": "../../crates/core/src/mutate/rename.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -342,7 +342,7 @@
               "oid": "sha1:afac540ad3789bf6cb9273599d843e4ef9b3e50e",
               "path": "../../crates/core/src/mutate/repo.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -350,7 +350,7 @@
               "oid": "sha1:5ca384b2da09cada8eef992b096c804f068fb91d",
               "path": "../../crates/core/src/mutate/retire.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -358,7 +358,7 @@
               "oid": "sha1:a053a7d0a04ea08daab1f796a0b542e54fb73ebf",
               "path": "../../crates/core/src/mutate/seal.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -366,7 +366,7 @@
               "oid": "sha1:ffadace31b3a8bcfd72e2244a5f9dd4aee40ffe7",
               "path": "../../crates/core/src/mutate/select.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -374,7 +374,7 @@
               "oid": "sha1:533f73691be6984e0453403d9b6a6f324490c749",
               "path": "../../crates/core/src/mutate/settings.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -382,7 +382,7 @@
               "oid": "sha1:78a9a466b00a2e57c8fc7423f0c52e746113ad08",
               "path": "../../crates/core/src/mutate/succession.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -390,7 +390,7 @@
               "oid": "sha1:732e978e19cc646ec6a134ac09712c73fc611a99",
               "path": "../../crates/core/src/mutate/track.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -398,7 +398,7 @@
               "oid": "sha1:3169ca85c1e88ca1ef13ac596d5f437bc1b088d4",
               "path": "../../crates/core/src/mutate/untrack.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             },
@@ -406,14 +406,14 @@
               "oid": "sha1:eb711e5a362ff4888d7fbc1063bd2b7afb314d34",
               "path": "../../crates/core/src/mutate/verify.rs",
               "reviewed": {
-                "at": "2026-11-13T07:21:46Z",
+                "at": "2026-11-14T05:42:54Z",
                 "by": "gabmacn"
               }
             }
           ],
           "pattern": "../../crates/core/src/mutate/*.rs",
           "reviewed": {
-            "at": "2026-11-13T07:21:46Z",
+            "at": "2026-11-14T05:42:54Z",
             "by": "gabmacn"
           }
         }
