@@ -15,8 +15,8 @@ are those of [cli.md](../docs/cli.md).
 > release](#testing-before-release) lists what each one needs. Every recipe
 > installs a release of Source Sentry pinned by version and checksum, and
 > those pins are placeholders until you replace them
-> ([Installation](#installation)). Source Sentry has not published a release
-> yet.
+> ([Installation](#installation)). Until 0.1.0 is released, pin a release
+> candidate, such as `0.1.0-rc.3`.
 
 Every recipe assumes that the repository config declares a `production`
 context, as `structure/repository-config.example.yaml` does. Without it,

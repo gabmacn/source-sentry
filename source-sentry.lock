@@ -2,23 +2,23 @@
   "documents": {
     "CONTRIBUTING.md": {
       "reviewed": {
-        "at": "2026-11-14T19:58:22Z",
+        "at": "2026-11-14T20:14:04Z",
         "by": "Claude"
       },
       "sources": [
         {
-          "oid": "sha1:c86d1b50e67ea17f66ee696baa08a05d461a66f2",
+          "oid": "sha1:ad0d266a8669bcc8ee80e587545c0ad94ee73d80",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:04Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:ea723bb94bb9c5b7397e18c2f4c33869caec5fd7",
+          "oid": "sha1:de0772ebb59be5c28fd6202fa57a55ec22de1809",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:04Z",
             "by": "Claude"
           }
         },
@@ -26,7 +26,7 @@
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:04Z",
             "by": "Claude"
           }
         },
@@ -34,7 +34,7 @@
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:04Z",
             "by": "Claude"
           }
         },
@@ -42,7 +42,7 @@
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:04Z",
             "by": "Claude"
           }
         }
@@ -50,7 +50,7 @@
     },
     "README.md": {
       "reviewed": {
-        "at": "2026-11-14T19:58:22Z",
+        "at": "2026-11-14T20:14:03Z",
         "by": "Claude"
       },
       "sources": [
@@ -58,15 +58,15 @@
           "oid": "sha1:4320bd8685c253e8b20ee57b47079482804b031f",
           "path": ".cargo/config.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:c86d1b50e67ea17f66ee696baa08a05d461a66f2",
+          "oid": "sha1:ad0d266a8669bcc8ee80e587545c0ad94ee73d80",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         },
@@ -76,7 +76,7 @@
               "oid": "sha1:5e7a415e1213d96765643e7c93e72610d0e03f6e",
               "path": "crates/cli/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T19:58:22Z",
+                "at": "2026-11-14T20:14:03Z",
                 "by": "Claude"
               }
             },
@@ -84,7 +84,7 @@
               "oid": "sha1:2fbbc1c7c50cd3d9f3c795e84e638f247137a17c",
               "path": "crates/core/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T19:58:22Z",
+                "at": "2026-11-14T20:14:03Z",
                 "by": "Claude"
               }
             },
@@ -92,14 +92,14 @@
               "oid": "sha1:14c001e458e630536df99cf6f7abcad69c2fbb5d",
               "path": "crates/git/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T19:58:22Z",
+                "at": "2026-11-14T20:14:03Z",
                 "by": "Claude"
               }
             }
           ],
           "pattern": "crates/*/Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         },
@@ -107,7 +107,7 @@
           "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
           "path": "crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         },
@@ -115,7 +115,7 @@
           "oid": "sha1:8d6424216efb659f5dd3a98e5ef0773e5e8e41cc",
           "path": "crates/git/src/lib.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         },
@@ -123,7 +123,7 @@
           "oid": "sha1:35440c48c9e69d34a72a2882f2cdd7bf9ba631f3",
           "path": "rust-toolchain.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:22Z",
+            "at": "2026-11-14T20:14:03Z",
             "by": "Claude"
           }
         }
@@ -131,7 +131,7 @@
     },
     "install/README.md": {
       "reviewed": {
-        "at": "2026-11-14T19:58:21Z",
+        "at": "2026-11-14T20:14:06Z",
         "by": "Claude"
       },
       "sources": [
@@ -139,7 +139,7 @@
           "oid": "sha1:5e7a415e1213d96765643e7c93e72610d0e03f6e",
           "path": "../crates/cli/Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         },
@@ -147,23 +147,23 @@
           "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:9d1ab8a2087abc4eee4471e2313bddbec78c44f9",
+          "oid": "sha1:6283c89443dee890ae20496c24ed0f8809827cf8",
           "path": "install.ps1",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         },
         {
-          "oid": "sha1:639b0dd13de36531bac2a4ea82f9be1f07d08b21",
+          "oid": "sha1:a54dc536e4e4de9ebb4404f96a9b99d424f32b03",
           "path": "install.sh",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         },
@@ -171,7 +171,7 @@
           "oid": "sha1:fce824ed656b83da23c87554c9fd7678296d67cf",
           "path": "moon.yml",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         },
@@ -179,7 +179,7 @@
           "oid": "sha1:e9813fa9aebf45631b8f0590dfa9e564b57344b3",
           "path": "proto-plugin.toml",
           "reviewed": {
-            "at": "2026-11-14T19:58:21Z",
+            "at": "2026-11-14T20:14:06Z",
             "by": "Claude"
           }
         }

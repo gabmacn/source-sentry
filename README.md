@@ -65,7 +65,7 @@ Sentry:
 
   Then install, with `--locked` so the dependency versions that were tested
   are the ones used, and with the version you want: Cargo never picks a
-  release candidate, such as `0.1.0-rc.2`, unless it is named.
+  release candidate, such as `0.1.0-rc.3`, unless it is named.
 
   ```sh
   cargo install --locked --registry gmn --version <version> source-sentry

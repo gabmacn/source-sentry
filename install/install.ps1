@@ -4,7 +4,7 @@
 #
 # With options, run it as a script block:
 #
-#   & ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0-rc.2
+#   & ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0-rc.3
 #
 # It downloads the x86_64 Windows archive and the release's SHA256SUMS,
 # refuses an archive whose checksum does not match, checks that the binary
@@ -75,7 +75,7 @@ if (-not $Version) {
 	if ($latest -match '/tag/v([^/?#]+)$') {
 		$Version = $Matches[1]
 	} else {
-		Stop-Install "found no stable release at $releases; choose one with -Version, such as 0.1.0-rc.2"
+		Stop-Install "found no stable release at $releases; choose one with -Version, such as 0.1.0-rc.3"
 	}
 }
 $Version = $Version.TrimStart('v')

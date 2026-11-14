@@ -8,7 +8,7 @@ Linux (x86_64 and aarch64, with glibc), macOS (Apple silicon) and Windows
 (x86_64). Elsewhere, build from source with `cargo install`, as the
 [README](../README.md#installing) describes.
 
-Versions before 0.1.0 are release candidates, such as `0.1.0-rc.2`. No
+Versions before 0.1.0 are release candidates, such as `0.1.0-rc.3`. No
 method installs a release candidate unless it is named.
 
 | Method | Suits | Verifies the archive against `SHA256SUMS` |
@@ -33,7 +33,7 @@ candidate. Until 0.1.0 is released there is none, so name a version.
 ### Linux and macOS
 
 ```sh
-curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh -s -- --version 0.1.0-rc.2
+curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh -s -- --version 0.1.0-rc.3
 ```
 
 The binary goes to `~/.local/bin`, or to the directory given with `--dir` or
@@ -45,7 +45,7 @@ downloads is not quarantined by macOS, so it runs without `xattr`.
 ### Windows
 
 ```powershell
-& ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0-rc.2
+& ([scriptblock]::Create((irm https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.ps1))) -Version 0.1.0-rc.3
 ```
 
 Once 0.1.0 is released, `irm <url> | iex` installs the latest release. The
@@ -79,8 +79,7 @@ release binary in place of compiling the crate, from the metadata in the
 cargo binstall --registry gmn --version <version> source-sentry
 ```
 
-It works for versions published after 0.1.0-rc.2, the first to carry the
-metadata. cargo-binstall does not check `SHA256SUMS`; it relies on HTTPS.
+It works from 0.1.0-rc.3, the first version published with the metadata. cargo-binstall does not check `SHA256SUMS`; it relies on HTTPS.
 
 ## proto
 
@@ -89,7 +88,7 @@ pinned in the repository's `.prototools`, through the plugin
 [`proto-plugin.toml`](proto-plugin.toml):
 
 ```toml
-source-sentry = "0.1.0-rc.2"
+source-sentry = "0.1.0-rc.3"
 
 [plugins.tools]
 source-sentry = "https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/proto-plugin.toml"

@@ -2,7 +2,7 @@
 # Installs Source Sentry on Linux or macOS from a release archive.
 #
 #   curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh
-#   curl -fsSL .../install.sh | sh -s -- --version 0.1.0-rc.2 --dir ~/bin
+#   curl -fsSL .../install.sh | sh -s -- --version 0.1.0-rc.3 --dir ~/bin
 #
 # It downloads the archive for this machine and the release's SHA256SUMS,
 # refuses an archive whose checksum does not match, checks that the binary
@@ -163,7 +163,7 @@ if [ -z "$version" ]; then
 	case "$latest" in
 	*/tag/v*) version="${latest##*/tag/v}" ;;
 	*)
-		fail "found no stable release at $releases; choose one with --version, such as 0.1.0-rc.2"
+		fail "found no stable release at $releases; choose one with --version, such as 0.1.0-rc.3"
 		;;
 	esac
 fi

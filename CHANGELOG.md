@@ -23,6 +23,8 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+## [0.1.0-rc.3] - 2026-11-14
+
 ### Added
 
 - `source-sentry completions <shell>` prints shell completions for bash, zsh,
