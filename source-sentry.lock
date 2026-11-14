@@ -2,48 +2,48 @@
   "documents": {
     "CONTRIBUTING.md": {
       "reviewed": {
-        "at": "2026-11-14T05:42:41Z",
-        "by": "gabmacn"
+        "at": "2026-11-14T06:37:18Z",
+        "by": "Claude"
       },
       "sources": [
         {
           "oid": "sha1:fab008ffa43b72f24d4667dafe77c16fdb0b3b2a",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T05:42:41Z",
-            "by": "gabmacn"
+            "at": "2026-11-14T06:37:18Z",
+            "by": "Claude"
           }
         },
         {
-          "oid": "sha1:a11f22a414a40e587aaae8cfd1210edcc9931cf5",
+          "oid": "sha1:d9e22df682a0cbe356d8e10a084433b45f3c195c",
           "path": "README.md",
           "reviewed": {
-            "at": "2026-11-14T05:42:41Z",
-            "by": "gabmacn"
+            "at": "2026-11-14T06:37:18Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:8df80992b79a248146d53b4ca4f789e7fafc6736",
           "path": "clippy.toml",
           "reviewed": {
-            "at": "2026-11-14T05:42:41Z",
-            "by": "gabmacn"
+            "at": "2026-11-14T06:37:18Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:2d8b8d4e0f0ef11a79d6799324ffba4bc20bedd6",
           "path": "crates/core/src/testing.rs",
           "reviewed": {
-            "at": "2026-11-14T05:42:41Z",
-            "by": "gabmacn"
+            "at": "2026-11-14T06:37:18Z",
+            "by": "Claude"
           }
         },
         {
           "oid": "sha1:ac75aeb41229843e35b3d00f7368599161a56bbf",
           "path": "rustfmt.toml",
           "reviewed": {
-            "at": "2026-11-14T05:42:41Z",
-            "by": "gabmacn"
+            "at": "2026-11-14T06:37:18Z",
+            "by": "Claude"
           }
         }
       ]

@@ -7,16 +7,21 @@ welcome.
 
 - **Issues** are tracked at
   <https://git.gabmacn.com/gmn/source-sentry/issues>. Please search before
-  opening a new one.
-- **Pull requests** are welcome on the same repository.
+  opening a new one. To open one, sign in there with your GitHub account:
+  the site does not create accounts of its own, so its sign-up page says
+  that registration is disabled.
+- **Pull requests** are welcome on the same repository, and on the GitHub
+  mirror, <https://github.com/gabmacn/source-sentry>. Issues opened on GitHub
+  may go unnoticed.
 
 ## How a pull request lands
 
-Source Sentry is developed in a larger private repository, and this
-repository is a mirror of it. A pull request therefore lands in three steps:
+Source Sentry is developed in a larger private repository, and both public
+repositories are mirrors of it. A pull request therefore lands in three
+steps:
 
-1. **Review here.** The project's CI runs on your pull request, and the
-   discussion happens on it, as usual.
+1. **Review here.** The discussion happens on your pull request, as usual.
+   The public repositories run no CI, so run the checks below yourself.
 2. **Import.** Once your pull request is accepted, the maintainer imports it
    into the private repository, where it runs through the full test suite.
    Small follow-up changes may be added at this point.

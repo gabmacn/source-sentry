@@ -23,8 +23,9 @@ reason for each rule.
 
 ## Installing
 
-The first release has not been published yet. Once it has, there are two ways
-to install Source Sentry:
+Releases are published at
+<https://git.gabmacn.com/gmn/source-sentry/releases>, and versions before
+0.1.0 are release candidates. There are two ways to install Source Sentry:
 
 - **Prebuilt binaries** for Linux (x86_64 and aarch64), macOS (Apple silicon)
   and Windows (x86_64), attached to each release at
@@ -62,10 +63,11 @@ to install Source Sentry:
   ```
 
   Then install, with `--locked` so the dependency versions that were tested
-  are the ones used:
+  are the ones used, and with the version you want: Cargo never picks a
+  release candidate, such as `0.1.0-rc.1`, unless it is named.
 
   ```sh
-  cargo install --locked --registry gmn source-sentry
+  cargo install --locked --registry gmn --version <version> source-sentry
   ```
 
 Source Sentry runs `git` for some operations, so git must be on the `PATH`.
@@ -150,7 +152,10 @@ Remove a dependency together with its comment once it proves unnecessary.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Source Sentry's home is <https://git.gabmacn.com/gmn/source-sentry>, where
+issues are tracked; sign in there with a GitHub account.
+<https://github.com/gabmacn/source-sentry> is a mirror of it, which also
+accepts pull requests. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licence
 
