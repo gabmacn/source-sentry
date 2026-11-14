@@ -1,6 +1,6 @@
 ---
 name: source-sentry
-description: Keeps documentation in step with the code it describes, using the Source Sentry command-line tool. Use when `source-sentry check` fails or warns, when a change touches files that tracked documents describe, when adding, moving, renaming or deleting documentation, or when a task mentions source-sentry.lock, stale, overdue, unattested or unclaimed documents, records, seals or attestations.
+description: Keeps documentation in step with the code it describes, using the Source Sentry command-line tool. Use when `source-sentry check` fails or warns, when a change touches files that tracked documents describe, when adding, moving, renaming or deleting documentation, or when a task mentions source-sentry.lock, stale, due, overdue, unattested or unclaimed documents, review days, cadences, records, seals or attestations.
 license: MIT
 ---
 
@@ -45,10 +45,10 @@ the model and the reason for each rule, and `docs/cli.md` is the reference.
 4. **Never change a record.** A sealed document must never change. If it is
    wrong, write a new document that corrects it.
 5. **Never weaken the policy to pass a check.** Do not lower `--fail-on`,
-   raise a grace period, remove a source, widen an ignore, or retire a
-   document to make a warning go away, unless that is what the person asked
-   for. A check that passes this way leaves the documentation as wrong as
-   it was.
+   raise a grace period, add a cadence or grace to silence a warning, remove
+   a source, widen an ignore, or retire a document to make a warning go
+   away, unless that is what the person asked for. A check that passes this
+   way leaves the documentation as wrong as it was.
 6. **Read refusals.** Every error says what is wrong and what to do. `--yes`
    only answers the confirmation question; it never overrides a refusal.
 
@@ -82,9 +82,11 @@ facts. A document can carry several facts at once:
 
 | Fact | What it means | What to do |
 |---|---|---|
-| `stale` | A source changed since its review, or was never reviewed | Review it, as below |
+| `stale` | A source changed since its review, or was never reviewed | If it is also `due`, review it, as below. If not, it waits for its review day: see [Documents not due yet](#documents-not-due-yet) |
+| `due` | Its review day has come | Review it, as below |
 | `overdue` | Its deadline has passed | The same; it is only more urgent |
-| `upstream-stale` | A document it uses as a source is stale | Review that document first; this fact then clears |
+| `upstream-stale` | A document it uses as a source needs review | Review that document first when it is due; this fact then clears |
+| `upstream-due` | A document it uses as a source is due | Review that document first; this fact then clears |
 | `unattested` | Nothing about it was ever reviewed | Read the whole document against its sources, correct it, then `attest <document> --reread` |
 | `timing-unknown` | Its change cannot be dated, so it counts as overdue at once | Review it as a stale document; a recorded review clears it |
 | `unclaimed` | A file in a documentation root that nothing tracks | `track` it with the files it describes. If it should not be tracked, ask: ignoring it is a policy change |
@@ -93,7 +95,27 @@ facts. A document can carry several facts at once:
 
 A stale document is stale whether or not the change is committed. Its
 deadline counts from the commit that changed the source, and a later edit
-or a review of another source never restarts it.
+or a review of another source never restarts it. Before the commit, the
+report gives a provisional deadline, as if the change were committed now.
+
+A document without a schedule is due as soon as it is stale. Under the
+built-in default context, a stale document that is not due yet is a notice,
+and `check` passes; it warns from its due day.
+
+### Documents not due yet
+
+A document with a grace period or a cadence can wait for its review day:
+its schedule exists so that the changes of many commits are reviewed
+together, instead of one review after each. When your change makes such a
+document stale and it is not due yet:
+
+1. Read it, and correct any statement that your change directly
+   contradicts. You made the change, so you are its cheapest reader.
+2. Do not attest it: its review belongs to its review day, when every
+   change since its last review is read together.
+3. Report it, with its deadline. On a branch, the deadline is provisional:
+   it counts from the commit that lands on the checked line, such as the
+   merge, and may move by a whole period.
 
 ### Reviewing a stale document
 
@@ -148,6 +170,20 @@ every code.
   review it and record the review with `--reread`. Prefer the narrowest
   pattern that covers what the document describes: a broad pattern makes a
   review for every unrelated change.
+- **A broad document**, one that describes the behaviour of a whole
+  component rather than one file's interface, depends on almost all of it:
+  nearly every change makes it stale, and a review after each change mostly
+  confirms that nothing needs to change. Give it a cadence, so that its
+  reviews come in batches: `--cadence <dtstart> <rrule>`, such as
+  `--cadence 2026-12-07 'FREQ=WEEKLY;INTERVAL=2'` for every other Monday
+  (quote the rule: it holds a semicolon). Add `--grace 1` or more, or a
+  change landing on a review day is due that same day. Skip this when its
+  directory or preset already gives it a schedule; `explain` shows the
+  effective one.
+  - You may add a cadence only to a document you are tracking for the
+    first time.
+  - For a document that is already tracked, propose the cadence to the
+    person instead, with the command: a schedule is policy (rule 5).
 - **A new source for a tracked document:** `track <document> --source
   <path>`. The document is stale until the new source is reviewed.
 - **A source that no longer applies:** `untrack <document> --source <path>`
@@ -202,8 +238,10 @@ Prefer these to parsing the human output, which is laid out for reading.
 
 When your change touches files that documents describe, run
 `source-sentry check` before you finish. Review every document your change
-made stale, as above, in the same change, so the documentation and the code
-it describes are committed together.
+made stale and due, as above, in the same change, so the documentation and
+the code it describes are committed together. A document that is not due
+yet waits for its review day; see
+[Documents not due yet](#documents-not-due-yet).
 
 ## Reporting back
 
@@ -211,6 +249,10 @@ When you finish, tell the person:
 
 - which documents you updated, and which you confirmed without a change;
 - which reviews you recorded, and under what name;
+- which documents you left stale for their review day, with each deadline,
+  and any statement you corrected in them;
+- any cadence you added to a newly tracked document, or propose for an
+  existing one;
 - what remains: documents you could not judge, anything that needs their
   decision (a seal, a retirement, a double claim, a policy change), and the
   exact commands for the reviews you were not allowed to record.

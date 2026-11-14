@@ -196,7 +196,11 @@ format for tools that read it, such as CI jobs.
   - a `judgement` per fact, whose `rule` is `null` for the context's fallback
     or for `fresh`, which always passes;
   - for documents, the effective `settings`, each with its origin, the
-    `sources` with their state and clock, and the next `deadline`.
+    `sources` with their state and clock, and the next `deadline`: the `due`
+    day (`null` when due at once), `due-from` and `overdue-from`, the
+    instants it becomes due and overdue, and `provisional`, true when it
+    dates a change that exists only in the working tree as if committed at
+    `at`; such a deadline moves once the change is committed.
 - **`origin`** is one of three kinds:
   - `config`: a file, line, import chain and scope. The scope is `repository`,
     `directory:<path>` or `remote:<owner>`, written like `track`'s placements;
@@ -215,8 +219,9 @@ Other JSON variants:
   `check` and `explain` output also name the `source-sentry track <path>`
   command to register the entry.
 - Documents may add `record` (seal check), `awaiting-seal` (series reference),
-  `stale-upstreams` (direct upstream documents) or `unattested` (review
-  clock).
+  `stale-upstreams` (direct upstream documents that need review),
+  `due-upstreams` (those of them that are due, or wait on one that is) or
+  `unattested` (review clock).
   Pattern members add `pattern`, resolved against their project's root.
 - A clock is `{commit, since}` when started, `null` when idle, `"not-started"`
   for working-tree-only changes, `"unknown"` when the attested oid never

@@ -120,16 +120,24 @@ Human output, sketched:
 ```
 Context production · 2026-11-07 18:00 UTC · working tree on 4f3c2a1
 
-fail  docs/privacy.md              stale, overdue (due 2026-11-03)
+fail  docs/privacy.md              overdue (missed review by 2026-11-03)
       db/schema.sql changed in 7d2e9b0, counted from 2026-10-20
       production: privacy + stale → fail (.source-sentry/source-sentry.yaml:24)
 warn  docs/onboarding.md           unattested since 2026-10-30
+note  docs/architecture.md         stale (review by 2026-11-16)
+      services/api/src/routes.rs changed in 3b8e1f4, counted from 2026-11-05
 note  audits: security-audits      missed the window ending 2026-09-01
 
 warning  empty-pattern  docs/source-sentry.lock:31  `/db/legacy/*.sql` matches no tracked file
 
-1 failing · 1 warning · 1 notice · 9 passing · exit 2
+1 failing · 1 warning · 2 notices · 9 passing · exit 2
 ```
+
+The facts are written for people: a fact implied by a more urgent one is
+left out, so an overdue document reads `overdue`, not `stale, due,
+overdue`, and its date says when the review was asked for. A stale document
+that is not due yet says when it will be (`review by`). The JSON report lists
+every fact.
 
 A change is dated by its clock, which counts from the earliest committer
 date from that commit to the one checked. A later commit dated earlier, for
@@ -138,10 +146,14 @@ commit's own.
 
 - **An uncommitted change** has no clock yet, so its deadline starts once it
   is committed. Uncommitted edits never reset a clock that is already
-  running.
+  running. Whether the document is `due` is decided as if the change were
+  committed at `--at`; the report gives that deadline as provisional (`if
+  committed today`, and `provisional` in JSON), and it never makes the
+  document overdue.
 - **An attested version missing from the first-parent history** cannot be
-  dated: the document is `timing-unknown`, and also stale and overdue.
-- **A clock more than 24 hours after `--at`** is a `future-dated` error,
+  dated: the document is `timing-unknown`, and also stale, due and overdue.
+- **A clock up to 24 hours after `--at`** counts from `--at` when deciding
+  whether the document is due. One further ahead is a `future-dated` error,
   exit 4, rather than being moved to the evaluation instant.
 - **A shallow clone** stops with exit 4 only when a clock needs history the
   clone does not have.
@@ -175,7 +187,7 @@ dated. A name that matches nothing exits 2.
 ```
 source-sentry diff <document> [--source <path-or-pattern>]... [--format <human|json>]
 source-sentry review [<document>...] [--context <name>] [--reviewer <name>]
-                     [--plain]
+                     [--plain] [--all]
 source-sentry attest <document> [--source <path-or-pattern>]...
                      [--expect <path@oid|path@absent>]... [--reviewer <name>]
                      [--reread] [--dry-run] [--yes]
@@ -237,9 +249,12 @@ stored review timestamps never date deadlines.
 
 `review` traverses the starting project and every project nested inside it,
 using each project's configs. It walks the live documents whose facts
-include `stale`, `overdue`,
-`unattested` or `upstream-stale`. `--context` defaults to `default` and
-decides their order. A project lacking that context uses its own `default`,
+include `stale`, `due`, `overdue`, `unattested`, `upstream-stale` or
+`upstream-due`. A document among them that is neither due nor waiting on a
+due upstream document is **not due yet**: it can wait for its review day.
+The full screen lists it with a `not due` tag; the line mode leaves it out
+unless `--all` is given or the document is named. `--context` defaults to
+`default` and decides their order. A project lacking that context uses its own `default`,
 and the session announces the fallback when it starts. The queue puts the
 worst outcome first, then upstream documents before their dependents within
 an outcome, then path. Named documents limit the
@@ -260,7 +275,9 @@ The screen has four parts:
 - **A header** with the reviewer, the context, the number of projects
   traversed and the session's progress.
 - **A sidebar** that lists the documents that need review, in queue order,
-  above a collapsed list of every other document: those reviewed in this
+  with a `not due` tag on those that can wait for their review day and,
+  among their facts, the date of that day. Below them is a collapsed list
+  of every other document: those reviewed in this
   session first, marked with a tick, then the other live documents, then the
   sealed records. The mark fills the space below while that list is closed:
   a smaller one where the larger has no room, and none where that has none.
@@ -297,7 +314,7 @@ starts, and any document may be opened at any time.
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
-| `a` | Answer `y` for every document that needs review, after a confirmation |
+| `a` | Answer `y` for every due document, after a confirmation that can include those not due yet |
 | `u` | List the answers recorded in this session; `u` there takes the newest back |
 | `e` | Edit the document in an editor, then evaluate again |
 | `?` | Show the keys |
@@ -416,8 +433,8 @@ can restore. An answer is not taken back when a file it wrote has changed
 since: the refusal names the file, and nothing is restored.
 
 `a` lists every document that needs review with its outcome and whether its
-current comparison has been seen, and records them all on `y`. Any other
-key goes back. A source that changes during the batch stops it, and a
+current comparison has been seen. `y` records the due ones; `i` includes the
+documents not due yet, which the list tags. Any other key goes back. A source that changes during the batch stops it, and a
 document that cannot be compared is left out. A document counts as seen
 once the cursor stops on it: moved there by a key or a click, or acted on
 while it is shown. The wheel over the sidebar passes over documents
@@ -461,7 +478,7 @@ one-letter answer and submit it with Enter:
 | `n`, or Enter alone | Leave the document as it is |
 | `y` | Record the review, bound to the source oids shown |
 | `r` | Record the same review and a whole-document reread |
-| `a` | Record all remaining documents after a second confirmation states how many current comparisons have not been shown |
+| `a` | Record all remaining due documents after a second confirmation states how many current comparisons have not been shown; with `--all`, the confirmation also offers to include the documents not due yet |
 | `d` | Open the complete diff, then return to the prompt |
 | `e` | Open the document in an editor, wait for it to close, then evaluate and show it again if it still needs review |
 | `q` | Quit, preserving earlier reviews |
@@ -591,6 +608,12 @@ source-sentry migrate [--dry-run] [--yes]
   is invalid usage (exit 64); a parsed cadence that violates the schedule
   rules is refused (exit 2). Invalid cadences already written in configs or
   declarations remain configuration errors (exit 3).
+- **`--grace` and `--cadence`** postpone when a stale document is due. Under
+  the built-in default context it is a notice until then, and a warning
+  from its due day. A cadence batches the reviews of a document that
+  describes a whole component; give it at least one day of grace, or a
+  change landing on a review day is due that same day. Both are policy:
+  add them on purpose, never to silence a warning.
 - **`--from` and `--to`** move declarations with their reviews and
   every tombstone of each moved key. A move between lockfiles must include
   every entry whose nearest lockfile changes, and a lockfile left empty is

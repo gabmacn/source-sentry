@@ -146,8 +146,9 @@ with `git add`, even before it is committed.
 ## Clocks and deadlines
 
 A stale document is not yet late. Each changed source has a **clock**, and
-the document's schedule turns the clock into a deadline. Past the deadline
-the document is also `overdue`.
+the document's schedule turns the clock into a deadline. From the start of
+its due day the document is also `due`, and past the deadline it is also
+`overdue`.
 
 **A clock starts at the commit where the source first differed from its
 reviewed version.** Source Sentry finds it by walking the history backwards
@@ -178,6 +179,16 @@ tracked document.
 but its deadline starts counting when the change is committed. Uncommitted
 edits never reset a clock that is already running.
 
+**Whether it is due is decided by a provisional clock,** as if the change
+were committed at the instant of the check. The provisional deadline is
+reported as such, and moves when the change is committed. It never makes a
+document `overdue`.
+
+> **Why.** Without it, a document that must follow its sources at once
+> would only be a notice until the change is committed, and an agent that
+> checks before it commits could not tell that document from one that may
+> wait for its review day.
+
 **A clock's date is the earliest committer date from its commit through to
 the commit being checked.**
 
@@ -194,9 +205,20 @@ commit resolves.
 > day, drift no longer explains it, and silently moving the date would
 > postpone a deadline on the word of a wrong clock.
 
+A clock dated after the check, within that day, counts from the instant of
+the check when deciding whether the document is due. When it becomes overdue
+does not change.
+
+> **Why.** A commit can be dated a few hours ahead of the CI runner, for
+> example when the committer's clock runs fast or the runner's lags.
+> Otherwise a document with no schedule would only become due when that
+> future date arrives: the pull request that made the change would get a
+> notice and pass, and the warning would land later on an unrelated pull
+> request.
+
 **When the reviewed version is nowhere in the history, the change cannot be
-dated.** The document is `timing-unknown`, and also `stale` and `overdue`,
-with no grace. This happens, for example, when a source is reviewed and then
+dated.** The document is `timing-unknown`, and also `stale`, `due` and
+`overdue`, with no grace. This happens, for example, when a source is reviewed and then
 changed again before either version is committed.
 
 > **Why.** The only other date available is that of the review, and a
@@ -229,6 +251,26 @@ days, and a deadline falls at the end of its day in the project's time zone.
 > scatters deadlines over arbitrary dates; a cadence alone can demand work
 > the day after a change. Together they say "on the next review day that is
 > at least this far away".
+
+**A document is `due` from the first instant of its due day,** and
+`overdue` from the first instant of the day after. With no grace and no
+cadence, it is due and overdue as soon as its clock starts.
+
+**A cadence batches reviews.** Every change made before a review day waits
+for that day, and one review covers them all: `diff` shows each source's
+changes since its last review, however many commits they span.
+
+> **Why.** A document that describes the behaviour of a whole component
+> depends on almost all of it, so nearly every change makes it stale, and a
+> review after each change mostly confirms that nothing needs to change.
+> Telling harmless changes from meaningful ones would need an understanding
+> of the code that no reliable rule provides. A cadence reduces the reviews
+> without hiding any change.
+
+**Before its due day, a stale document is a notice, not a warning,** under
+the built-in default context. Grace without a cadence is therefore a period
+of notices. With a cadence, give at least one day of grace: a change that
+lands on a review day is otherwise due that same day.
 
 **A cadence is a date-only recurrence rule (RFC 5545) with a start date.**
 
@@ -266,19 +308,31 @@ more than 400 years ahead.
 |---|---|
 | `fresh` | Every source is as it was reviewed |
 | `stale` | A source changed since its review, or was never reviewed |
+| `due` | A deadline has arrived: its due day has begun |
 | `overdue` | A deadline has passed |
 | `unattested` | Nothing about the document was ever reviewed |
-| `upstream-stale` | A document it uses as a source is stale or overdue |
+| `upstream-stale` | A document it uses as a source needs review |
+| `upstream-due` | A document it uses as a source is due |
 | `timing-unknown` | A change could not be dated |
 | `unclaimed` | An eligible file in a documentation root that nothing tracks |
 | `awaiting-seal` | A superseded entry of a series that is not sealed yet |
 | `missed` | A window of a series closed without its work |
 
-**Facts are independent, not stages.** An overdue document is still stale.
+**Facts are independent, not stages.** An overdue document is still due and
+stale.
 
 > **Why.** If becoming overdue replaced being stale, a document could
 > escape a rule written for stale documents at the very moment it became
 > more urgent.
+
+**Each fact is judged on its own, and the document takes the most severe
+outcome.** A fact can therefore make a document more severe, never less.
+That is why `due` marks the urgent case rather than the waiting one: a fact
+meaning "stale, but it may wait" could never lower the outcome of `stale`.
+
+> **Why.** Rules that matched combinations of facts would make one fact's
+> outcome depend on the others, and `explain` could no longer give each
+> fact's outcome with the rule behind it.
 
 **A context maps facts, and optionally classes, to outcomes.** The most
 severe matching outcome wins, and a context's fallback applies where no
@@ -303,9 +357,18 @@ a failure to evaluate.
 
 > **Why.** A broken configuration must never look like an ordinary warning.
 
-**The built-in `default` context** passes `fresh`, gives `missed` a notice
-and warns on everything else. A project that declares its own `default`
-replaces it entirely.
+**The built-in `default` context** passes `fresh`; gives `stale`,
+`upstream-stale` and `missed` a notice; and warns on everything else,
+`due`, `upstream-due` and `overdue` included. A stale document is thus a
+notice until it is due, and a warning from its due day. A document without a
+schedule is due as soon as it is stale, so it warns at once.
+
+> **Why.** If being stale were a warning, every change would turn CI red at
+> once, people would review at once to clear it, and a cadence would batch
+> nothing.
+
+A project that declares its own `default` replaces it entirely, and keeps
+none of its rules.
 
 > **Why.** Full replacement is what makes gradual adoption possible: a
 > project can give `unattested` a notice while it works through documents
@@ -345,7 +408,13 @@ gates:
 and passes it to both with `--at`, so that a deadline which passes between
 the two runs cannot make them disagree.
 
-**A scheduled run catches deadlines that pass without a commit.**
+**A scheduled run catches deadlines that pass without a commit.** Its report
+gate stops on warnings too, so the review day prompts someone.
+
+> **Why.** Under the built-in default, being due is a warning, not a
+> failure. A scheduled run that stopped only on failures would let a review
+> day pass unnoticed, and the only prompt left would be unrelated pull
+> requests turning red.
 
 **`check` is the only gate.** A stale or failing document does not change
 the exit code of `diff`, `explain` or `review`.
@@ -394,6 +463,14 @@ are errors.
 
 > **Why.** Without it, a decision could look fresh while the findings it
 > rests on are stale.
+
+**So does being due,** as `upstream-due`: a document is treated as its
+upstream document is, a notice while that document waits for its review
+day, and a warning once it is due.
+
+> **Why.** Otherwise the documents that depend on a scheduled document
+> would turn CI red while it waits, and the batching would be lost for the
+> whole chain.
 
 **A lockfile-tracked document is still read for a declaration of its own.**
 
@@ -451,7 +528,9 @@ pattern whose last file was deleted is an ordinary change to acknowledge.
 
 A broad pattern makes many reviews for small changes, and reviews that come
 too often stop being read. Prefer the narrowest pattern that covers what
-the document describes.
+the document describes. When a document truly describes a whole component,
+give it a cadence instead, so that its reviews come in batches; see
+[Schedules](#schedules).
 
 ## Records, seals and retirement
 
@@ -651,9 +730,9 @@ Within that boundary:
 - the repository's history is taken as true.
 
 Weakening the policy makes a check pass without making the documentation
-right. Lowering a threshold, widening a grace period, removing a source or
-retiring a document are policy changes, to be made on purpose and reviewed
-as such.
+right. Lowering a threshold, widening a grace period, adding a cadence,
+removing a source or retiring a document are policy changes, to be made on
+purpose and reviewed as such.
 
 ## What is not supported
 
