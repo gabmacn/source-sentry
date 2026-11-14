@@ -244,7 +244,7 @@ pub(super) fn render(
 			output::pad(&output::bold(name), name, width),
 			describe::facts(subject)
 		);
-		let details = describe::changes(workspace, subject)
+		let details = describe::changes(workspace, evaluation, subject)
 			.into_iter()
 			.chain(describe::deciding_rules(workspace, evaluation, subject));
 		for detail in details {

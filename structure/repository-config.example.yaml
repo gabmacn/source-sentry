@@ -31,20 +31,28 @@ define:
   # any listed fact and any shared class; omitted or empty classes match all.
   # The most severe matching outcome wins; fallback applies only if none match.
   # `fresh` always passes and cannot be targeted by a rule. Other facts are
-  # stale, overdue, unattested, unclaimed, upstream-stale, timing-unknown,
-  # missed and awaiting-seal. Upstream staleness propagates transitively from
-  # stale, overdue, unattested or timing-unknown documents, even when the
-  # immediate source file has not changed.
+  # stale, due, overdue, unattested, unclaimed, upstream-stale, upstream-due,
+  # timing-unknown, missed and awaiting-seal. A document is due from the
+  # first instant of its due day, and an overdue one is also due. Upstream
+  # staleness propagates transitively from stale, overdue, unattested or
+  # timing-unknown documents, even when the immediate source file has not
+  # changed; `upstream-due` propagates the same way from due documents.
   contexts:
     # Defining `default` replaces the built-in default context.
+    # This one restates the built-in rules, which give a stale document a
+    # notice until it is due, and adds one for unattested documents.
     default:
       fallback: warn # For any finding that no rule matches.
       rules:
+        - facts: ['stale', 'upstream-stale']
+          outcome: notice
         - facts: ['missed', 'unattested']
           outcome: notice
     staging:
       fallback: warn
       rules:
+        - facts: ['stale', 'upstream-stale']
+          outcome: notice
         - facts: ['missed']
           outcome: notice
     production:
@@ -54,8 +62,8 @@ define:
           outcome: notice
         # Blocks a production deploy until the privacy policy is updated.
         - classes: ['privacy']
-          facts: ['stale', 'overdue', 'unattested', 'timing-unknown',
-                  'upstream-stale']
+          facts: ['stale', 'due', 'overdue', 'unattested', 'timing-unknown',
+                  'upstream-stale', 'upstream-due']
           outcome: fail
 
 # Settings that every directory inherits, unless it overrides them.

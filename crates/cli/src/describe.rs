@@ -12,7 +12,9 @@ use source_sentry_core::evaluate::{
 	DocumentState, Evaluation, RuleOrigin, SourceReport, SourceState, Subject,
 	SubjectKind, Timing,
 };
-use source_sentry_core::model::{ClassName, CommitId, Fact, ObjectId, Rule};
+use source_sentry_core::model::{
+	ClassName, CommitId, DocumentId, Fact, ObjectId, Rule,
+};
 use source_sentry_core::policy::Basis;
 use source_sentry_core::ports::Revision;
 use source_sentry_core::report;
@@ -120,18 +122,34 @@ pub(crate) fn inheritance_hint(
 	))
 }
 
-/// A subject's facts, as one line: `stale, overdue (due 2026-11-03)`.
-/// `fresh` is left out, so a passing subject reads `fresh`.
+/// A subject's facts, as one line: `overdue (missed review by 2026-11-03)`.
+/// `fresh` is left out, so a passing subject reads `fresh`. A fact that a
+/// more urgent one implies is left out too: an overdue document is also due
+/// and stale, and a document with a due upstream document also has a stale
+/// one. The JSON report lists every fact.
 pub(crate) fn facts(subject: &Subject) -> String {
+	let has = |fact: Fact| subject.facts.contains(&fact);
 	let mut phrases = Vec::new();
-	for fact in &subject.facts {
+	for &fact in &subject.facts {
 		let phrase = match fact {
 			Fact::Fresh => continue,
+			Fact::Stale if has(Fact::Due) || has(Fact::Overdue) => continue,
+			Fact::Due if has(Fact::Overdue) => continue,
+			Fact::UpstreamStale if has(Fact::UpstreamDue) => continue,
+			Fact::Stale | Fact::Due => match &subject.deadline {
+				Some(deadline) => {
+					format!("{fact} ({})", review_by(deadline, task(subject)))
+				}
+				None => fact.name().to_owned(),
+			},
 			Fact::Overdue => match &subject.deadline {
-				Some(Deadline { due: Some(due), .. }) => format!("overdue (due {due})"),
+				Some(Deadline { due: Some(due), .. }) => {
+					format!("overdue (missed {} by {due})", task(subject))
+				}
 				Some(Deadline {
 					due: None,
 					overdue_from,
+					..
 				}) => format!("overdue (since {})", date(*overdue_from)),
 				None => "overdue".to_owned(),
 			},
@@ -153,6 +171,31 @@ pub(crate) fn facts(subject: &Subject) -> String {
 	}
 }
 
+/// What a subject's deadline asks for: a review of a document, or the next
+/// entry of a series.
+fn task(subject: &Subject) -> &'static str {
+	if subject.series().is_some() {
+		"entry"
+	} else {
+		"review"
+	}
+}
+
+/// When a deadline asks for `task`: `review by 2026-11-20`, `review at
+/// once`, or `review by 2026-11-20 if committed today` for a change that
+/// exists only in the working tree.
+fn review_by(deadline: &Deadline, task: &str) -> String {
+	let when = deadline.due.map_or_else(
+		|| format!("{task} at once"),
+		|due| format!("{task} by {due}"),
+	);
+	if deadline.provisional && deadline.due.is_some() {
+		format!("{when} if committed today")
+	} else {
+		when
+	}
+}
+
 /// The date an unattested document's clock started, when it did.
 fn unattested_since(subject: &Subject) -> Option<String> {
 	let document = subject.document()?;
@@ -161,7 +204,7 @@ fn unattested_since(subject: &Subject) -> Option<String> {
 	};
 	match live.unattested.as_ref()? {
 		Timing::Started(clock) => Some(date(clock.start.timestamp)),
-		Timing::Idle | Timing::NotStarted | Timing::Unknown | Timing::Failed => {
+		Timing::Idle | Timing::NotStarted(_) | Timing::Unknown | Timing::Failed => {
 			None
 		}
 	}
@@ -221,7 +264,7 @@ pub(crate) fn source_change(
 pub(crate) fn timing_suffix(timing: &Timing) -> String {
 	match timing {
 		Timing::Idle => String::new(),
-		Timing::NotStarted => " in the working tree".to_owned(),
+		Timing::NotStarted(_) => " in the working tree".to_owned(),
 		Timing::Started(clock) => format!(
 			" in {}, counted from {}",
 			short_commit(&clock.start.commit),
@@ -236,8 +279,13 @@ pub(crate) fn timing_suffix(timing: &Timing) -> String {
 
 /// The stale sources of a reviewed document and its stale upstreams, one
 /// line each. An unattested document's sources are all unattested, which
-/// its facts already say.
-pub(crate) fn changes(workspace: &Workspace, subject: &Subject) -> Vec<String> {
+/// its facts already say. An upstream document that is due is named with
+/// its own deadline, from `evaluation`.
+pub(crate) fn changes(
+	workspace: &Workspace,
+	evaluation: &Evaluation,
+	subject: &Subject,
+) -> Vec<String> {
 	let Some(document) = subject.document() else {
 		return Vec::new();
 	};
@@ -250,10 +298,21 @@ pub(crate) fn changes(workspace: &Workspace, subject: &Subject) -> Vec<String> {
 		.filter(|source| live.unattested.is_none() && source.state.is_stale())
 		.map(|source| source_change(workspace, source))
 		.chain(live.stale_upstreams.iter().map(|upstream| {
-			format!(
-				"its source {} is not up to date",
-				workspace.display_path(upstream)
-			)
+			let path = workspace.display_path(upstream);
+			if !live.due_upstreams.contains(upstream) {
+				return format!("its source {path} is not up to date");
+			}
+			let due = evaluation
+				.subjects_of(&DocumentId::Local(upstream.clone()))
+				.find(|found| found.facts.contains(&Fact::Due));
+			match due.and_then(|found| found.deadline.as_ref()) {
+				Some(deadline) => format!(
+					"its source {path} is due ({})",
+					review_by(deadline, "review")
+				),
+				None if due.is_some() => format!("its source {path} is due"),
+				None => format!("its source {path} waits on a document that is due"),
+			}
 		}))
 		.collect()
 }
@@ -410,16 +469,41 @@ pub(crate) fn location(workspace: &Workspace, location: &Location) -> String {
 	text
 }
 
-/// A deadline in full: `due 2026-11-03, overdue from 2026-11-04 00:00 UTC`.
+/// A subject's deadline in full; see [`deadline`]. A series asks for its
+/// next entry rather than a review.
+pub(crate) fn subject_deadline(subject: &Subject) -> Option<String> {
+	let deadline = subject.deadline.as_ref()?;
+	let text = self::deadline(deadline);
+	Some(match subject.series() {
+		Some(_) => text.replacen("review", "entry", 1),
+		None => text,
+	})
+}
+
+/// A deadline in full: `review by 2026-11-03: due from 2026-11-03 00:00 UTC,
+/// overdue from 2026-11-04 00:00 UTC`. A provisional deadline says that it
+/// holds only if the change is committed now.
 pub(crate) fn deadline(deadline: &Deadline) -> String {
-	match deadline.due {
-		Some(due) => {
-			format!("due {due}, overdue from {}", instant(deadline.overdue_from))
-		}
-		None => format!(
-			"due at once, overdue from {}",
+	match (deadline.due, deadline.provisional) {
+		(Some(due), false) => format!(
+			"review by {due}: due from {}, overdue from {}",
+			instant(deadline.due_from),
 			instant(deadline.overdue_from)
 		),
+		(None, false) => format!(
+			"review at once: due and overdue from {}",
+			instant(deadline.overdue_from)
+		),
+		(Some(due), true) => format!(
+			"review by {due} if committed now: due from {}, overdue from {}; \
+			 it moves when the change is committed",
+			instant(deadline.due_from),
+			instant(deadline.overdue_from)
+		),
+		(None, true) => {
+			"review at once: due now, and overdue once the change is committed"
+				.to_owned()
+		}
 	}
 }
 

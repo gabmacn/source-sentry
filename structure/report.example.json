@@ -38,12 +38,15 @@
     {
       "deadline": {
         "due": "2026-11-03",
-        "overdue-from": "2026-11-04T00:00:00Z"
+        "due-from": "2026-11-03T00:00:00Z",
+        "overdue-from": "2026-11-04T00:00:00Z",
+        "provisional": false
       },
       "declared-in": "docs/source-sentry.lock",
       "document": "docs/privacy.md",
       "facts": [
         "stale",
+        "due",
         "overdue"
       ],
       "field": "documents[\"privacy.md\"]",
@@ -57,10 +60,38 @@
             ],
             "facts": [
               "stale",
+              "due",
               "overdue",
               "unattested",
               "timing-unknown",
-              "upstream-stale"
+              "upstream-stale",
+              "upstream-due"
+            ],
+            "origin": {
+              "file": ".source-sentry/source-sentry.yaml",
+              "import-chain": [],
+              "kind": "config",
+              "line": 24,
+              "scope": "repository"
+            },
+            "outcome": "fail"
+          }
+        },
+        {
+          "fact": "due",
+          "outcome": "fail",
+          "rule": {
+            "classes": [
+              "privacy"
+            ],
+            "facts": [
+              "stale",
+              "due",
+              "overdue",
+              "unattested",
+              "timing-unknown",
+              "upstream-stale",
+              "upstream-due"
             ],
             "origin": {
               "file": ".source-sentry/source-sentry.yaml",
@@ -81,10 +112,12 @@
             ],
             "facts": [
               "stale",
+              "due",
               "overdue",
               "unattested",
               "timing-unknown",
-              "upstream-stale"
+              "upstream-stale",
+              "upstream-due"
             ],
             "origin": {
               "file": ".source-sentry/source-sentry.yaml",

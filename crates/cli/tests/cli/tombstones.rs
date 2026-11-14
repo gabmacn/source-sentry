@@ -46,7 +46,7 @@ fn assert_credited(repo: &TestRepo) {
 	for due in ["2026-11-01", "2026-12-01"] {
 		assert!(
 			explanation.stdout.contains(&format!(
-				"due {due}, last day {due}: credited to records/audit-1.md"
+				"cadence date {due}, last day {due}: credited to records/audit-1.md"
 			)),
 			"{}",
 			explanation.stdout

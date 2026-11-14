@@ -385,7 +385,12 @@ fn a_valid_schedule_resolves_inherited_grace_and_time_zone() {
 	assert_eq!(report["diagnostics"], json!([]));
 	assert_eq!(
 		document(&report, "docs/guide.md")["deadline"],
-		json!({"due": "2026-10-02", "overdue-from": "2026-10-03T04:00:00Z"})
+		json!({
+			"due": "2026-10-02",
+			"due-from": "2026-10-02T04:00:00Z",
+			"overdue-from": "2026-10-03T04:00:00Z",
+			"provisional": false
+		})
 	);
 }
 

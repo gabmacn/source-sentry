@@ -80,7 +80,8 @@ pub(super) struct Document {
 	outcome: Outcome,
 	/// Whether its facts require review, independently of the outcome.
 	pub(super) pending: bool,
-	/// Its current facts, for the prompt and closing summary.
+	/// Its current facts as people read them, for the prompt and closing
+	/// summary: `stale (review by 2026-11-20)`.
 	pub(super) facts: String,
 	/// The evidence for suppressing unchanged repeat questions.
 	pub(super) stamp: Stamp,
@@ -236,17 +237,14 @@ impl State {
 						matches!(
 							fact,
 							Fact::Stale
+								| Fact::Due
 								| Fact::Overdue
 								| Fact::Unattested
 								| Fact::UpstreamStale
+								| Fact::UpstreamDue
 						)
 					}),
-					facts: subject
-						.facts
-						.iter()
-						.map(|fact| fact.name())
-						.collect::<Vec<_>>()
-						.join(", "),
+					facts: crate::describe::facts(subject),
 					stamp: Stamp {
 						sources: live
 							.sources

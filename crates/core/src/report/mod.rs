@@ -25,7 +25,8 @@
 //!   situations, so the example's subjects keep exactly its keys. A document
 //!   gains `unattested` when it has never been reviewed, `record` when it is
 //!   a sealed record, `awaiting-seal` when a series successor exists, and
-//!   `stale-upstreams` when a source document is stale. A source gains
+//!   `stale-upstreams` when a source document is stale, and `due-upstreams`
+//!   when one is due. A source gains
 //!   `pattern` when it is a pattern's member. A revision of kind `commit`,
 //!   from `--rev`, has `commit` where the working tree has `head`.
 //! - **Clocks** are `{"commit", "since"}` once started, `null` when none

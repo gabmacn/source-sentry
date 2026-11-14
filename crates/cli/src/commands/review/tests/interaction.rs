@@ -88,7 +88,7 @@ fn a_document_is_displayed_with_a_rule_a_header_and_located_lines() {
 		[
 			"",
 			&format!("── 1 of 1 {}", "─".repeat(90)),
-			&format!("  docs/a.md{}warn  stale", " ".repeat(78)),
+			&format!("  docs/a.md{}warn  due (review at once)", " ".repeat(63)),
 			"",
 			&format!("  src/a.rs{}+1 -0   ffc7496 → 30bb147", " ".repeat(65)),
 			"  │ src/a.rs:1",

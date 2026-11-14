@@ -253,7 +253,7 @@ impl From<&Timing> for ClockReport {
 	fn from(timing: &Timing) -> Self {
 		match timing {
 			Timing::Idle => Self::Idle,
-			Timing::NotStarted => Self::NotStarted,
+			Timing::NotStarted(_) => Self::NotStarted,
 			Timing::Started(clock) => Self::Started {
 				commit: clock.start.commit.to_string(),
 				since: instant(clock.start.timestamp),

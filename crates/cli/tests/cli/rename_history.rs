@@ -265,7 +265,7 @@ fn rename_history_resolves_in_an_exported_layout() {
 			.json();
 		assert_eq!(
 			document(&report, "docs/new.md")["facts"],
-			json!(["overdue", "unattested"])
+			json!(["due", "overdue", "unattested"])
 		);
 		assert_eq!(
 			document(&report, "docs/new.md")["unattested"]["since"],

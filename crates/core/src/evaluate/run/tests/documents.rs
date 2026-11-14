@@ -11,6 +11,7 @@ use super::{
 use crate::claims::Mode;
 use crate::config::Scope;
 use crate::evaluate::run::{DocumentState, SourceState, Timing};
+use crate::evaluate::schedule::Deadline;
 use crate::evaluate::settings::SettingOrigin;
 use crate::model::{DocumentId, Fact, Outcome};
 use crate::policy::ExitCode;
@@ -126,17 +127,26 @@ fn drift_starts_at_the_first_change_and_grace_defers_the_deadline() {
 	let change = repo.commit(5, &[("src/a.rs", Some("v2"))]);
 	repo.commit(7, &[("src/a.rs", Some("v3"))]);
 
+	// Before the due day, the document is stale, and only a notice.
+	let early = repo.evaluate(day(7), None);
+	let subject = document(&early, "docs/a.md");
+	assert_eq!(facts(subject), [Fact::Stale]);
+	assert_eq!(outcome(subject), Outcome::Notice);
+
 	let evaluation = repo.evaluate(day(8), None);
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");
-	assert_eq!(facts(subject), [Fact::Stale]);
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due]);
 	let (commit, timestamp) =
 		started(timing(&evaluation, "docs/a.md", "src/a.rs"));
 	assert_eq!((commit, timestamp), (&change, day(5)));
 	let deadline = subject.deadline.unwrap();
-	// Drift on 6 January plus three days: due by the end of 9 January.
+	// Drift on 6 January plus three days: due on 9 January, from its first
+	// instant, and overdue after its end.
 	assert_eq!(deadline.due, NaiveDate::from_ymd_opt(2026, 1, 9));
+	assert_eq!(deadline.due_from, day(8));
 	assert_eq!(deadline.overdue_from, day(9));
+	assert!(!deadline.provisional);
 	assert_eq!(subject.settings.grace.value, 3);
 	assert!(matches!(
 		subject.settings.grace.origin,
@@ -147,7 +157,7 @@ fn drift_starts_at_the_first_change_and_grace_defers_the_deadline() {
 	let overdue = repo.evaluate(day(9), None);
 	assert_eq!(
 		facts(document(&overdue, "docs/a.md")),
-		[Fact::Stale, Fact::Overdue]
+		[Fact::Stale, Fact::Due, Fact::Overdue]
 	);
 }
 
@@ -173,7 +183,7 @@ fn a_cadence_moves_the_deadline_to_the_next_cadence_date() {
 	let overdue = repo.evaluate(day(32), None);
 	assert_eq!(
 		facts(document(&overdue, "docs/a.md")),
-		[Fact::Stale, Fact::Overdue]
+		[Fact::Stale, Fact::Due, Fact::Overdue]
 	);
 }
 
@@ -199,7 +209,7 @@ fn an_attested_oid_missing_from_history_is_timing_unknown_and_overdue() {
 	let subject = document(&evaluation, "docs/a.md");
 	assert_eq!(
 		facts(subject),
-		[Fact::Stale, Fact::Overdue, Fact::TimingUnknown]
+		[Fact::Stale, Fact::Due, Fact::Overdue, Fact::TimingUnknown]
 	);
 	assert_eq!(
 		timing(&evaluation, "docs/a.md", "src/a.rs"),
@@ -209,20 +219,28 @@ fn an_attested_oid_missing_from_history_is_timing_unknown_and_overdue() {
 	assert!(evaluation.is_complete());
 }
 
-/// Drift that exists only in the working tree is stale, but its
-/// clock has not started, so it has no deadline.
+/// Drift that exists only in the working tree is stale, but its clock has
+/// not started. A provisional clock at the instant of evaluation decides
+/// `due`: without a schedule the document is due at once, but never
+/// overdue before the change is committed.
 #[test]
-fn uncommitted_drift_is_stale_but_not_started() {
+fn uncommitted_drift_is_stale_and_due_but_not_started() {
 	let repo = one_source(&json!({}));
 	let snapshot = repo.checkout().with_file("src/a.rs", b"edited");
 	let evaluation = evaluate(&repo.history, &snapshot, day(10), None);
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");
-	assert_eq!(facts(subject), [Fact::Stale]);
-	assert_eq!(subject.deadline, None);
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due]);
+	let provisional = Deadline {
+		due: None,
+		due_from: day(10),
+		overdue_from: day(10),
+		provisional: true,
+	};
+	assert_eq!(subject.deadline, Some(provisional));
 	assert_eq!(
 		timing(&evaluation, "docs/a.md", "src/a.rs"),
-		&Timing::NotStarted
+		&Timing::NotStarted(Some(provisional))
 	);
 }
 
@@ -271,19 +289,19 @@ fn an_unattested_document_starts_its_clock_at_its_declaration() {
 	// No grace: overdue from the declaration's commit. Its unattested
 	// source has no clock of its own, and the document is never `stale`.
 	let b = document(&evaluation, "docs/b.md");
-	assert_eq!(facts(b), [Fact::Overdue, Fact::Unattested]);
+	assert_eq!(facts(b), [Fact::Due, Fact::Overdue, Fact::Unattested]);
 	assert_eq!(timing(&evaluation, "docs/b.md", "src/a.rs"), &Timing::Idle);
 
 	let c = document(&evaluation, "docs/c.md");
 	assert_eq!(c.document().unwrap().mode, Mode::OnFile);
-	assert_eq!(facts(c), [Fact::Overdue, Fact::Unattested]);
+	assert_eq!(facts(c), [Fact::Due, Fact::Overdue, Fact::Unattested]);
 	assert_eq!(c.deadline.unwrap().overdue_from, day(2));
 }
 
-/// An unattested declaration that is not committed yet has not
-/// started its clock.
+/// An unattested declaration that is not committed yet has not started its
+/// clock, so its deadline is provisional.
 #[test]
-fn an_uncommitted_declaration_is_unattested_without_a_deadline() {
+fn an_uncommitted_declaration_is_unattested_with_a_provisional_deadline() {
 	let repo = Repo::new(&[(REPOSITORY, CONFIG), ("docs/a.md", "# A\n")]);
 	let snapshot = repo
 		.checkout()
@@ -291,8 +309,13 @@ fn an_uncommitted_declaration_is_unattested_without_a_deadline() {
 	let evaluation = evaluate(&repo.history, &snapshot, day(3), None);
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");
-	assert_eq!(facts(subject), [Fact::Unattested]);
-	assert_eq!(subject.deadline, None);
+	// Without a schedule, the provisional clock makes it due at once.
+	assert_eq!(facts(subject), [Fact::Due, Fact::Unattested]);
+	assert!(
+		subject
+			.deadline
+			.is_some_and(|deadline| deadline.provisional)
+	);
 }
 
 /// A reviewed document with an unattested source is stale, and the source's
@@ -314,7 +337,7 @@ fn a_new_unattested_source_starts_when_it_was_declared() {
 	let evaluation = repo.evaluate(day(6), None);
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");
-	assert_eq!(facts(subject), [Fact::Stale, Fact::Overdue]);
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due, Fact::Overdue]);
 	// Declared on day 4; the file arrived on day 5, but the obligation is the
 	// declaration's.
 	let (commit, _) = started(timing(&evaluation, "docs/a.md", "src/b.rs"));
@@ -370,7 +393,7 @@ fn pattern_additions_and_removals_are_changes_with_their_own_clocks() {
 	let evaluation = repo.evaluate(day(6), None);
 	assert_clean(&evaluation);
 	let a = document(&evaluation, "docs/a.md");
-	assert_eq!(facts(a), [Fact::Stale, Fact::Overdue]);
+	assert_eq!(facts(a), [Fact::Stale, Fact::Due, Fact::Overdue]);
 	let Some(DocumentState::Live(live)) =
 		a.document().map(|document| &document.state)
 	else {
@@ -402,7 +425,7 @@ fn pattern_additions_and_removals_are_changes_with_their_own_clocks() {
 
 	// `four.rs` existed from the start, but the pattern arrived on day 4.
 	let b = document(&evaluation, "docs/b.md");
-	assert_eq!(facts(b), [Fact::Stale, Fact::Overdue]);
+	assert_eq!(facts(b), [Fact::Stale, Fact::Due, Fact::Overdue]);
 	assert_eq!(
 		started(timing(&evaluation, "docs/b.md", "src/m/four.rs")).0,
 		&pattern
@@ -465,7 +488,7 @@ fn a_member_that_drifted_before_deletion_keeps_its_earlier_clock() {
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");
 	// Drifted on 2 January with three days of grace: overdue from 6 January.
-	assert_eq!(facts(subject), [Fact::Stale, Fact::Overdue]);
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due, Fact::Overdue]);
 	let (commit, timestamp) =
 		started(timing(&evaluation, "docs/a.md", "src/m/two.rs"));
 	assert_eq!((commit, timestamp), (&drift, day(1)));
@@ -504,20 +527,126 @@ fn upstream_staleness_propagates_through_document_sources() {
 	assert_clean(&evaluation);
 	assert_eq!(
 		facts(document(&evaluation, "docs/a.md")),
-		[Fact::Stale, Fact::Overdue]
+		[Fact::Stale, Fact::Due, Fact::Overdue]
 	);
 	for (file, upstream) in
 		[("docs/b.md", "docs/a.md"), ("docs/c.md", "docs/b.md")]
 	{
 		let subject = document(&evaluation, file);
-		assert_eq!(facts(subject), [Fact::UpstreamStale], "{file}");
+		assert_eq!(
+			facts(subject),
+			[Fact::UpstreamStale, Fact::UpstreamDue],
+			"{file}"
+		);
 		let Some(DocumentState::Live(live)) =
 			subject.document().map(|document| &document.state)
 		else {
 			panic!("a live document");
 		};
 		assert_eq!(live.stale_upstreams, [path(upstream)]);
+		assert_eq!(live.due_upstreams, [path(upstream)]);
 	}
+}
+
+/// A dependant shares its upstream document's treatment: while a scheduled
+/// upstream document is only stale, its dependants are `upstream-stale`
+/// and a notice; once it is due, they are `upstream-due` and warn,
+/// transitively.
+#[test]
+fn a_dependant_is_due_when_its_upstream_document_is() {
+	let mut repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		("src/a.rs", "v1"),
+		("docs/a.md", "# A\n"),
+		("docs/b.md", "# B\n"),
+		("docs/c.md", "# C\n"),
+		(
+			DOCS_LOCK,
+			&lockfile(&json!({
+				"a.md": {
+					"sources": [attested("/src/a.rs", "v1")],
+					"schedule": {"grace": 3},
+				},
+				"b.md": {"sources": [attested("/docs/a.md", "# A\n")]},
+				"c.md": {"sources": [attested("/docs/b.md", "# B\n")]},
+			})),
+		),
+	]);
+	// Drift on 3 January with three days of grace: due on 6 January.
+	repo.commit(2, &[("src/a.rs", Some("v2"))]);
+
+	let early = repo.evaluate(day(4), None);
+	assert_clean(&early);
+	assert_eq!(facts(document(&early, "docs/a.md")), [Fact::Stale]);
+	for file in ["docs/b.md", "docs/c.md"] {
+		assert_eq!(
+			facts(document(&early, file)),
+			[Fact::UpstreamStale],
+			"{file}"
+		);
+	}
+	for file in ["docs/a.md", "docs/b.md", "docs/c.md"] {
+		assert_eq!(outcome(document(&early, file)), Outcome::Notice, "{file}");
+	}
+
+	let due = repo.evaluate(day(5), None);
+	assert_clean(&due);
+	assert_eq!(facts(document(&due, "docs/a.md")), [Fact::Stale, Fact::Due]);
+	for (file, upstream) in
+		[("docs/b.md", "docs/a.md"), ("docs/c.md", "docs/b.md")]
+	{
+		let subject = document(&due, file);
+		assert_eq!(
+			facts(subject),
+			[Fact::UpstreamStale, Fact::UpstreamDue],
+			"{file}"
+		);
+		assert_eq!(outcome(subject), Outcome::Warn, "{file}");
+		let Some(DocumentState::Live(live)) =
+			subject.document().map(|document| &document.state)
+		else {
+			panic!("a live document");
+		};
+		assert_eq!(live.due_upstreams, [path(upstream)]);
+	}
+}
+
+/// An uncommitted change to a scheduled document takes a provisional clock
+/// at the instant of evaluation: it is not due before its grace ends, and
+/// its provisional deadline says when it would be.
+#[test]
+fn uncommitted_drift_with_grace_has_a_provisional_deadline() {
+	let repo = one_source(&json!({"schedule": {"grace": 3}}));
+	let snapshot = repo.checkout().with_file("src/a.rs", b"edited");
+	let evaluation = evaluate(&repo.history, &snapshot, day(10), None);
+	assert_clean(&evaluation);
+	let subject = document(&evaluation, "docs/a.md");
+	assert_eq!(facts(subject), [Fact::Stale]);
+	assert_eq!(outcome(subject), Outcome::Notice);
+	let deadline = subject.deadline.unwrap();
+	assert!(deadline.provisional);
+	// 11 January plus three days.
+	assert_eq!(deadline.due, NaiveDate::from_ymd_opt(2026, 1, 14));
+	assert_eq!(deadline.due_from, day(13));
+}
+
+/// A clock dated after the instant of evaluation, within the tolerance
+/// that lets it be used, is due from that instant: the change has landed,
+/// even if a clock says it lands later. When it is overdue does not change.
+#[test]
+fn a_clock_dated_in_the_future_is_due_at_the_instant_of_evaluation() {
+	let mut repo = one_source(&json!({}));
+	repo.commit(5, &[("src/a.rs", Some("v2"))]);
+	// Twelve hours before the commit's date.
+	let at = day(5) - chrono::Duration::hours(12);
+	let evaluation = repo.evaluate(at, None);
+	assert_clean(&evaluation);
+	let subject = document(&evaluation, "docs/a.md");
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due]);
+	assert_eq!(outcome(subject), Outcome::Warn);
+	let deadline = subject.deadline.unwrap();
+	assert_eq!(deadline.due_from, at);
+	assert_eq!(deadline.overdue_from, day(5));
 }
 
 /// A remote document takes its paired config's defaults, and its

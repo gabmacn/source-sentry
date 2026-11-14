@@ -1291,7 +1291,7 @@ impl<'a> App<'a> {
 				Some(&clock.start.commit),
 				"The commits that changed it since it came to need review.".to_owned(),
 			),
-			(Some(Timing::NotStarted), _) => (
+			(Some(Timing::NotStarted(_)), _) => (
 				None,
 				"No commit has changed it since its review.".to_owned(),
 			),
@@ -1306,7 +1306,7 @@ impl<'a> App<'a> {
 			),
 		};
 		let repository = &self.workspace().repository;
-		let listed = if matches!(timing, Some(Timing::NotStarted)) {
+		let listed = if matches!(timing, Some(Timing::NotStarted(_))) {
 			source_sentry_git::PathCommits::default()
 		} else {
 			repository

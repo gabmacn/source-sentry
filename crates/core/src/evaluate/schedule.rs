@@ -30,19 +30,20 @@
 //!
 //! # Deadlines
 //!
-//! [`EffectiveSchedule::deadline`] computes when a document becomes overdue,
-//! given the instant its drift started. Every date is a local date
+//! [`EffectiveSchedule::deadline`] computes when a document becomes due and
+//! when it becomes overdue, given the instant its drift started. Every date is a local date
 //! in the configured [`TimeZone`]. Let `start_date` be the local date of the
 //! start instant, and `g` the grace period in days:
 //!
-//! - **No cadence, `g = 0`.** The document is due at once: it is overdue from
-//!   the start instant itself.
+//! - **No cadence, `g = 0`.** The document is due at once: it is due and
+//!   overdue from the start instant itself.
 //! - **No cadence, `g > 0`.** It is due by the end of the local day
-//!   `start_date + g`, so it is overdue from the first instant of the local day
-//!   after that.
+//!   `start_date + g`: due from the first instant of that day, and overdue
+//!   from the first instant of the local day after it.
 //! - **With a cadence.** The due date `d` is the first occurrence with
-//!   `d >= start_date + g`, and the document is overdue from the first instant
-//!   of the local day after `d`. With `g = 0`, `d` may be `start_date` itself.
+//!   `d >= start_date + g`. The document is due from the first instant of `d`
+//!   and overdue from the first instant of the local day after `d`. With
+//!   `g = 0`, `d` may be `start_date` itself.
 //!
 //! The first instant of a local day is its midnight. When daylight saving
 //! time skips that midnight, it is the first instant after the skipped hour,
@@ -187,7 +188,9 @@ impl EffectiveSchedule {
 		if self.grace == 0 && self.cadence.is_none() {
 			return Ok(Deadline {
 				due: None,
+				due_from: start,
 				overdue_from: start,
+				provisional: false,
 			});
 		}
 		let earliest = add_days(zone.local_date(start)?, self.grace)?;
@@ -197,23 +200,39 @@ impl EffectiveSchedule {
 		};
 		Ok(Deadline {
 			due: Some(due),
+			due_from: zone.start_of_day(due)?,
 			overdue_from: zone.start_of_day(add_days(due, 1)?)?,
+			provisional: false,
 		})
 	}
 }
 
-/// When a document becomes overdue.
+/// When a document becomes due, and when it becomes overdue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Deadline {
 	/// The last local day on which the document is on time, or `None` when it
 	/// is due at once.
 	pub due: Option<NaiveDate>,
+	/// The first instant at which the document is due: the first instant of
+	/// `due`, or the drift start when it is due at once.
+	pub due_from: DateTime<Utc>,
 	/// The first instant at which the document is overdue: the first instant of
 	/// the local day after `due`, or the drift start when it is due at once.
 	pub overdue_from: DateTime<Utc>,
+	/// Whether the deadline comes from a provisional clock: a change that
+	/// exists only in the working tree, dated as if committed at the instant
+	/// of evaluation. A provisional deadline decides `due`, never `overdue`.
+	/// [`EffectiveSchedule::deadline`] always sets it to `false`.
+	pub provisional: bool,
 }
 
 impl Deadline {
+	/// Whether the document is due at `at`.
+	#[must_use]
+	pub fn is_due(&self, at: DateTime<Utc>) -> bool {
+		at >= self.due_from
+	}
+
 	/// Whether the document is overdue at `at`.
 	#[must_use]
 	pub fn is_overdue(&self, at: DateTime<Utc>) -> bool {

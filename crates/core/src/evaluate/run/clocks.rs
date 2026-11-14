@@ -173,6 +173,8 @@ pub(super) struct ClockContext<'a> {
 	pub(super) cadence_field: &'a str,
 	/// The declaration the clocks belong to, with its written field lines.
 	pub(super) claim: &'a Claim,
+	/// The instant of evaluation.
+	pub(super) at: DateTime<Utc>,
 }
 
 impl ClockContext<'_> {
@@ -187,11 +189,20 @@ impl ClockContext<'_> {
 	) -> Timing {
 		match answer {
 			Answer::Fresh => Timing::Idle,
-			Answer::NotStarted => Timing::NotStarted,
+			Answer::NotStarted => {
+				Timing::NotStarted(self.deadline(self.at, diagnostics).map(
+					|deadline| Deadline {
+						provisional: true,
+						..deadline
+					},
+				))
+			}
 			Answer::Unknown => Timing::Unknown,
 			Answer::Started(start) => Timing::Started(StartedClock {
 				start: start.clone(),
-				deadline: self.deadline(start.timestamp, diagnostics),
+				deadline: self
+					.deadline(start.timestamp, diagnostics)
+					.map(|deadline| self.clamped(start.timestamp, deadline)),
 			}),
 			Answer::Failed(error) => {
 				diagnostics.push(clock_diagnostic(
@@ -202,6 +213,27 @@ impl ClockContext<'_> {
 				));
 				Timing::Failed
 			}
+		}
+	}
+
+	/// `deadline`, whose clock started at `start`, with the instant it is due
+	/// computed as if the clock had started no later than the instant of
+	/// evaluation. A clock dated in the future, within the tolerance that
+	/// lets it be used, would otherwise make a change due later than it
+	/// landed. When it is overdue does not change.
+	fn clamped(&self, start: DateTime<Utc>, deadline: Deadline) -> Deadline {
+		if start <= self.at {
+			return deadline;
+		}
+		// The deadline from `start` was computable, so an error here can only
+		// come from the calendar's edge; it keeps the deadline as it is
+		// rather than reporting the schedule twice.
+		match self.deadline(self.at, &mut Vec::new()) {
+			Some(now) => Deadline {
+				due_from: now.due_from.min(deadline.due_from),
+				..deadline
+			},
+			None => deadline,
 		}
 	}
 

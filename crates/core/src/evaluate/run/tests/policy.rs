@@ -33,10 +33,11 @@ fn privacy_policy() -> Repo {
 	repo
 }
 
-/// In production, a stale privacy policy fails both gates
-/// during its grace period; the built-in default context only warns.
+/// In production, a stale privacy policy fails both gates during its grace
+/// period; the built-in default context gives it a notice until it is due,
+/// and warns from its due day.
 #[test]
-fn a_stale_privacy_policy_fails_in_production_and_warns_by_default() {
+fn a_stale_privacy_policy_fails_in_production_and_is_a_notice_by_default() {
 	let repo = privacy_policy();
 
 	let production = repo.evaluate(day(3), Some("production"));
@@ -60,15 +61,23 @@ fn a_stale_privacy_policy_fails_in_production_and_warns_by_default() {
 	let default = repo.evaluate(day(3), None);
 	assert_clean(&default);
 	let subject = document(&default, "docs/privacy.md");
-	assert_eq!(outcome(subject), Outcome::Warn);
+	assert_eq!(outcome(subject), Outcome::Notice);
 	assert_eq!(
 		default.context.as_ref().unwrap().selected.origin,
 		ContextOrigin::BuiltIn { version: 1 }
 	);
 	assert_eq!(
 		gates(&default),
-		(ExitCode::Warning, ExitCode::BelowThreshold)
+		(ExitCode::BelowThreshold, ExitCode::BelowThreshold)
 	);
+
+	// Drift on 3 January plus seven days: due on 10 January.
+	let due = repo.evaluate(day(9), None);
+	assert_clean(&due);
+	let subject = document(&due, "docs/privacy.md");
+	assert_eq!(facts(subject), [Fact::Stale, Fact::Due]);
+	assert_eq!(outcome(subject), Outcome::Warn);
+	assert_eq!(gates(&due), (ExitCode::Warning, ExitCode::BelowThreshold));
 }
 
 /// An unclaimed file is judged with the classes its
@@ -302,7 +311,7 @@ fn each_threshold_gives_its_exit_code() {
 	])
 	.evaluate(day(1), None);
 	let repo = privacy_policy();
-	let warned = repo.evaluate(day(3), None);
+	let warned = repo.evaluate(day(9), None);
 	let failed = repo.evaluate(day(3), Some("production"));
 	let configuration = repo.evaluate(day(3), Some("unknown"));
 	let snapshot = repo

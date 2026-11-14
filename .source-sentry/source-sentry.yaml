@@ -9,11 +9,15 @@ time-zone: UTC
 
 define:
   classes: {}
-  # The built-in default: missed series entries are notices; other findings warn.
+  # The built-in default: stale documents, documents with a stale upstream
+  # document and missed series entries are notices; other findings, such as
+  # `due`, `upstream-due` and `overdue`, warn.
   contexts:
     default:
       fallback: warn
       rules:
+        - facts: ['stale', 'upstream-stale']
+          outcome: notice
         - facts: ['missed']
           outcome: notice
 

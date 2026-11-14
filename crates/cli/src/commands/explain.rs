@@ -177,10 +177,8 @@ fn explain(
 	rows.push(("Facts", describe::facts(subject)));
 	rows.push((
 		"Deadline",
-		subject
-			.deadline
-			.as_ref()
-			.map_or_else(|| "none: no clock runs".to_owned(), describe::deadline),
+		describe::subject_deadline(subject)
+			.unwrap_or_else(|| "none: no clock runs".to_owned()),
 	));
 	table(&mut text, &rows);
 	if let Some(hint) = describe::inheritance_hint(workspace, subject) {
@@ -346,9 +344,15 @@ fn clock(timing: &Timing) -> String {
 					describe::deadline(deadline)
 				))
 		),
-		Timing::NotStarted => {
-			" in the working tree only, so no clock has started".to_owned()
-		}
+		Timing::NotStarted(provisional) => format!(
+			" in the working tree only, so no clock has started{}",
+			provisional
+				.as_ref()
+				.map_or_else(String::new, |deadline| format!(
+					"; {}",
+					describe::deadline(deadline)
+				))
+		),
 		other => describe::timing_suffix(other),
 	}
 }
@@ -385,9 +389,14 @@ fn sources(workspace: &Workspace, text: &mut String, live: &LiveDocument) {
 		}
 	}
 	for upstream in &live.stale_upstreams {
+		let state = if live.due_upstreams.contains(upstream) {
+			"is due, or waits on a document that is"
+		} else {
+			"is not up to date"
+		};
 		let _ = writeln!(
 			text,
-			"  source document {} is not up to date",
+			"  source document {} {state}",
 			workspace.display_path(upstream)
 		);
 	}
@@ -475,7 +484,7 @@ fn members(workspace: &Workspace, text: &mut String, series: &SeriesSubject) {
 		);
 		let _ = writeln!(
 			text,
-			"  {after}, due {}, last day {}: {state}",
+			"  {after}, cadence date {}, last day {}: {state}",
 			window.due, window.last_day
 		);
 	}

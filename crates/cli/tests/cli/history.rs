@@ -146,7 +146,7 @@ series:
 	);
 	assert!(
 		run.stdout.contains(
-			"due 2027-01-01, last day 2027-01-01: closed without an entry: overdue"
+			"cadence date 2027-01-01, last day 2027-01-01: closed without an entry: overdue"
 		),
 		"{}",
 		run.stdout
@@ -198,7 +198,7 @@ series:
 	let run = repo.run(&["explain", "proposals", "--at", "2026-12-02T12:00:00Z"]);
 	assert!(
 		run.stdout.contains(
-			"due 2026-12-01, last day 2026-12-01: credited to proposals/v1.md"
+			"cadence date 2026-12-01, last day 2026-12-01: credited to proposals/v1.md"
 		),
 		"{}",
 		run.stdout
@@ -238,7 +238,7 @@ series:
 		"{}",
 		run.stdout
 	);
-	assert!(run.stdout.contains("due 2026-03-01"), "{}", run.stdout);
+	assert!(run.stdout.contains("entry by 2026-03-01"), "{}", run.stdout);
 	assert!(!run.stdout.contains("no clock runs"), "{}", run.stdout);
 }
 

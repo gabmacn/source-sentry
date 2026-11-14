@@ -185,7 +185,7 @@ fn series_cadence_gives_overdue_and_missed() {
 	let evaluation = evaluate(&repo.history, &snapshot, day(70), None);
 	assert_clean(&evaluation);
 	let audits = series(&evaluation, "audits");
-	assert_eq!(facts(audits), [Fact::Overdue, Fact::Missed]);
+	assert_eq!(facts(audits), [Fact::Due, Fact::Overdue, Fact::Missed]);
 	let cadence = audits.series().unwrap().cadence.as_ref().unwrap();
 	let states: Vec<(String, &CompletionState)> = cadence
 		.completions

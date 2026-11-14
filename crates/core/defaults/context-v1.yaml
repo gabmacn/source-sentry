@@ -5,10 +5,16 @@
 # context named `default`. Defining `default` there replaces this context
 # entirely.
 #
-# A fresh document always passes. A missed series entry is listed in the
-# report without failing it, and every other finding warns.
+# A fresh document always passes. A stale document is a notice until it is
+# due, and a document whose upstream document is stale is a notice until that
+# document is due: `due`, `upstream-due` and `overdue` warn through the
+# fallback. A document without a schedule is due as soon as it is stale, so it
+# warns at once. A missed series entry is listed in the report without
+# failing it, and every other finding warns.
 
 fallback: warn # For any finding that no rule matches.
 rules:
+  - facts: ['stale', 'upstream-stale']
+    outcome: notice
   - facts: ['missed']
     outcome: notice

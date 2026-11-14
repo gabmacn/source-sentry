@@ -357,7 +357,12 @@ pub(super) fn finish(
 		};
 		if let Some(status) = &status {
 			if status.overdue {
-				facts.insert(Fact::Overdue);
+				facts.extend([Fact::Due, Fact::Overdue]);
+			}
+			// The open window's last day: the series is due before it is
+			// overdue.
+			if deadline.is_some_and(|deadline: Deadline| deadline.is_due(at)) {
+				facts.insert(Fact::Due);
 			}
 			if !status.missed.is_empty() {
 				facts.insert(Fact::Missed);
@@ -496,6 +501,8 @@ fn next_deadline(
 		.ok_or(ScheduleError::OutOfRange)?;
 	Ok(Some(Deadline {
 		due: Some(last_day),
+		due_from: zone.start_of_day(last_day)?,
 		overdue_from: zone.start_of_day(after)?,
+		provisional: false,
 	}))
 }

@@ -7,13 +7,15 @@ use super::*;
 use crate::model::{ClassName, Context, Fact, Outcome, Rule};
 
 /// Every fact, in declaration order.
-const ALL_FACTS: [Fact; 9] = [
+const ALL_FACTS: [Fact; 11] = [
 	Fact::Fresh,
 	Fact::Stale,
+	Fact::Due,
 	Fact::Overdue,
 	Fact::Unattested,
 	Fact::Unclaimed,
 	Fact::UpstreamStale,
+	Fact::UpstreamDue,
 	Fact::TimingUnknown,
 	Fact::Missed,
 	Fact::AwaitingSeal,
@@ -98,7 +100,10 @@ fn judged(judgement: &Judgement, fact: Fact) -> &FactJudgement {
 fn built_in_v1_is_the_intended_context() {
 	let expected = Context {
 		fallback: Outcome::Warn,
-		rules: vec![rule(&[], &[Fact::Missed], Outcome::Notice)],
+		rules: vec![
+			rule(&[], &[Fact::Stale, Fact::UpstreamStale], Outcome::Notice),
+			rule(&[], &[Fact::Missed], Outcome::Notice),
+		],
 	};
 	assert_eq!(default_context(1).unwrap(), expected);
 }
@@ -124,12 +129,12 @@ fn unsupported_defaults_versions_are_configuration_errors() {
 }
 
 #[test]
-fn built_in_v1_passes_fresh_notes_missed_and_warns_on_the_rest() {
+fn built_in_v1_passes_fresh_notes_stale_and_missed_and_warns_on_the_rest() {
 	let context = default_context(1).unwrap();
 	for fact in ALL_FACTS {
 		let expected = match fact {
 			Fact::Fresh => Outcome::Pass,
-			Fact::Missed => Outcome::Notice,
+			Fact::Stale | Fact::UpstreamStale | Fact::Missed => Outcome::Notice,
 			_ => Outcome::Warn,
 		};
 		let judgement = judge(&context, &[], &[], [fact]);
@@ -541,12 +546,18 @@ fn the_most_severe_fact_decides_and_repeats_are_judged_once() {
 		&context,
 		&[],
 		&[],
-		[Fact::Missed, Fact::Fresh, Fact::Stale, Fact::Missed],
+		[
+			Fact::Missed,
+			Fact::Fresh,
+			Fact::Due,
+			Fact::Stale,
+			Fact::Missed,
+		],
 	);
 	assert_eq!(judgement.outcome, Outcome::Warn);
 	let facts: Vec<Fact> =
 		judgement.facts.iter().map(|judged| judged.fact).collect();
-	assert_eq!(facts, [Fact::Fresh, Fact::Stale, Fact::Missed]);
+	assert_eq!(facts, [Fact::Fresh, Fact::Stale, Fact::Due, Fact::Missed]);
 }
 
 // Gates and exit codes.

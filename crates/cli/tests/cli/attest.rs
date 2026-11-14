@@ -13,7 +13,7 @@ fn acknowledging_the_last_pattern_removal_keeps_the_document_reviewed() {
 	pending.expect_code(1);
 	let report = pending.json();
 	let guide = document(&report, "guide.md");
-	assert_eq!(guide["facts"], json!(["stale", "overdue"]));
+	assert_eq!(guide["facts"], json!(["stale", "due", "overdue"]));
 	assert_eq!(guide["deadline"]["due"], "2026-02-02");
 	repo
 		.run(&[

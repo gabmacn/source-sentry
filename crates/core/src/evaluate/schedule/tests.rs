@@ -583,11 +583,15 @@ fn zero_grace_without_a_cadence_is_due_at_once() {
 		due,
 		Deadline {
 			due: None,
+			due_from: start,
 			overdue_from: start,
+			provisional: false,
 		}
 	);
 	assert!(due.is_overdue(start));
 	assert!(!due.is_overdue(start - Duration::seconds(1)));
+	assert!(due.is_due(start));
+	assert!(!due.is_due(start - Duration::seconds(1)));
 }
 
 #[test]
@@ -598,7 +602,9 @@ fn zero_grace_with_a_cadence_may_be_due_on_the_start_date() {
 		deadline(&weekly, "2026-11-09T10:00:00Z", "UTC"),
 		Deadline {
 			due: Some(date("2026-11-09")),
+			due_from: instant("2026-11-09T00:00:00Z"),
 			overdue_from: instant("2026-11-10T00:00:00Z"),
+			provisional: false,
 		}
 	);
 	assert_eq!(
@@ -615,11 +621,15 @@ fn grace_without_a_cadence_ends_with_its_last_day() {
 		due,
 		Deadline {
 			due: Some(date("2026-11-10")),
+			due_from: instant("2026-11-10T00:00:00Z"),
 			overdue_from: instant("2026-11-11T00:00:00Z"),
+			provisional: false,
 		}
 	);
 	assert!(!due.is_overdue(instant("2026-11-10T23:59:59Z")));
 	assert!(due.is_overdue(instant("2026-11-11T00:00:00Z")));
+	assert!(!due.is_due(instant("2026-11-09T23:59:59Z")));
+	assert!(due.is_due(instant("2026-11-10T00:00:00Z")));
 }
 
 #[test]
@@ -629,7 +639,9 @@ fn grace_then_cadence_picks_the_first_occurrence_after_the_grace() {
 		deadline(&bimonthly, "2026-11-07T09:00:00Z", "UTC"),
 		Deadline {
 			due: Some(date("2026-12-01")),
+			due_from: instant("2026-12-01T00:00:00Z"),
 			overdue_from: instant("2026-12-02T00:00:00Z"),
+			provisional: false,
 		}
 	);
 	// A change shortly before a cadence date is not due the next day.
@@ -649,7 +661,9 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 		deadline(&one_day, "2026-03-28T12:00:00Z", "Europe/Madrid"),
 		Deadline {
 			due: Some(date("2026-03-29")),
+			due_from: instant("2026-03-28T23:00:00Z"),
 			overdue_from: instant("2026-03-29T22:00:00Z"),
+			provisional: false,
 		}
 	);
 	// Fall back on 25 October 2026.
@@ -657,7 +671,9 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 		deadline(&one_day, "2026-10-24T12:00:00Z", "Europe/Madrid"),
 		Deadline {
 			due: Some(date("2026-10-25")),
+			due_from: instant("2026-10-24T22:00:00Z"),
 			overdue_from: instant("2026-10-25T23:00:00Z"),
+			provisional: false,
 		}
 	);
 	// The start's local date is already 29 March in Madrid.
@@ -665,7 +681,9 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 		deadline(&one_day, "2026-03-28T23:30:00Z", "Europe/Madrid"),
 		Deadline {
 			due: Some(date("2026-03-30")),
+			due_from: instant("2026-03-29T22:00:00Z"),
 			overdue_from: instant("2026-03-30T22:00:00Z"),
+			provisional: false,
 		}
 	);
 	assert_eq!(
@@ -683,7 +701,9 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 		deadline(&one_day, "2018-11-02T15:00:00Z", "America/Sao_Paulo"),
 		Deadline {
 			due: Some(date("2018-11-03")),
+			due_from: instant("2018-11-03T03:00:00Z"),
 			overdue_from: instant("2018-11-04T03:00:00Z"),
+			provisional: false,
 		}
 	);
 	// 27 October and 3 November 2018 are Saturdays.
@@ -692,7 +712,9 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 		deadline(&saturdays, "2018-10-29T12:00:00Z", "America/Sao_Paulo"),
 		Deadline {
 			due: Some(date("2018-11-03")),
+			due_from: instant("2018-11-03T03:00:00Z"),
 			overdue_from: instant("2018-11-04T03:00:00Z"),
+			provisional: false,
 		}
 	);
 	// On 17 February 2019 the clocks fell back from 00:00 to 23:00, so 23:30
@@ -703,7 +725,9 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 			deadline(&daily, start, "America/Sao_Paulo"),
 			Deadline {
 				due: Some(date("2019-02-16")),
+				due_from: instant("2019-02-16T02:00:00Z"),
 				overdue_from: instant("2019-02-17T03:00:00Z"),
+				provisional: false,
 			}
 		);
 	}

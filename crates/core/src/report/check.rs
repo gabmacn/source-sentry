@@ -306,6 +306,11 @@ pub struct DocumentReport {
 	/// Present only when there are any.
 	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub stale_upstreams: Vec<String>,
+	/// The direct upstream documents that make this one `upstream-due`:
+	/// each is due, or waits on one that is. Present only when there are
+	/// any.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub due_upstreams: Vec<String>,
 	/// The clock of a document that has never been reviewed, which started
 	/// at the commit that declared it. Present only for
 	/// unattested documents.
@@ -339,6 +344,7 @@ impl DocumentReport {
 			settings: SettingsReport::new(subject),
 			sources: Vec::new(),
 			stale_upstreams: Vec::new(),
+			due_upstreams: Vec::new(),
 			unattested: None,
 		};
 		match &document.state {
@@ -349,6 +355,8 @@ impl DocumentReport {
 					.iter()
 					.map(ToString::to_string)
 					.collect();
+				report.due_upstreams =
+					live.due_upstreams.iter().map(ToString::to_string).collect();
 				report.unattested = live.unattested.as_ref().map(ClockReport::from);
 			}
 			DocumentState::Record(check) => {
@@ -391,22 +399,30 @@ impl From<&SeriesKey> for SeriesRef {
 	}
 }
 
-/// When a subject becomes overdue.
+/// When a subject becomes due, and when it becomes overdue.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct DeadlineReport {
 	/// The last local day on which it is on time, or `null` when it was due
 	/// at once.
 	pub due: Option<String>,
+	/// The first instant at which it is due.
+	pub due_from: String,
 	/// The first instant at which it is overdue.
 	pub overdue_from: String,
+	/// Whether the deadline dates a change that exists only in the working
+	/// tree as if it were committed at the instant of the check. It moves
+	/// once the change is committed.
+	pub provisional: bool,
 }
 
 impl From<&Deadline> for DeadlineReport {
 	fn from(deadline: &Deadline) -> Self {
 		Self {
 			due: deadline.due.map(|due| due.to_string()),
+			due_from: instant(deadline.due_from),
 			overdue_from: instant(deadline.overdue_from),
+			provisional: deadline.provisional,
 		}
 	}
 }

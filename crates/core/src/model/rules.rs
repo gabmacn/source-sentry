@@ -24,14 +24,20 @@ pub enum Fact {
 	Fresh,
 	/// A source differs from its attestation.
 	Stale,
+	/// A deadline has arrived: from the start of the due day, or from the
+	/// start of the clock when the document is due at once. An overdue
+	/// document is also due.
+	Due,
 	/// A deadline has passed.
 	Overdue,
 	/// Declared, but never reviewed.
 	Unattested,
 	/// Inside a root, eligible as a document, and claimed by nothing.
 	Unclaimed,
-	/// A source that is itself a document is stale or overdue.
+	/// A source that is itself a document is stale, unattested or overdue.
 	UpstreamStale,
+	/// A source that is itself a document is due.
+	UpstreamDue,
 	/// Drift exists, but its start cannot be dated.
 	TimingUnknown,
 	/// A closed series window has no entry.
@@ -47,10 +53,12 @@ impl Fact {
 		match self {
 			Self::Fresh => "fresh",
 			Self::Stale => "stale",
+			Self::Due => "due",
 			Self::Overdue => "overdue",
 			Self::Unattested => "unattested",
 			Self::Unclaimed => "unclaimed",
 			Self::UpstreamStale => "upstream-stale",
+			Self::UpstreamDue => "upstream-due",
 			Self::TimingUnknown => "timing-unknown",
 			Self::Missed => "missed",
 			Self::AwaitingSeal => "awaiting-seal",

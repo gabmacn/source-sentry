@@ -292,6 +292,10 @@ pub struct LiveDocument {
 	/// `unattested`, `timing-unknown` or `upstream-stale`, which make this
 	/// document `upstream-stale`.
 	pub stale_upstreams: Vec<RepoPath>,
+	/// The direct upstream documents that carry `due` or `upstream-due`,
+	/// which make this document `upstream-due`. Each is also among
+	/// `stale_upstreams`.
+	pub due_upstreams: Vec<RepoPath>,
 }
 
 /// One source of a live document.
@@ -359,8 +363,11 @@ pub enum Timing {
 	/// the document is unattested and its declaration's clock applies.
 	Idle,
 	/// The obligation exists only in the working tree, so its clock has not
-	/// started and it has no deadline.
-	NotStarted,
+	/// started and it has no deadline. The provisional deadline dates it as
+	/// if it were committed at the instant of evaluation; it decides `due`,
+	/// never `overdue`. It is `None` when the schedule or the time zone is
+	/// invalid, which a configuration error reports.
+	NotStarted(Option<Deadline>),
 	/// The clock started.
 	Started(StartedClock),
 	/// The attested oid never appears in the first-parent history, so the

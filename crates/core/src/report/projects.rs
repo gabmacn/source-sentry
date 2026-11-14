@@ -70,7 +70,8 @@ fn rebase(
 		}
 		Value::String(text) => match key {
 			"file" | "path" | "document" | "declared-in" | "root" | "anchor"
-			| "inherit-from" | "stale-upstreams" | "import-chain" => {
+			| "inherit-from" | "stale-upstreams" | "due-upstreams"
+			| "import-chain" => {
 				*text = relative(text, project);
 			}
 			"scope" if text.starts_with("directory:") => {

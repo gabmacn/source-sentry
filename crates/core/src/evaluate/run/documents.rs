@@ -462,6 +462,7 @@ impl Finisher<'_> {
 					settings: &settings,
 					cadence_field: CADENCE_FIELD,
 					claim,
+					at: self.at,
 				};
 				let unattested = unattested.map(|slot| {
 					context.timing(
@@ -496,6 +497,7 @@ impl Finisher<'_> {
 					unattested,
 					sources,
 					stale_upstreams: Vec::new(),
+					due_upstreams: Vec::new(),
 				};
 				(DocumentState::Live(live), facts, deadline)
 			}
@@ -524,9 +526,13 @@ impl Finisher<'_> {
 ///   clock is its only clock.
 /// - Otherwise a drifted, unattested, added or removed source makes it
 ///   `stale`, and a source whose timing is unknown makes it
-///   `timing-unknown`, `stale` and `overdue` at once.
-/// - The deadline is the earliest outstanding one, and the document is
-///   `overdue` once `at` reaches it.
+///   `timing-unknown`, `stale`, `due` and `overdue` at once.
+/// - The document is `due` once `at` reaches the earliest instant any
+///   deadline is due, provisional deadlines included, and `overdue` once
+///   `at` reaches a deadline that is not provisional. An overdue document
+///   is always due.
+/// - The deadline reported is the one due first; between a provisional
+///   deadline and a started one due at the same instant, the started one.
 fn live_facts(
 	unattested: Option<&Timing>,
 	sources: &[SourceReport],
@@ -534,10 +540,10 @@ fn live_facts(
 ) -> (BTreeSet<Fact>, Option<Deadline>) {
 	let mut facts = BTreeSet::new();
 	let mut deadlines = Vec::new();
-	let mut started = |timing: &Timing| {
-		if let Timing::Started(clock) = timing {
-			deadlines.extend(clock.deadline);
-		}
+	let mut started = |timing: &Timing| match timing {
+		Timing::Started(clock) => deadlines.extend(clock.deadline),
+		Timing::NotStarted(provisional) => deadlines.extend(*provisional),
+		Timing::Idle | Timing::Unknown | Timing::Failed => {}
 	};
 	if let Some(timing) = unattested {
 		facts.insert(Fact::Unattested);
@@ -548,17 +554,34 @@ fn live_facts(
 		}
 		for source in sources {
 			if source.timing == Timing::Unknown {
-				facts.extend([Fact::TimingUnknown, Fact::Stale, Fact::Overdue]);
+				facts.extend([
+					Fact::TimingUnknown,
+					Fact::Stale,
+					Fact::Due,
+					Fact::Overdue,
+				]);
 			}
 			started(&source.timing);
 		}
 	}
-	let deadline = deadlines
-		.into_iter()
-		.min_by_key(|deadline| deadline.overdue_from);
-	if deadline.is_some_and(|deadline| deadline.is_overdue(at)) {
+	if deadlines
+		.iter()
+		.any(|deadline| !deadline.provisional && deadline.is_overdue(at))
+	{
 		facts.insert(Fact::Overdue);
 	}
+	if facts.contains(&Fact::Overdue)
+		|| deadlines.iter().any(|deadline| deadline.is_due(at))
+	{
+		facts.insert(Fact::Due);
+	}
+	let deadline = deadlines.into_iter().min_by_key(|deadline| {
+		(
+			deadline.due_from,
+			deadline.provisional,
+			deadline.overdue_from,
+		)
+	});
 	(facts, deadline)
 }
 
@@ -583,8 +606,8 @@ fn broken_seal(
 	.about(claim.document.clone())
 }
 
-/// The facts that a document passes on to the documents that use it as a
-/// source.
+/// The facts that make the documents that use a document as a source
+/// `upstream-stale`.
 const PROPAGATING: [Fact; 5] = [
 	Fact::Stale,
 	Fact::Overdue,
@@ -593,11 +616,16 @@ const PROPAGATING: [Fact; 5] = [
 	Fact::UpstreamStale,
 ];
 
+/// The facts that make the documents that use a document as a source
+/// `upstream-due`.
+const PROPAGATING_DUE: [Fact; 2] = [Fact::Due, Fact::UpstreamDue];
+
 /// Adds `upstream-stale` to every document with an upstream document that
-/// carries a propagating fact, transitively, then `fresh` to
-/// every live document with none of its own facts.
+/// carries a propagating fact, and `upstream-due` to every document with an
+/// upstream document that is due, transitively, then `fresh` to every live
+/// document with none of its own facts.
 ///
-/// A document's facts are the union over its claims. The propagation is a
+/// A document's facts are the union over its claims. Each propagation is a
 /// breadth-first search over the reversed dependency edges, so it ends even
 /// when discovery has reported a cycle.
 pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
@@ -618,34 +646,38 @@ pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
 			.push(&dependency.dependent);
 	}
 
-	let carries = |document: &DocumentId| {
-		by_document.get(document).is_some_and(|positions| {
-			positions.iter().any(|&position| {
-				PROPAGATING
-					.iter()
-					.any(|fact| subjects[position].facts.contains(fact))
+	// Every document that reaches one carrying a seed fact through its
+	// sources propagates too.
+	let reach = |seeds: &[Fact]| {
+		let mut reached: BTreeSet<DocumentId> = by_document
+			.iter()
+			.filter(|(_, positions)| {
+				positions.iter().any(|&position| {
+					seeds
+						.iter()
+						.any(|fact| subjects[position].facts.contains(fact))
+				})
 			})
-		})
-	};
-	let mut propagating: BTreeSet<DocumentId> = by_document
-		.keys()
-		.filter(|document| carries(document))
-		.cloned()
-		.collect();
-	// Every document that reaches a propagating one through its sources
-	// propagates too, as `upstream-stale`.
-	let mut queue: VecDeque<DocumentId> = propagating.iter().cloned().collect();
-	while let Some(upstream) = queue.pop_front() {
-		for &dependent in dependents.get(&upstream).into_iter().flatten() {
-			if propagating.insert(dependent.clone()) {
-				queue.push_back(dependent.clone());
+			.map(|(document, _)| document.clone())
+			.collect();
+		let mut queue: VecDeque<DocumentId> = reached.iter().cloned().collect();
+		while let Some(upstream) = queue.pop_front() {
+			for &dependent in dependents.get(&upstream).into_iter().flatten() {
+				if reached.insert(dependent.clone()) {
+					queue.push_back(dependent.clone());
+				}
 			}
 		}
-	}
+		reached
+	};
+	let stale = reach(&PROPAGATING);
+	let due = reach(&PROPAGATING_DUE);
 
 	for dependency in &inventory.dependencies {
 		let upstream = DocumentId::Local(dependency.upstream.clone());
-		if !propagating.contains(&upstream) {
+		let (is_stale, is_due) =
+			(stale.contains(&upstream), due.contains(&upstream));
+		if !is_stale && !is_due {
 			continue;
 		}
 		for &position in
@@ -657,9 +689,14 @@ pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
 				..
 			}) = &mut subject.kind
 			{
-				live.stale_upstreams.push(dependency.upstream.clone());
 				subject.facts.remove(&Fact::Fresh);
+				// A due upstream document is always a stale one too.
+				live.stale_upstreams.push(dependency.upstream.clone());
 				subject.facts.insert(Fact::UpstreamStale);
+				if is_due {
+					live.due_upstreams.push(dependency.upstream.clone());
+					subject.facts.insert(Fact::UpstreamDue);
+				}
 			}
 		}
 	}
@@ -671,6 +708,8 @@ pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
 		{
 			live.stale_upstreams.sort();
 			live.stale_upstreams.dedup();
+			live.due_upstreams.sort();
+			live.due_upstreams.dedup();
 			if subject.facts.is_empty() {
 				subject.facts.insert(Fact::Fresh);
 			}

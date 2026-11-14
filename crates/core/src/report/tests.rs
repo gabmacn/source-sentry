@@ -69,8 +69,8 @@ define:
         - facts: ['missed']
           outcome: notice
         - classes: ['privacy']
-          facts: ['stale', 'overdue', 'unattested', 'timing-unknown', \
-          'upstream-stale']
+          facts: ['stale', 'due', 'overdue', 'unattested', 'timing-unknown', \
+          'upstream-stale', 'upstream-due']
           outcome: fail
 ";
 

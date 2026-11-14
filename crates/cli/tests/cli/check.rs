@@ -337,7 +337,12 @@ fn a_stale_document_warns_and_passes_the_continue_gate() {
 	assert_eq!(gates(&repo, &[]), (1, 0));
 	let run = repo.run(&["check", "--at", AT]);
 	assert!(run.stdout.contains("warn  docs/guide.md"), "{}", run.stdout);
-	assert!(run.stdout.contains("stale"), "{}", run.stdout);
+	// Without a schedule it is overdue at once, which says it is stale too.
+	assert!(
+		run.stdout.contains("overdue (since 2026-10-20)"),
+		"{}",
+		run.stdout
+	);
 	assert!(
 		run.stdout.contains("src/a.rs changed in"),
 		"the changed source is named: {}",
@@ -400,7 +405,12 @@ fn overdue_is_measured_at_the_given_instant() {
 		guide["facts"].clone()
 	};
 	assert_eq!(facts("2026-10-25T12:00:00Z"), json!(["stale"]));
-	assert_eq!(facts("2026-10-28T00:00:00Z"), json!(["stale", "overdue"]));
+	// Due from the first instant of its due day, and overdue after it.
+	assert_eq!(facts("2026-10-27T00:00:00Z"), json!(["stale", "due"]));
+	assert_eq!(
+		facts("2026-10-28T00:00:00Z"),
+		json!(["stale", "due", "overdue"])
+	);
 	assert_eq!(gates(&repo, &[]), (1, 0));
 }
 
@@ -532,7 +542,12 @@ fn the_json_report_has_the_documented_keys() {
 		guide["sources"][0]["clock"]["since"],
 		"2026-10-20T10:00:00Z"
 	);
-	assert_eq!(guide["judgement"][0]["rule"], serde_json::Value::Null);
+	// The built-in rule gives `stale` a notice; `overdue` falls back.
+	assert_eq!(guide["judgement"][0]["fact"], "stale");
+	assert_eq!(guide["judgement"][0]["rule"]["origin"]["kind"], "built-in");
+	let overdue = &guide["judgement"][2];
+	assert_eq!(overdue["fact"], "overdue");
+	assert_eq!(overdue["rule"], serde_json::Value::Null);
 
 	let fail =
 		repo.run(&["check", "--at", AT, "--format", "json", "--fail-on", "fail"]);

@@ -85,7 +85,7 @@ fn init_registers_candidates_as_unattested() {
 	let report = repo.run(&["check", "--at", AT, "--format", "json"]).json();
 	assert_eq!(
 		document(&report, "docs/other.md")["facts"],
-		json!(["overdue", "unattested"])
+		json!(["due", "overdue", "unattested"])
 	);
 
 	let nothing = repo.run(&["init", "--all", "--yes"]);
