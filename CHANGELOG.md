@@ -27,6 +27,15 @@ that version's section, so a release cannot be made without one.
 
 - `source-sentry completions <shell>` prints shell completions for bash, zsh,
   fish, PowerShell and elvish.
+- Install scripts for Linux, macOS and Windows, in `install/`, that verify
+  the release archive against `SHA256SUMS` before installing the binary, and
+  never change `PATH` or shell configuration.
+- `cargo binstall --registry gmn source-sentry` installs the release binary
+  instead of compiling the crate.
+- A proto plugin that installs a version pinned per repository, and a moon
+  project whose `check` and `review` tasks install Source Sentry through it.
+- Each release is also published, with the same files, on the GitHub
+  mirror's releases page.
 
 ## [0.1.0-rc.2] - 2026-11-14
 

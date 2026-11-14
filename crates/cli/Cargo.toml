@@ -28,5 +28,17 @@ tempfile.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 
+# Lets `cargo binstall --registry gmn source-sentry` install the prebuilt
+# binary of a release instead of compiling it. The names follow the release
+# archives, `source-sentry-<version>-<target>`, each holding a folder of the
+# same name.
+[package.metadata.binstall]
+pkg-url = "https://git.gabmacn.com/gmn/source-sentry/releases/download/v{ version }/{ name }-{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [lints]
 workspace = true

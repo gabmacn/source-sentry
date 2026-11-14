@@ -71,6 +71,20 @@ Sentry:
   cargo install --locked --registry gmn --version <version> source-sentry
   ```
 
+[`install/`](install/README.md) holds quicker ways to the prebuilt binaries:
+install scripts for Linux, macOS and Windows that verify the checksum,
+cargo-binstall support, a [proto](https://moonrepo.dev/proto) plugin that
+pins a version per repository, and a [moon](https://moonrepo.dev/moon)
+project, so that a monorepo's teams run `moon run source-sentry:review`
+without installing anything by hand:
+
+```sh
+curl -fsSL https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/install.sh | sh -s -- --version <version>
+```
+
+`source-sentry completions <shell>` prints shell completions for bash, zsh,
+fish, PowerShell and elvish.
+
 Source Sentry runs `git` for some operations, so git must be on the `PATH`.
 [`CHANGELOG.md`](CHANGELOG.md) lists the changes in each release.
 

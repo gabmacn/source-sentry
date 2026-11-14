@@ -1,0 +1,44 @@
+# A proto plugin for Source Sentry: https://moonrepo.dev/proto
+#
+# proto installs the release archive for the machine, checks it against the
+# release's SHA256SUMS, and pins the version per repository in .prototools:
+#
+#   source-sentry = "0.1.0"
+#
+#   [plugins.tools]
+#   source-sentry = "https://git.gabmacn.com/gmn/source-sentry/raw/branch/main/install/proto-plugin.toml"
+#
+# Versions are read from the repository's tags, `v<version>`. Release
+# candidates are versions too, and are installed only when named.
+
+name = "Source Sentry"
+type = "cli"
+
+[platform.linux]
+archs = ["x86_64", "aarch64"]
+archive-prefix = "source-sentry-{version}-{arch}-unknown-linux-gnu"
+download-file = "source-sentry-{version}-{arch}-unknown-linux-gnu.tar.gz"
+checksum-file = "SHA256SUMS"
+exe-path = "source-sentry"
+
+[platform.macos]
+archs = ["aarch64"]
+archive-prefix = "source-sentry-{version}-aarch64-apple-darwin"
+download-file = "source-sentry-{version}-aarch64-apple-darwin.tar.gz"
+checksum-file = "SHA256SUMS"
+exe-path = "source-sentry"
+
+[platform.windows]
+archs = ["x86_64"]
+archive-prefix = "source-sentry-{version}-x86_64-pc-windows-msvc"
+download-file = "source-sentry-{version}-x86_64-pc-windows-msvc.zip"
+checksum-file = "SHA256SUMS"
+exe-path = "source-sentry.exe"
+
+[install]
+download-url = "https://git.gabmacn.com/gmn/source-sentry/releases/download/v{version}/{download_file}"
+checksum-url = "https://git.gabmacn.com/gmn/source-sentry/releases/download/v{version}/{checksum_file}"
+
+[resolve]
+git-url = "https://git.gabmacn.com/gmn/source-sentry"
+version-pattern = "^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:-(?<pre>[0-9A-Za-z.-]+))?$"

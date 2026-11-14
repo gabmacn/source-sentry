@@ -1,0 +1,50 @@
+# A moon project that runs Source Sentry: https://moonrepo.dev/moon
+#
+# Copy it to tools/source-sentry/moon.yml in your workspace, list that folder
+# as the project `source-sentry` in .moon/workspace.yml, and pin Source
+# Sentry with its proto plugin in the workspace's .prototools; README.md
+# beside this file shows both. Then:
+#
+#   moon run source-sentry:check    # every document, failing on a warning
+#   moon run source-sentry:review   # review pending documents, on a terminal
+#
+# Both first run `install`, which installs the pinned version through proto
+# when it is missing, so nobody installs Source Sentry by hand.
+
+language: 'unknown'
+layer: 'tool'
+
+tasks:
+  # Installs the version pinned in .prototools, and does nothing when it is
+  # already installed. A separate task, because moon turns proto's
+  # auto-install off for the processes it runs.
+  install:
+    command: 'proto install source-sentry'
+    toolchains: ['system']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  # The whole repository's documentation. It fails on a warning, like the
+  # report gate of the CI recipes; use `-- --fail-on fail` for the continue
+  # gate.
+  check:
+    command: 'proto run source-sentry -- check --fail-on warn'
+    toolchains: ['system']
+    deps: ['~:install']
+    options:
+      runFromWorkspaceRoot: true
+      # The result depends on the whole repository and its history, which
+      # moon's inputs cannot describe, so it is never cached.
+      cache: false
+
+  # The full-screen review: it needs the terminal to itself.
+  review:
+    command: 'proto run source-sentry -- review'
+    toolchains: ['system']
+    deps: ['~:install']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+      interactive: true
+      runInCI: false
