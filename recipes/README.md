@@ -7,17 +7,16 @@ are those of [cli.md](../docs/cli.md).
 |---|---|---|
 | GitHub Actions | [github-actions.yml](github-actions.yml) | `.github/workflows/source-sentry.yml` |
 | GitLab CI | [gitlab-ci.yml](gitlab-ci.yml) | `.gitlab-ci.yml`, or include it from there |
-| Forgejo Actions | [forgejo-actions.yml](forgejo-actions.yml) | `.forgejo/workflows/source-sentry.yaml` |
+| Forgejo Actions | [forgejo-actions.yml](forgejo-actions.yml) | `.forgejo/workflows/source-sentry.yml`, never `source-sentry.yaml`, which Source Sentry reads as a directory config |
 | Woodpecker | the three files in [woodpecker/](woodpecker/) | `.woodpecker/`, under the same names |
 
-> **Status.** The GitHub Actions recipe ran on real CI on 2026-11-14; the
-> other three have not run yet. Each must be tested on its engine before the
-> first release; [Testing before release](#testing-before-release) lists
-> what was tested and what each one still needs. Every recipe
-> installs a release of Source Sentry pinned by version and checksum, and
-> those pins are placeholders until you replace them
-> ([Installation](#installation)). Until 0.1.0 is released, pin a release
-> candidate, such as `0.1.0-rc.3`.
+> **Status.** The GitHub Actions and Forgejo Actions recipes ran on real CI
+> on 2026-11-14. The GitLab CI and Woodpecker recipes have not run on real CI
+> yet, and 0.1.0 ships them untested: check them on your engine before
+> relying on them. [Testing the recipes](#testing-the-recipes) lists what
+> was tested and what each one still needs. Every recipe installs a release
+> of Source Sentry pinned by version and checksum, and those pins are
+> placeholders until you replace them ([Installation](#installation)).
 
 Every recipe assumes that the repository config declares a `production`
 context, as `structure/repository-config.example.yaml` does. Without it,
@@ -634,11 +633,14 @@ Whichever you choose, check it once with a pull request that edits the
 workflow file to lower the threshold: the check must still apply the original
 one.
 
-## Testing before release
+## Testing the recipes
 
-The four recipes are part of the release's acceptance tests, so each must be
-tested on its engine before the first release. Only the GitHub Actions recipe
-has run so far ([GitHub Actions, tested](#github-actions-tested)).
+Each recipe is meant to be tested on its engine against the scenarios below.
+The GitHub Actions and Forgejo Actions recipes have run
+([GitHub Actions, tested](#github-actions-tested) and
+[Forgejo Actions, tested](#forgejo-actions-tested)); the GitLab CI and
+Woodpecker recipes were released untested with 0.1.0, and will be tested as
+they come into use.
 
 ### A fixture repository
 
@@ -700,6 +702,32 @@ They confirmed that:
   `refs/pull/<number>/merge`;
 - the production gate and the deploy run only on pushes to `main`.
 
+### Forgejo Actions, tested
+
+On 2026-11-14 the recipe ran on a self-hosted Forgejo, with Forgejo Runner
+13.2.1 on an aarch64 machine, in a copy of the example repository. Only its
+pins, naming 0.1.0-rc.3, and its `runs-on` label, `linux-aarch64` for that
+runner, differed from the recipe. The same five scenarios as on GitHub gave
+the same results, except that Forgejo created no report gate job at all when
+`prepare` failed, where GitHub shows it as skipped.
+
+The first run found one fault, now fixed: the recipe told you to copy it to
+`.forgejo/workflows/source-sentry.yaml`. Source Sentry reads every file named
+`source-sentry.yaml` as a directory config, so every gate stopped with exit 3
+on the workflow file itself. The recipe is now copied to
+`source-sentry.yml`.
+
+The runs confirmed that:
+
+- the `node:24-trixie` image, `checkout@v4` with `fetch-depth: 0`, and the
+  v3 artifact actions work on Forgejo Runner 13.2.1, and the binary survives
+  the round trip through the artifact;
+- with a wrong pin, `prepare` fails and the continue gate fails rather than
+  being skipped, through `always()`;
+- a pull request's `$GITHUB_SHA` is its head commit, so "Confirm the commit"
+  passes;
+- the production gate and the deploy run only on pushes to `main`.
+
 ### What each engine still needs
 
 - **GitHub:**
@@ -723,14 +751,10 @@ They confirmed that:
     commit;
   - who receives the schedule's email.
 - **Forgejo:**
-  - the `docker` runner label and the `node:24-trixie` image;
-  - the v3 artifact actions, which declare a Node.js 16 runtime that GitHub
-    no longer runs, and `checkout@v4` with `fetch-depth: 0`;
-  - the status name, and whether a skipped required status blocks the merge;
-  - `always()`;
-  - that a pull request's `$GITHUB_SHA` is its head, as the source shows, so
-    that the "Confirm the commit" step passes;
-  - the scheduled run's email.
+  - the status name as branch protection lists it, and whether a skipped
+    required status blocks the merge (the test repository has no branch
+    protection);
+  - the scheduled run, and its email.
 - **Woodpecker:**
   - the three statuses' names on the forge, and that the report workflow's
     failure shows there while the continue workflow passes;

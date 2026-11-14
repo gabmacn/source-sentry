@@ -1,10 +1,13 @@
 # Source Sentry: the Forgejo Actions recipe.
 #
-# Copy this file to .forgejo/workflows/source-sentry.yaml. The README beside
+# Copy this file to .forgejo/workflows/source-sentry.yml. Not to
+# source-sentry.yaml: Source Sentry reads every file of that name as a
+# directory config, and the check would stop with exit 3. The README beside
 # this recipe explains the gates, the branch protection they need and the
 # files to protect.
 #
-# This recipe has not yet run on real CI. The installation step in the
+# This recipe ran on real CI on 2026-11-14, with 0.1.0-rc.3, on a
+# self-hosted Forgejo with Forgejo Runner 13.2.1. The installation step in the
 # `prepare` job pins a release of Source Sentry by version and checksum; its
 # values are placeholders that you must replace.
 #
