@@ -26,7 +26,7 @@ use source_sentry_git::{ApplyError, WorkingTreeSnapshot};
 use super::closing::{Closing, Part};
 use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
-use super::{Answer, Interface, View};
+use super::{Answer, Batch, Bulk, Interface, View};
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
 use crate::workspace::{Workspace, load_project};
@@ -75,6 +75,8 @@ pub(super) struct Session<'a> {
 	pub(super) context: String,
 	/// Explicitly named documents, or an empty set for the whole repository.
 	pub(super) selected: BTreeSet<DocumentId>,
+	/// Whether the line mode also asks about documents that are not due yet.
+	all: bool,
 	/// The reviewer, resolved as for `attest` when the session begins.
 	pub(super) reviewer: Option<String>,
 	/// The latest completed evaluation.
@@ -133,6 +135,7 @@ impl<'a> Session<'a> {
 			workspace,
 			context: args.context.clone(),
 			selected,
+			all: args.all,
 			reviewer: super::super::person(workspace, args.reviewer.as_deref())?,
 			state,
 			snapshot,
@@ -211,15 +214,43 @@ impl<'a> Session<'a> {
 		Ok(())
 	}
 
-	/// The remaining eligible queue in the current evaluation.
+	/// The remaining eligible queue in the current evaluation: the due
+	/// documents, and with `--all` those not due yet.
 	fn queue(&self) -> Result<Vec<DocumentId>, Failure> {
-		self.state.queue(&self.selected, &self.answered)
+		self.state.queue(&self.selected, &self.answered, self.all)
 	}
 
-	/// Every eligible document that needs review, in queue order, whatever
-	/// was answered before: the full screen lets the reviewer return to any.
+	/// Every eligible document that needs review, due or not, in queue
+	/// order, whatever was answered before: the full screen lets the
+	/// reviewer return to any, and marks those not due yet.
 	pub(super) fn pending(&self) -> Result<Vec<DocumentId>, Failure> {
-		self.state.queue(&self.selected, &BTreeMap::new())
+		self.state.queue(&self.selected, &BTreeMap::new(), true)
+	}
+
+	/// Whether `id` is due, or waits on an upstream document that is.
+	pub(super) fn is_due(&self, id: &DocumentId) -> bool {
+		self
+			.state
+			.documents
+			.get(id)
+			.is_some_and(|document| document.due)
+	}
+
+	/// The confirmation of `a` for `comparisons`: the due documents first,
+	/// then those not due yet, with how many of each the reviewer has not
+	/// seen.
+	pub(super) fn batch(
+		&self,
+		comparisons: Vec<(DocumentId, DocumentDiff)>,
+	) -> Batch {
+		let (due, later): (Vec<_>, Vec<_>) =
+			comparisons.into_iter().partition(|(id, _)| self.is_due(id));
+		Batch {
+			unseen: self.unseen(&due),
+			unseen_later: self.unseen(&later),
+			due,
+			later,
+		}
 	}
 
 	/// The comparison of `id` against the snapshot the latest evaluation
@@ -582,6 +613,8 @@ impl<'a> Session<'a> {
 	/// Captures and confirms the current queue once. Every source expectation
 	/// is frozen before confirmation; cascades outside this batch are prompted
 	/// individually, and a changed comparison stops the batch for reinspection.
+	/// The confirmation records the due documents by default, and offers to
+	/// include those not due yet, which the queue holds with `--all`.
 	fn all(
 		&mut self,
 		view: &View,
@@ -592,13 +625,16 @@ impl<'a> Session<'a> {
 			document: view.compared.document.clone(),
 			project: view.project.clone(),
 		};
-		let comparisons =
-			self.comparisons(queue, Some((&current, &view.compared)))?;
-		match ui.confirm_all(queue.len(), self.unseen(&comparisons))? {
+		let batch =
+			self.batch(self.comparisons(queue, Some((&current, &view.compared)))?);
+		let comparisons = match ui.confirm_all(&batch)? {
 			None => return Ok(false),
-			Some(false) => return Ok(true),
-			Some(true) => {}
-		}
+			Some(Bulk::Leave) => return Ok(true),
+			Some(Bulk::Due) => batch.due,
+			Some(Bulk::Everything) => {
+				batch.due.into_iter().chain(batch.later).collect()
+			}
+		};
 		// One answer recorded them all, so they form one step.
 		let from = self.steps.len();
 		for (id, compared) in comparisons {

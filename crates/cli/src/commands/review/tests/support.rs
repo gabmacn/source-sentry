@@ -14,7 +14,7 @@ use tempfile::TempDir;
 use super::super::closing::{Closing, Part};
 use super::super::opening::Opening;
 use super::super::render::{self, Paint};
-use super::super::{Answer, Interface, View, session};
+use super::super::{Answer, Batch, Bulk, Interface, View, session};
 use crate::cli::{DocumentArg, ReviewArgs};
 use crate::exit::Failure;
 use crate::workspace::{Workspace, load};
@@ -130,6 +130,14 @@ impl Repo {
 		workspace.repository.apply(&planned.plan).unwrap();
 	}
 
+	/// Runs a session over the whole repository with `--all`, which also
+	/// asks about documents that are not due yet.
+	pub(super) fn run_all(&self, script: &mut Script) -> Result<(), Failure> {
+		let mut args = self.args(&[]);
+		args.all = true;
+		session::run(&self.workspace(), &args, script)
+	}
+
 	/// Runs a session with an optional explicit selection and reviewer.
 	pub(super) fn run(
 		&self,
@@ -154,6 +162,7 @@ impl Repo {
 			context: "default".to_owned(),
 			reviewer: None,
 			plain: false,
+			all: false,
 		}
 	}
 }
@@ -172,8 +181,12 @@ pub(super) enum Step {
 	Answer(Option<Answer>),
 	/// A source changes after display and before this answer is submitted.
 	Change(&'static str, String, Answer),
-	/// A response to the bulk confirmation, or end of input.
+	/// A response to the bulk confirmation, or end of input: `true` records
+	/// the due documents.
 	Confirm(Option<bool>),
+	/// A response to the bulk confirmation that includes the documents not
+	/// due yet.
+	ConfirmEverything,
 	/// An external source edit made immediately after a review is recorded.
 	ChangeAfterReview(&'static str, String),
 	/// The files an editor command changes before it closes.
@@ -198,6 +211,8 @@ pub(super) struct Script {
 	pub(super) messages: Vec<String>,
 	/// Bulk confirmation counts: remaining and unseen.
 	pub(super) confirmations: Vec<(usize, usize)>,
+	/// How many documents not due yet each bulk confirmation offered.
+	pub(super) later: Vec<usize>,
 	/// Full diffs requested by the user.
 	pub(super) diffs: Vec<String>,
 }
@@ -225,6 +240,7 @@ impl Script {
 			comparisons: Vec::new(),
 			messages: Vec::new(),
 			confirmations: Vec::new(),
+			later: Vec::new(),
 			diffs: Vec::new(),
 		}
 	}
@@ -274,14 +290,14 @@ impl Interface for Script {
 		}
 	}
 
-	fn confirm_all(
-		&mut self,
-		remaining: usize,
-		unseen: usize,
-	) -> Result<Option<bool>, Failure> {
-		self.confirmations.push((remaining, unseen));
+	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure> {
+		self.confirmations.push((batch.due.len(), batch.unseen));
+		self.later.push(batch.later.len());
 		match self.steps.pop_front() {
-			Some(Step::Confirm(answer)) => Ok(answer),
+			Some(Step::Confirm(answer)) => {
+				Ok(answer.map(|yes| if yes { Bulk::Due } else { Bulk::Leave }))
+			}
+			Some(Step::ConfirmEverything) => Ok(Some(Bulk::Everything)),
 			_ => panic!("expected a confirmation"),
 		}
 	}

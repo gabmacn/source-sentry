@@ -272,6 +272,10 @@ pub(crate) struct ReviewArgs {
 	/// Ask one question after another instead of taking over the screen.
 	#[arg(long)]
 	pub(crate) plain: bool,
+	/// Also ask about documents that are stale but not due yet, in the line
+	/// mode. The full screen always lists them, marked as not due.
+	#[arg(long)]
+	pub(crate) all: bool,
 }
 
 /// The arguments of `attest`.

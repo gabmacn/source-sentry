@@ -80,6 +80,9 @@ pub(super) struct Document {
 	outcome: Outcome,
 	/// Whether its facts require review, independently of the outcome.
 	pub(super) pending: bool,
+	/// Whether it is due, or one of its upstream documents is: a pending
+	/// document that is not due can wait for its review day.
+	pub(super) due: bool,
 	/// Its current facts as people read them, for the prompt and closing
 	/// summary: `stale (review by 2026-11-20)`.
 	pub(super) facts: String,
@@ -244,6 +247,9 @@ impl State {
 								| Fact::UpstreamDue
 						)
 					}),
+					due: subject.facts.iter().any(|fact| {
+						matches!(fact, Fact::Due | Fact::Overdue | Fact::UpstreamDue)
+					}),
 					facts: crate::describe::facts(subject),
 					stamp: Stamp {
 						sources: live
@@ -296,16 +302,20 @@ impl State {
 
 	/// Orders eligible documents by decreasing outcome, then topologically
 	/// within each outcome, taking the first available path at each step.
+	/// A pending document that is not due is eligible only when `later`
+	/// says so, or when it was selected by name.
 	pub(super) fn queue(
 		&self,
 		selected: &BTreeSet<Key>,
 		answered: &BTreeMap<Key, Checkpoint>,
+		later: bool,
 	) -> Result<Vec<Key>, Failure> {
 		let mut rest: BTreeSet<_> = self
 			.documents
 			.iter()
 			.filter(|(id, document)| {
 				document.pending
+					&& (document.due || later || selected.contains(*id))
 					&& (selected.is_empty() || selected.contains(*id))
 					&& !answered
 						.get(*id)

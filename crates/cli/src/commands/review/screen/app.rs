@@ -14,6 +14,7 @@ use source_sentry_core::mutate::{
 	Baseline, Current, DocumentDiff, Selection, SourceSpec,
 };
 
+use super::super::Batch;
 use super::super::changes::{self, Entry, Row};
 use super::super::closing::Closing;
 use super::super::session::{CHANGED, Session, Undone, Written};
@@ -257,9 +258,10 @@ pub(super) enum Pane {
 pub(super) enum Overlay {
 	/// The list of keys.
 	Keys,
-	/// The confirmation before every remaining document is recorded, with
-	/// each frozen comparison and how many the reviewer has not seen.
-	All(Vec<(Id, DocumentDiff)>, usize),
+	/// The confirmation before every remaining document is recorded: the
+	/// due ones by default, those not due yet on request, each with its
+	/// frozen comparison and how many the reviewer has not seen.
+	All(Batch),
 	/// The reviewer's name, being typed.
 	Reviewer(String),
 	/// The contexts to choose from, with the one under the cursor.
@@ -470,9 +472,8 @@ impl<'a> App<'a> {
 			{
 				Some("Comparing…")
 			}
-			(Some(Overlay::All(..) | Overlay::Picked(..)), Key::Char('y' | 'Y')) => {
-				Some("Recording…")
-			}
+			(Some(Overlay::All(..) | Overlay::Picked(..)), Key::Char('y' | 'Y'))
+			| (Some(Overlay::All(..)), Key::Char('i' | 'I')) => Some("Recording…"),
 			(Some(Overlay::Contexts(_)), Key::Enter) => Some("Evaluating…"),
 			(Some(Overlay::Log(_)), Key::Char('u' | 'U')) => Some("Taking back…"),
 			(None, Key::Char('h' | 'H')) if self.focus == Focus::Sources => {
@@ -1540,8 +1541,21 @@ impl<'a> App<'a> {
 	) -> Result<Flow, Failure> {
 		match (overlay, key) {
 			(_, Key::Interrupt) => return Ok(Flow::Quit),
-			(Overlay::All(comparisons, _), Key::Char('y' | 'Y')) => {
-				self.record_all(comparisons, false)?;
+			(Overlay::All(batch), Key::Char('y' | 'Y')) => {
+				if batch.due.is_empty() {
+					// Nothing is due; only `i` records.
+					self.overlay = Some(Overlay::All(batch));
+				} else {
+					self.record_all(batch.due, false)?;
+				}
+			}
+			(Overlay::All(batch), Key::Char('i' | 'I')) => {
+				if batch.later.is_empty() {
+					self.overlay = Some(Overlay::All(batch));
+				} else {
+					let every = batch.due.into_iter().chain(batch.later).collect();
+					self.record_all(every, false)?;
+				}
 			}
 			(Overlay::Picked(comparisons, _, reread), Key::Char('y' | 'Y')) => {
 				self.record_all(comparisons, reread)?;
@@ -1905,7 +1919,8 @@ impl<'a> App<'a> {
 
 	/// Opens the confirmation for recording every document that needs
 	/// review, with the comparisons of the latest evaluation, which the
-	/// screen has mostly read already. Each write checks its comparison
+	/// screen has mostly read already. It records the due documents, and
+	/// those not due yet only on request. Each write checks its comparison
 	/// against the working tree again. A document that cannot be compared
 	/// cannot be recorded, so it is left out.
 	fn ask_all(&mut self) {
@@ -1922,8 +1937,7 @@ impl<'a> App<'a> {
 				Some((id, compared))
 			})
 			.collect();
-		let unseen = self.session.unseen(&comparisons);
-		self.overlay = Some(Overlay::All(comparisons, unseen));
+		self.overlay = Some(Overlay::All(self.session.batch(comparisons)));
 	}
 
 	/// Opens the confirmation for recording the picked documents, in the

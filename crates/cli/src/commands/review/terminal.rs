@@ -5,14 +5,14 @@ use std::io;
 
 use inquire::ui::RenderConfig;
 use inquire::validator::Validation;
-use inquire::{Confirm, InquireError, Text};
+use inquire::{Confirm, InquireError, Select, Text};
 use source_sentry_core::model::DocumentId;
 use source_sentry_core::mutate::DocumentDiff;
 
 use super::closing::{self, Closing, Part};
 use super::opening::Opening;
 use super::render::{self, Paint};
-use super::{Answer, Interface, View};
+use super::{Answer, Batch, Bulk, Interface, View};
 use crate::exit::{self, Failure};
 use crate::output::{self, Printer};
 use crate::workspace::Workspace;
@@ -72,20 +72,67 @@ impl Interface for Terminal {
 		Ok(answer_or_end(answer)?.and_then(|value| Answer::parse(&value)))
 	}
 
-	fn confirm_all(
-		&mut self,
-		remaining: usize,
-		unseen: usize,
-	) -> Result<Option<bool>, Failure> {
-		answer_or_end(
-			Confirm::new(&format!(
-				"Record the remaining {}, including {unseen} you have not seen?",
-				crate::describe::count(remaining, "document", "documents")
-			))
-			.with_default(false)
-			.with_render_config(render_config())
-			.prompt(),
-		)
+	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure> {
+		let documents =
+			|count| crate::describe::count(count, "document", "documents");
+		let (due, later) = (batch.due.len(), batch.later.len());
+		// Without a choice between the two, a plain question.
+		if due == 0 || later == 0 {
+			let (question, accepted) = if later == 0 {
+				(
+					format!(
+						"Record the remaining {}, including {} you have not seen?",
+						documents(due),
+						batch.unseen
+					),
+					Bulk::Due,
+				)
+			} else {
+				(
+					format!(
+						"None is due yet. Record the remaining {} anyway, including {} you have not seen?",
+						documents(later),
+						batch.unseen_later
+					),
+					Bulk::Everything,
+				)
+			};
+			let answer = answer_or_end(
+				Confirm::new(&question)
+					.with_default(false)
+					.with_render_config(render_config())
+					.prompt(),
+			)?;
+			return Ok(answer.map(|yes| if yes { accepted } else { Bulk::Leave }));
+		}
+		// The first choice is the default: it keeps the documents not due yet
+		// for their review day.
+		let choices = vec![
+			format!(
+				"Record the {} that are due, including {} you have not seen",
+				documents(due),
+				batch.unseen
+			),
+			format!(
+				"Record all {}, including the {} not due yet; {} you have not seen",
+				due + later,
+				later,
+				batch.unseen + batch.unseen_later
+			),
+			"Record nothing".to_owned(),
+		];
+		let answer = answer_or_end(
+			Select::new("Record which documents?", choices.clone())
+				.with_render_config(render_config())
+				.prompt(),
+		)?;
+		Ok(answer.map(|chosen| {
+			match choices.iter().position(|choice| *choice == chosen) {
+				Some(0) => Bulk::Due,
+				Some(1) => Bulk::Everything,
+				_ => Bulk::Leave,
+			}
+		}))
 	}
 
 	fn full_diff(

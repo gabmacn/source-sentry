@@ -79,6 +79,7 @@ fn check_paths(case: &Value) {
 		context: "default".to_owned(),
 		reviewer: Some("Test Reviewer".to_owned()),
 		plain: false,
+		all: false,
 	};
 	let mut script = Script::at(
 		root,

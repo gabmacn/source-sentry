@@ -233,6 +233,54 @@ fn quit_summaries_evaluate_changes_made_while_the_last_prompt_was_open() {
 	);
 }
 
+/// A document that is not due yet waits for its review day: the line mode
+/// leaves it out unless `--all` asks for it, and then `a` records it only
+/// when the reviewer chooses to include it.
+#[test]
+fn documents_not_due_yet_wait_unless_the_reviewer_asks_for_them() {
+	let fixture = || {
+		Repo::new(json!({
+			"docs/a.md": {},
+			"docs/later.md": {"schedule": {"grace": 3650}},
+		}))
+	};
+
+	let repo = fixture();
+	let mut script = Script::new(
+		&repo,
+		[Step::Answer(Some(Answer::All)), Step::Confirm(Some(true))],
+	);
+	repo.run(&[], &mut script).unwrap();
+	assert_eq!(script.shown, [local("docs/a.md")]);
+	assert_eq!(
+		(script.confirmations.clone(), script.later.clone()),
+		(vec![(1, 0)], vec![0])
+	);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/later.md")["reviewed"].is_null());
+
+	// With `--all` the batch offers it, and the default still leaves it.
+	let repo = fixture();
+	let mut script = Script::new(
+		&repo,
+		[Step::Answer(Some(Answer::All)), Step::Confirm(Some(true))],
+	);
+	repo.run_all(&mut script).unwrap();
+	assert_eq!(script.later, [1]);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/later.md")["reviewed"].is_null());
+
+	// Including it records both.
+	let repo = fixture();
+	let mut script = Script::new(
+		&repo,
+		[Step::Answer(Some(Answer::All)), Step::ConfirmEverything],
+	);
+	repo.run_all(&mut script).unwrap();
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/later.md")["reviewed"].is_object());
+}
+
 /// Bulk confirmation counts unseen documents and records the confirmed batch.
 #[test]
 fn all_confirms_the_unseen_count_and_records_each_remaining_document() {

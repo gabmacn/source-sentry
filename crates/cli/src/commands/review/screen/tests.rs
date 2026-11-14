@@ -79,6 +79,39 @@ fn an_answer_is_recorded_only_after_enter_and_the_queue_moves_on() {
 	assert!(app.notice.as_ref().unwrap().starts_with("Recorded "));
 }
 
+/// The full screen lists a document that is not due yet with a tag, and `a`
+/// records only the due ones unless `i` includes the others.
+#[test]
+fn documents_not_due_yet_are_tagged_and_included_only_on_request() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/later.md": {"schedule": {"grace": 3650}},
+	}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.open.len(), 2);
+	let screen = drawn(&app, 120, 30);
+	assert!(shows(&screen, "not due"), "{screen:#?}");
+
+	press(&mut app, &[Key::Char('a')]);
+	let Some(Overlay::All(batch)) = &app.overlay else {
+		panic!("expected the confirmation");
+	};
+	assert_eq!((batch.due.len(), batch.later.len()), (1, 1));
+	assert!(shows(&drawn(&app, 120, 30), "include those not due yet"));
+	press(&mut app, &[Key::Char('y')]);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/later.md")["reviewed"].is_null());
+
+	// Only the document not due yet is left: `y` does nothing, `i` records.
+	press(&mut app, &[Key::Char('a'), Key::Char('y')]);
+	assert!(
+		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.due.is_empty())
+	);
+	press(&mut app, &[Key::Char('i')]);
+	assert!(repo.entry("docs/later.md")["reviewed"].is_object());
+}
+
 /// Recording everything asks first, names what was not seen, and writes
 /// nothing unless the answer is yes.
 #[test]
@@ -87,13 +120,16 @@ fn everything_is_recorded_at_once_only_after_a_confirmation() {
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
 	press(&mut app, &[Key::Char('a')]);
-	let Some(Overlay::All(comparisons, unseen)) = &app.overlay else {
+	let Some(Overlay::All(batch)) = &app.overlay else {
 		panic!("expected the confirmation");
 	};
-	assert_eq!((comparisons.len(), *unseen), (2, 1));
+	assert_eq!(
+		(batch.due.len(), batch.unseen, batch.later.len()),
+		(2, 1, 0)
+	);
 	assert!(shows(
 		&drawn(&app, 120, 30),
-		"Record the remaining 2 documents, including 1 you have not seen?"
+		"Record the 2 documents that are due, including 1 you have not seen?"
 	));
 	press(&mut app, &[Key::Enter]);
 	assert_eq!((app.overlay.is_none(), app.open.len()), (true, 2));
@@ -269,14 +305,18 @@ fn documents_are_read_once_and_ahead_without_counting_as_seen() {
 	assert!(!app.prefetch());
 	assert_eq!(app.cache.len(), 2);
 	press(&mut app, &[Key::Char('a')]);
-	assert!(matches!(app.overlay, Some(Overlay::All(_, 1))));
+	assert!(
+		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.unseen == 1)
+	);
 
 	press(&mut app, &[Key::Escape]);
 	let first = Rc::clone(app.shown.as_ref().unwrap());
 	press(&mut app, &[Key::Down, Key::Up]);
 	assert!(Rc::ptr_eq(&first, app.shown.as_ref().unwrap()));
 	press(&mut app, &[Key::Char('a')]);
-	assert!(matches!(app.overlay, Some(Overlay::All(_, 0))));
+	assert!(
+		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.unseen == 0)
+	);
 
 	// The other documents are many and seldom opened: none is read as
 	// their list opens, only the one the cursor reaches.
@@ -560,12 +600,16 @@ fn the_wheel_does_not_count_a_document_as_seen() {
 	);
 	assert_eq!(app.cursor, Cursor::Open(0));
 	press(&mut app, &[Key::Char('a')]);
-	assert!(matches!(app.overlay, Some(Overlay::All(_, 1))));
+	assert!(
+		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.unseen == 1)
+	);
 
 	press(&mut app, &[Key::Escape, Key::Wheel(true, Area::Sidebar)]);
 	assert_eq!(app.cursor, Cursor::Open(1));
 	press(&mut app, &[Key::Char('a')]);
-	assert!(matches!(app.overlay, Some(Overlay::All(_, 0))));
+	assert!(
+		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.unseen == 0)
+	);
 }
 
 /// A source changed after the document was shown refuses the held answer:

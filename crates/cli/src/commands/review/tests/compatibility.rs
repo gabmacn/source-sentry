@@ -78,8 +78,10 @@ fn an_inherited_series_entry_starts_unattested_and_is_queued() {
 				{"path": "../../../src/a.rs"}
 			])
 		);
+		// It inherits seven days of grace, so it is not due yet: only a
+		// session that names it, or one with `--all`, asks about it.
 		let mut script = Script::answers(&repo, &[Answer::Reread]);
-		repo.run(&[], &mut script).unwrap();
+		repo.run(&["audits/new/deep/v10.md"], &mut script).unwrap();
 		assert_eq!(script.shown, [local("audits/new/deep/v10.md")]);
 		assert!(script.displays[0].contains("unattested"));
 		assert!(script.comparisons[0].sources.iter().all(|source| {

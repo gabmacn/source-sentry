@@ -78,6 +78,33 @@ struct View {
 	outcome: source_sentry_core::model::Outcome,
 }
 
+/// What `a` would record: the due documents, and those not due yet, each
+/// with its frozen comparison, and how many of each the reviewer has not
+/// seen as they are now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Batch {
+	/// The documents that are due, or wait on one that is.
+	due: Vec<(state::Key, DocumentDiff)>,
+	/// The documents that need review but are not due yet.
+	later: Vec<(state::Key, DocumentDiff)>,
+	/// How many due documents the reviewer has not seen.
+	unseen: usize,
+	/// How many documents not due yet the reviewer has not seen.
+	unseen_later: usize,
+}
+
+/// The answer to the confirmation of `a`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bulk {
+	/// Record nothing, and go on.
+	Leave,
+	/// Record the due documents: the default, which keeps the others for
+	/// their review day.
+	Due,
+	/// Record the documents not due yet as well.
+	Everything,
+}
+
 /// The session's human interaction boundary. Scripted tests use the same
 /// session and write path without requiring terminal handles.
 trait Interface {
@@ -88,13 +115,10 @@ trait Interface {
 	fn show(&mut self, workspace: &Workspace, view: &View);
 	/// Asks for one answer; `None` means end of input or cancellation.
 	fn answer(&mut self) -> Result<Option<Answer>, Failure>;
-	/// Confirms the current batch, explicitly naming its unseen count.
+	/// Confirms the current batch, explicitly naming its unseen count, and
+	/// offering to include the documents not due yet when it has any.
 	/// `None` ends the session rather than accepting the batch.
-	fn confirm_all(
-		&mut self,
-		remaining: usize,
-		unseen: usize,
-	) -> Result<Option<bool>, Failure>;
+	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure>;
 	/// Opens the full comparison and waits for the viewer to close.
 	fn full_diff(
 		&mut self,

@@ -11,6 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use source_sentry_core::model::Outcome;
 
+use super::super::Batch;
 use super::super::changes::Row;
 use super::super::state::Key as Id;
 use super::app::{
@@ -96,6 +97,15 @@ fn picked_bar(pen: &mut Pen, x: u16, y: u16, rows: u16) {
 	for row in y..y + rows {
 		pen.text(x, row, "▌", Style::new().fg(CREAM), 1);
 	}
+}
+
+/// The tag of a document that needs review but is not due yet.
+const NOT_DUE: &str = " not due ";
+
+/// The tag's style: cream on the dim blue, a chip that stays readable on
+/// every row, marked or not.
+fn not_due() -> Style {
+	Style::new().fg(CREAM).bg(DIM_BLUE)
 }
 
 /// What the pointer is over: the same text on a slightly lighter ground.
@@ -542,12 +552,19 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 				strong(label),
 				4,
 			);
+			// A document that is not due yet carries a tag; its facts say
+			// when it will be.
+			let mut facts_width = name_width;
+			if !document.due {
+				let tag = pen.right(area.right() - 1, y + 1, NOT_DUE, not_due());
+				facts_width = tag.saturating_sub(area.x + 8);
+			}
 			pen.text(
 				area.x + 7,
 				y + 1,
-				&fit(&document.facts.replace(", ", " · "), name_width),
+				&fit(&document.facts.replace(", ", " · "), facts_width),
 				mark.unwrap_or_else(dim),
-				name_width,
+				facts_width,
 			);
 		}
 		pen.text(
@@ -1305,13 +1322,7 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 		Overlay::Sources(at) => sources_box(app, *at, pen, area),
 		Overlay::Log(said) => log_box(app, said.as_deref(), pen, area),
 		Overlay::History(past, at) => history_box(past, *at, pen, area),
-		Overlay::All(comparisons, unseen) => {
-			let ask = format!(
-				"Record the remaining {}, including {unseen} you have not seen?",
-				crate::describe::count(comparisons.len(), "document", "documents")
-			);
-			all_box(app, comparisons, "Record all remaining", &ask, pen, area);
-		}
+		Overlay::All(batch) => batch_box(app, batch, pen, area),
 		Overlay::Picked(comparisons, unseen, reread) => {
 			let ask = format!(
 				"Record the {}, including {unseen} you have not seen?",
@@ -1326,7 +1337,8 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			} else {
 				"Record the picked"
 			};
-			all_box(app, comparisons, title, &ask, pen, area);
+			let keys = [("y", "record them all"), ("n", "go back, the default")];
+			all_box(app, comparisons, title, &ask, &keys, pen, area);
 		}
 		Overlay::Reviewer(name) => {
 			let inside = frame(pen, area, 60, 8, "Reviewer");
@@ -1397,6 +1409,36 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
 		}
 	}
+}
+
+/// The confirmation of `a`: the due documents, recorded by `y`, and those
+/// not due yet, which `i` includes.
+fn batch_box(app: &App, batch: &Batch, pen: &mut Pen, area: Rect) {
+	let documents =
+		|count| crate::describe::count(count, "document", "documents");
+	let ask = if batch.due.is_empty() {
+		format!(
+			"None is due yet. Record the {} anyway, including {} you have not seen?",
+			documents(batch.later.len()),
+			batch.unseen_later
+		)
+	} else {
+		format!(
+			"Record the {} that are due, including {} you have not seen?",
+			documents(batch.due.len()),
+			batch.unseen
+		)
+	};
+	let listed: Vec<_> = batch.due.iter().chain(&batch.later).cloned().collect();
+	let mut keys = Vec::new();
+	if !batch.due.is_empty() {
+		keys.push(("y", "record the due ones"));
+	}
+	if !batch.later.is_empty() {
+		keys.push(("i", "include those not due yet"));
+	}
+	keys.push(("n", "go back, the default"));
+	all_box(app, &listed, "Record all remaining", &ask, &keys, pen, area);
 }
 
 /// A box with a path or a name whole, wrapped where a row had to cut it.
@@ -1761,6 +1803,7 @@ fn all_box(
 	comparisons: &[(Id, source_sentry_core::mutate::DocumentDiff)],
 	title: &str,
 	ask: &str,
+	keys: &[(&str, &str)],
 	pen: &mut Pen,
 	area: Rect,
 ) {
@@ -1781,17 +1824,18 @@ fn all_box(
 			);
 		}
 		let seen = app.session.has_seen(id, compared);
+		let later = !app.session.is_due(id);
 		pen.text(
 			inside.x + 8,
 			y,
 			&fit_path(
 				&id.display(app.workspace()),
-				inside.width.saturating_sub(20),
+				inside.width.saturating_sub(30),
 			),
 			text(),
 			inside.width,
 		);
-		pen.right(
+		let end = pen.right(
 			inside.right(),
 			y,
 			if seen { "seen" } else { "not seen" },
@@ -1801,10 +1845,9 @@ fn all_box(
 				Style::new().fg(outcome_color(Outcome::Warn))
 			},
 		);
+		if later {
+			pen.right(end.saturating_sub(2), y, NOT_DUE, not_due());
+		}
 	}
-	pen.keys(
-		inside.x,
-		inside.bottom() - 1,
-		&[("y", "record them all"), ("n", "go back, the default")],
-	);
+	pen.keys(inside.x, inside.bottom() - 1, keys);
 }
