@@ -592,17 +592,46 @@ fn an_edited_placeholder_keeping_crlf_takes_its_other_conversions() {
 	}
 }
 
-/// When git does not compare a placeholder with its index entry, as under
-/// `assume-unchanged`, the conversions `git add` would apply cannot be
-/// computed: the placeholder is reported as holding CRLF in the index.
+/// When git does not compare an edited placeholder with its index entry,
+/// because it is marked `assume-unchanged`, the conversions `git add` would
+/// apply cannot be computed. The check stops with an error that names the
+/// file and the mark, rather than reporting CRLF in the index, whose advice
+/// would normalise the link's blob.
 #[test]
-fn an_unconvertible_placeholder_keeping_crlf_is_reported() {
+fn an_assume_unchanged_placeholder_git_must_convert_is_an_error() {
 	let repo = TestRepo::init();
 	crlf_placeholder_under(&repo, "text=auto ident", "false");
 	repo.git(&["update-index", "--assume-unchanged", "link"]);
 	repo.write("link", b"$Id: expanded-value $\r\nnew-target\r\n");
 
-	assert_eq!(canonical(&repo, "link"), Canonical::CrlfInIndex);
+	let repository = repo.open();
+	let snapshot = repository.working_tree_snapshot().unwrap();
+	let error = snapshot.canonical_oids(&[path("link")]).unwrap_err();
+	assert_eq!(error.kind, BackendErrorKind::Git);
+	let message = error.source.to_string();
+	assert!(message.contains("`link`"), "{message}");
+	assert!(message.contains("marked assume-unchanged"), "{message}");
+	assert!(
+		message.contains("`git update-index --no-assume-unchanged -- link`"),
+		"{message}"
+	);
+}
+
+/// An edited placeholder that `git add` would convert back to its link's
+/// blob shows no difference in `git diff`; its canonical oid is that blob.
+#[test]
+fn an_edited_placeholder_converting_to_its_link_blob_keeps_it() {
+	let repo = TestRepo::init();
+	let link_blob = placeholder_link_to(&repo, b"$Id$\r\nnew-target\r\n");
+	repo.write(".gitattributes", "link text=auto ident\n");
+	repo.git(&["add", ".gitattributes"]);
+	repo.git(&["commit", "--quiet", "--message", "attributes"]);
+	repo.write("link", b"$Id: expanded-value $\r\nnew-target\r\n");
+
+	let hashed = canonical(&repo, "link");
+	let added = added_link(&repo, "link");
+	assert_eq!(added, object_id(&link_blob));
+	assert_eq!(hashed, Canonical::Oid(added));
 }
 
 /// A regular file in place of a tracked link hashes as `git add` would store

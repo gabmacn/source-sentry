@@ -249,8 +249,16 @@ impl<'a> Canonicalizer<'a> {
 	///   `working-tree-encoding` or `ident` is hashed from its bytes, which git
 	///   stores unchanged;
 	/// - any other is hashed by `git diff`, which reads the index as
-	///   `git add` does. When git skips the file there, as under
-	///   `assume-unchanged`, it is reported as [`Canonical::CrlfInIndex`].
+	///   `git add` does. When `git diff` prints nothing, `git add` would store
+	///   the index blob, unless git skips the file because it is marked
+	///   `assume-unchanged`. Then nothing can tell what `git add` would
+	///   store, and the check stops with an error. (A path marked
+	///   `skip-worktree` never comes here: its index blob stands for it.)
+	///
+	/// # Errors
+	///
+	/// Fails when `git` fails, a file cannot be read, or a placeholder git
+	/// must hash is marked `assume-unchanged`.
 	fn hash_crlf_placeholders(
 		&self,
 		work_dir: &Path,
@@ -275,9 +283,7 @@ impl<'a> Canonicalizer<'a> {
 					.value()
 					.is_some();
 			let canonical = if converted {
-				self
-					.hash_against_index(path)?
-					.map_or(Canonical::CrlfInIndex, Canonical::Oid)
+				Canonical::Oid(self.hash_converted_placeholder(path)?)
 			} else {
 				let bytes = fs::read(native(work_dir, path))
 					.map_err(|source| error::io(format!("cannot read {path}"), source))?;
@@ -299,11 +305,59 @@ impl<'a> Canonicalizer<'a> {
 		Ok(results)
 	}
 
+	/// The oid `git add` would store for the edited placeholder at `path`,
+	/// from `git diff` against the index. When `git diff` prints nothing,
+	/// the file converts to the index blob, unless git does not compare it
+	/// because it is marked `assume-unchanged`.
+	///
+	/// # Errors
+	///
+	/// Fails when `git` fails, or when the placeholder is marked
+	/// `assume-unchanged`.
+	fn hash_converted_placeholder(
+		&self,
+		path: &RepoPath,
+	) -> Result<ObjectId, BackendError> {
+		if let Some(id) = self.hash_against_index(path)? {
+			return Ok(id);
+		}
+		if self.assume_unchanged(path)? {
+			return Err(failure(
+				BackendErrorKind::Git,
+				format!(
+					"`{path}` is an edited placeholder of a symbolic link that is \
+					 marked assume-unchanged, so git does not compare it with the \
+					 index, and what `git add` would store for it cannot be \
+					 computed; clear the mark with `git update-index \
+					 --no-assume-unchanged -- {path}` and check again"
+				),
+			));
+		}
+		self
+			.index
+			.get(path)
+			.map(|record| record.oid.clone())
+			.ok_or_else(|| {
+				failure(BackendErrorKind::Git, format!("{path} is not in the index"))
+			})
+	}
+
+	/// Whether the index marks `path` `assume-unchanged`, which
+	/// `git ls-files -v` shows as a lower-case tag.
+	fn assume_unchanged(&self, path: &RepoPath) -> Result<bool, BackendError> {
+		let pathspec = format!(":(literal){}", path.as_str());
+		let output = self
+			.repository
+			.git()
+			.output(&["ls-files", "-v", "-z", "--", &pathspec], None)?;
+		Ok(output.first().is_some_and(u8::is_ascii_lowercase))
+	}
+
 	/// The oid `git diff` gives the working-tree file at `path` against the
-	/// index, which is what `git add` would store, or `None` when git does
-	/// not compare the file, as under `assume-unchanged` or
-	/// `skip-worktree`. The LFS driver is disabled and file system
-	/// monitoring is not consulted.
+	/// index, which is what `git add` would store, or `None` when git prints
+	/// no difference: the file converts to the index blob, or git does not
+	/// compare it, as under `assume-unchanged`. The LFS driver is disabled
+	/// and file system monitoring is not consulted.
 	fn hash_against_index(
 		&self,
 		path: &RepoPath,
