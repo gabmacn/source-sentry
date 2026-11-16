@@ -5,7 +5,7 @@
 //! The colours are the deck's: an ink ground, cream text, and blue only as
 //! a fill, never as text.
 
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth as _};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
@@ -152,9 +152,55 @@ fn outcome_color(outcome: Outcome) -> Color {
 	}
 }
 
-/// The columns `text` takes.
+/// The graphemes of `text`, each with the cells the grid gives it. A wide
+/// character takes two cells, and a combining mark belongs to the grapheme
+/// of the character before it. A control character is a grapheme of its
+/// own that takes no cell, because the grid leaves it out.
+fn graphemes(text: &str) -> Vec<(&str, u16)> {
+	let mut graphemes = Vec::new();
+	let mut rest = text;
+	while !rest.is_empty() {
+		let plain = rest.find(char::is_control).unwrap_or(rest.len());
+		let (run, after) = rest.split_at(plain);
+		// The grid splits text into the same graphemes; there is no control
+		// character in the run for it to leave out.
+		let mut start = 0;
+		for grapheme in Span::raw(run).styled_graphemes(Style::new()) {
+			let end = start + grapheme.symbol.len();
+			if let Some(symbol) = run.get(start..end) {
+				graphemes.push((symbol, symbol.cell_width()));
+			}
+			start = end;
+		}
+		let control = after.chars().next().map_or(0, char::len_utf8);
+		let (control, next) = after.split_at(control);
+		if !control.is_empty() {
+			graphemes.push((control, 0));
+		}
+		rest = next;
+	}
+	graphemes
+}
+
+/// The cells `text` takes.
 fn width(text: &str) -> u16 {
-	u16::try_from(Span::raw(text).width()).unwrap_or(u16::MAX)
+	graphemes(text)
+		.iter()
+		.fold(0, |total, (_, cells)| total.saturating_add(*cells))
+}
+
+/// The longest start of `text` that fits in `columns` cells.
+fn head(text: &str, columns: u16) -> String {
+	let mut head = String::new();
+	let mut used: u16 = 0;
+	for (symbol, cells) in graphemes(text) {
+		used = used.saturating_add(cells);
+		if used > columns {
+			break;
+		}
+		head.push_str(symbol);
+	}
+	head
 }
 
 /// `text` cut to `columns`, with an ellipsis when something was cut.
@@ -162,10 +208,10 @@ fn fit(text: &str, columns: u16) -> String {
 	if width(text) <= columns {
 		return text.to_owned();
 	}
-	let mut cut: String = text
-		.chars()
-		.take(usize::from(columns.saturating_sub(1)))
-		.collect();
+	if columns == 0 {
+		return String::new();
+	}
+	let mut cut = head(text, columns - 1);
 	cut.push('…');
 	cut
 }
@@ -178,24 +224,30 @@ fn fit_path(path: &str, columns: u16) -> String {
 	let Some((directory, file)) = path.rsplit_once('/') else {
 		return fit(path, columns);
 	};
-	let room = usize::from(columns).saturating_sub(file.chars().count() + 2);
+	let room = columns.saturating_sub(width(file).saturating_add(2));
 	if room < 3 {
 		return fit(path, columns);
 	}
-	let head: String = directory.chars().take(room).collect();
-	format!("{head}…/{file}")
+	format!("{}…/{file}", head(directory, room))
 }
 
-/// `text` in lines of at most `columns` characters.
-fn wrap(text: &str, columns: u16) -> Vec<String> {
-	let characters: Vec<char> = text.chars().collect();
-	if characters.is_empty() {
-		return vec![String::new()];
+/// `text` in rows of at most `columns` cells. Each grapheme lands in
+/// exactly one row: a wide character that does not fit moves whole to the
+/// next row, and one that takes no cell stays with the one before it.
+pub(super) fn wrap(text: &str, columns: u16) -> Vec<String> {
+	let mut rows = Vec::new();
+	let mut row = String::new();
+	let mut used: u16 = 0;
+	for (symbol, cells) in graphemes(text) {
+		if cells > 0 && used > 0 && used.saturating_add(cells) > columns {
+			rows.push(std::mem::take(&mut row));
+			used = 0;
+		}
+		row.push_str(symbol);
+		used = used.saturating_add(cells);
 	}
-	characters
-		.chunks(usize::from(columns.max(1)))
-		.map(|chunk| chunk.iter().collect())
-		.collect()
+	rows.push(row);
+	rows
 }
 
 /// A pen over the grid. Everything it draws is clipped to the grid.

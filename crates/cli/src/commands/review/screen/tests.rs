@@ -1,5 +1,7 @@
 //! Scripted keys and drawn grids against real temporary repositories.
 
+mod layout;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use serde_json::json;
