@@ -302,8 +302,14 @@ fn check_parts(rule: &str) -> Result<(), ScheduleError> {
 				"rule part names and values must not be empty",
 			));
 		}
+		if name == "BYWEEKDAY" {
+			return Err(invalid(
+				rule,
+				"`BYWEEKDAY` is not a rule part of RFC 5545; write `BYDAY`",
+			));
+		}
 		match name.as_str() {
-			"BYDAY" | "BYWEEKDAY" => check_weekdays(rule, value)?,
+			"BYDAY" => check_weekdays(rule, value)?,
 			"BYMONTHDAY"
 				if value.split(',').any(|day| day.parse::<i16>() == Ok(0)) =>
 			{

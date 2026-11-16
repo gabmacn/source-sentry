@@ -23,6 +23,13 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+### Changed
+
+- A cadence's rule no longer accepts `BYWEEKDAY`, a synonym of `BYDAY`
+  that RFC 5545 does not have. A rule that uses it is a configuration
+  error whose message says to write `BYDAY`; the occurrences are the
+  same.
+
 ### Fixed
 
 - A relative source pattern now matches files in its document's own

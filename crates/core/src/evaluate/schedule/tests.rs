@@ -372,13 +372,28 @@ fn recurrence_bounds_are_rejected_by_presence() {
 	}
 }
 
+/// `BYWEEKDAY` is a synonym that some recurrence libraries accept and the
+/// standard does not have: it is refused, in any case, with the part to
+/// write instead.
+#[test]
+fn the_nonstandard_weekday_synonym_is_refused() {
+	for part in ["BYWEEKDAY=SU", "byweekday=su", "ByWeekDay=1SU"] {
+		let rule = format!("FREQ=MONTHLY;{part}");
+		let refused = rejection("2026-11-01", &rule);
+		assert!(
+			matches!(refused, ScheduleError::InvalidRule { .. }),
+			"{rule:?} must be invalid"
+		);
+		assert!(refused.to_string().contains("write `BYDAY`"), "{refused}");
+	}
+}
+
 /// Signed ordinals and case-insensitive weekday names retain their meaning.
 #[test]
 fn valid_weekday_spellings_keep_their_occurrences() {
 	for (part, next) in [
 		("BYDAY=SU", "2026-11-08"),
 		("byday=su", "2026-11-08"),
-		("BYWEEKDAY=SU", "2026-11-08"),
 		("BYDAY=+1SU", "2026-12-06"),
 		("BYDAY=01SU", "2026-12-06"),
 	] {
