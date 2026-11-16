@@ -559,11 +559,13 @@ review.
 - **On GitHub**, enable "Require review from Code Owners". The CODEOWNERS
   file must be on the pull request's base branch.
 - **On GitLab**, use `.gitlab/CODEOWNERS`, name `/.gitlab-ci.yml` instead of
-  the workflow line, and enable "Required approval from code owners" on the
-  protected branch. Both need Premium or Ultimate.
+  the workflow line and `/.gitlab/CODEOWNERS` instead of the CODEOWNERS
+  line, and enable "Required approval from code owners" on the protected
+  branch. Both need Premium or Ultimate.
 
 **Forgejo** reads CODEOWNERS from the repository's root, `docs/` or
-`.forgejo/`, and its patterns are Go regular expressions, not globs:
+`.forgejo/`, and its patterns are Go regular expressions, not globs. In
+`.forgejo/CODEOWNERS`:
 
 ```
 ^(.*/)?\.source-sentry/.*$                  @example-org/policy-owners
