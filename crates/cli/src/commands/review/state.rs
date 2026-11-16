@@ -250,7 +250,7 @@ impl State {
 					due: subject.facts.iter().any(|fact| {
 						matches!(fact, Fact::Due | Fact::Overdue | Fact::UpstreamDue)
 					}),
-					facts: crate::describe::facts(subject),
+					facts: crate::describe::facts(subject, evaluation.at),
 					stamp: Stamp {
 						sources: live
 							.sources

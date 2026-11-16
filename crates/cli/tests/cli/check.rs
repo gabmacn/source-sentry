@@ -414,6 +414,51 @@ fn overdue_is_measured_at_the_given_instant() {
 	assert_eq!(gates(&repo, &[]), (1, 0));
 }
 
+/// A source whose timing is unknown makes its document overdue at once,
+/// but the deadline of its other source is called missed only once it has
+/// passed. The JSON report keeps that deadline either way.
+#[test]
+fn unknown_timing_never_calls_a_future_deadline_missed() {
+	let repo = TestRepo::init();
+	repo.guide_with_unknown_timing();
+
+	let check = |at: &str| {
+		let human = repo.run(&["check", "--at", at]);
+		human.expect_code(1);
+		let report = repo.run(&["check", "--at", at, "--format", "json"]);
+		report.expect_code(1);
+		let guide = document(&report.json(), "docs/guide.md").clone();
+		assert_eq!(
+			guide["facts"],
+			json!(["stale", "due", "overdue", "timing-unknown"])
+		);
+		assert_eq!(
+			guide["deadline"],
+			json!({
+				"due": "2026-12-15",
+				"due-from": "2026-12-15T00:00:00Z",
+				"overdue-from": "2026-12-16T00:00:00Z",
+				"provisional": false,
+			})
+		);
+		human.stdout
+	};
+
+	let before = check("2026-11-16T12:00:00Z");
+	assert!(
+		before.contains("docs/guide.md  overdue, timing unknown\n"),
+		"{before}"
+	);
+	assert!(!before.contains("missed"), "{before}");
+	let after = check("2026-12-16T00:00:00Z");
+	assert!(
+		after.contains(
+			"docs/guide.md  overdue (missed review by 2026-12-15), timing unknown\n"
+		),
+		"{after}"
+	);
+}
+
 /// A stale privacy policy fails production, while the default
 /// context only warns.
 #[test]

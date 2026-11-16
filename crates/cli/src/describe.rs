@@ -113,12 +113,17 @@ pub(crate) fn inheritance_hint(
 	))
 }
 
-/// A subject's facts, as one line: `overdue (missed review by 2026-11-03)`.
-/// `fresh` is left out, so a passing subject reads `fresh`. A fact that a
-/// more urgent one implies is left out too: an overdue document is also due
-/// and stale, and a document with a due upstream document also has a stale
-/// one. The JSON report lists every fact.
-pub(crate) fn facts(subject: &Subject) -> String {
+/// A subject's facts at `at`, the instant of the check, as one line:
+/// `overdue (missed review by 2026-11-03)`. `fresh` is left out, so a
+/// passing subject reads `fresh`. A fact that a more urgent one implies is
+/// left out too: an overdue document is also due and stale, and a document
+/// with a due upstream document also has a stale one. The JSON report lists
+/// every fact.
+///
+/// A deadline is called missed only once it has passed at `at`. A document
+/// that is overdue only because a source's timing is unknown reads
+/// `overdue, timing unknown`, whatever deadline its other sources set.
+pub(crate) fn facts(subject: &Subject, at: DateTime<Utc>) -> String {
 	let has = |fact: Fact| subject.facts.contains(&fact);
 	let mut phrases = Vec::new();
 	for &fact in &subject.facts {
@@ -134,15 +139,15 @@ pub(crate) fn facts(subject: &Subject) -> String {
 				None => fact.name().to_owned(),
 			},
 			Fact::Overdue => match &subject.deadline {
-				Some(Deadline { due: Some(due), .. }) => {
-					format!("overdue (missed {} by {due})", task(subject))
-				}
-				Some(Deadline {
-					due: None,
-					overdue_from,
-					..
-				}) => format!("overdue (since {})", date(*overdue_from)),
-				None => "overdue".to_owned(),
+				Some(deadline) if is_missed(deadline, at) => match deadline.due {
+					Some(due) => {
+						format!("overdue (missed {} by {due})", task(subject))
+					}
+					None => {
+						format!("overdue (since {})", date(deadline.overdue_from))
+					}
+				},
+				Some(_) | None => "overdue".to_owned(),
 			},
 			Fact::Unattested => match unattested_since(subject) {
 				Some(since) => format!("unattested since {since}"),
@@ -160,6 +165,12 @@ pub(crate) fn facts(subject: &Subject) -> String {
 	} else {
 		phrases.join(", ")
 	}
+}
+
+/// Whether `deadline` has passed at `at`. A provisional deadline is never
+/// missed, as it never makes a document overdue.
+fn is_missed(deadline: &Deadline, at: DateTime<Utc>) -> bool {
+	!deadline.provisional && deadline.is_overdue(at)
 }
 
 /// What a subject's deadline asks for: a review of a document, or the next
@@ -514,5 +525,118 @@ pub(crate) fn scope(workspace: &Workspace, value: &Scope) -> String {
 			format!("directory:{}", workspace.display_path(directory))
 		}
 		other => report::scope(other),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::collections::BTreeSet;
+
+	use chrono::{DateTime, NaiveDate, Utc};
+	use source_sentry_core::claims::Mode;
+	use source_sentry_core::config::DocumentDefaults;
+	use source_sentry_core::evaluate::schedule::Deadline;
+	use source_sentry_core::evaluate::settings::EffectiveSettings;
+	use source_sentry_core::evaluate::{
+		DocumentState, DocumentSubject, LiveDocument, Subject, SubjectKind,
+	};
+	use source_sentry_core::model::{DocumentId, Fact, RepoPath};
+
+	use super::facts;
+
+	/// An instant written in RFC 3339.
+	fn instant(text: &str) -> DateTime<Utc> {
+		DateTime::parse_from_rfc3339(text)
+			.expect("a valid instant")
+			.with_timezone(&Utc)
+	}
+
+	/// A path in the repository.
+	fn path(text: &str) -> RepoPath {
+		RepoPath::new(text).expect("a valid path")
+	}
+
+	/// The deadline of a source whose timing is known: review by 2026-12-15.
+	fn known_deadline(provisional: bool) -> Deadline {
+		Deadline {
+			due: Some(NaiveDate::from_ymd_opt(2026, 12, 15).expect("a valid date")),
+			due_from: instant("2026-12-15T00:00:00Z"),
+			overdue_from: instant("2026-12-16T00:00:00Z"),
+			provisional,
+		}
+	}
+
+	/// A document with a source whose timing is unknown, which makes it
+	/// stale, due, overdue and timing-unknown at once, and the deadline its
+	/// other sources set.
+	fn timing_unknown(deadline: Option<Deadline>) -> Subject {
+		Subject {
+			kind: SubjectKind::Document(DocumentSubject {
+				document: DocumentId::Local(path("doc.md")),
+				mode: Mode::LocalLockfile,
+				declared_in: path("source-sentry.lock"),
+				field: "documents[\"doc.md\"]".to_owned(),
+				state: DocumentState::Live(LiveDocument {
+					unattested: None,
+					sources: Vec::new(),
+					stale_upstreams: Vec::new(),
+					due_upstreams: Vec::new(),
+				}),
+				awaiting_seal: None,
+			}),
+			settings: EffectiveSettings::new(&DocumentDefaults::default(), None),
+			facts: BTreeSet::from([
+				Fact::Stale,
+				Fact::Due,
+				Fact::Overdue,
+				Fact::TimingUnknown,
+			]),
+			deadline,
+			scoped_rules: Vec::new(),
+			judgement: None,
+		}
+	}
+
+	/// A deadline a month ahead is not missed, even though the unknown
+	/// timing makes the document overdue now.
+	#[test]
+	fn unknown_timing_does_not_call_a_future_deadline_missed() {
+		let subject = timing_unknown(Some(known_deadline(false)));
+		assert_eq!(
+			facts(&subject, instant("2026-11-16T12:00:00Z")),
+			"overdue, timing unknown"
+		);
+	}
+
+	/// Once the deadline of a source whose timing is known has passed, the
+	/// line says it was missed, as for any overdue document.
+	#[test]
+	fn unknown_timing_with_a_passed_deadline_names_the_missed_date() {
+		let subject = timing_unknown(Some(known_deadline(false)));
+		assert_eq!(
+			facts(&subject, instant("2026-12-16T00:00:00Z")),
+			"overdue (missed review by 2026-12-15), timing unknown"
+		);
+	}
+
+	/// With no other clock, the line names no deadline.
+	#[test]
+	fn unknown_timing_alone_names_no_deadline() {
+		let subject = timing_unknown(None);
+		assert_eq!(
+			facts(&subject, instant("2026-11-16T12:00:00Z")),
+			"overdue, timing unknown"
+		);
+	}
+
+	/// A provisional deadline never makes a document overdue, so it is
+	/// never called missed, even once its date has passed.
+	#[test]
+	fn a_provisional_deadline_is_never_called_missed() {
+		let subject = timing_unknown(Some(known_deadline(true)));
+		assert_eq!(
+			facts(&subject, instant("2026-12-20T00:00:00Z")),
+			"overdue, timing unknown"
+		);
 	}
 }

@@ -257,6 +257,44 @@ impl TestRepo {
 		self.commit_at("2026-10-02T10:00:00Z");
 	}
 
+	/// Declares `docs/guide.md` against `src/a.rs` and `src/b.rs` with 30
+	/// days of grace, reviewed on 2026-10-30. `src/a.rs` changes on
+	/// 2026-11-15, so its deadline is 2026-12-15; the oid attested for
+	/// `src/b.rs` never existed, so its timing is unknown.
+	pub fn guide_with_unknown_timing(&self) {
+		self.write(
+			".source-sentry/source-sentry.yaml",
+			"version: 1\nschedule: {grace: 30}\n",
+		);
+		self.write("src/b.rs", "fn b() {}\n");
+		self.commit_at("2026-10-30T12:00:00Z");
+		let a = self.git(&["hash-object", "src/a.rs"]);
+		let unknown = "1".repeat(40);
+		let reviewed = r#""reviewed": {"at": "2026-10-30T13:00:00Z", "by": "QA"}"#;
+		self.write(
+			"source-sentry.lock",
+			&format!(
+				r#"{{
+  "documents": {{
+    "docs/guide.md": {{
+      {reviewed},
+      "sources": [
+        {{"oid": "sha1:{a}", "path": "/src/a.rs", {reviewed}}},
+        {{"oid": "sha1:{unknown}", "path": "/src/b.rs", {reviewed}}}
+      ]
+    }}
+  }},
+  "retired": {{}},
+  "schema": 1
+}}
+"#
+			),
+		);
+		self.commit_at("2026-10-31T12:00:00Z");
+		self.write("src/a.rs", "fn a() {}\nfn c() {}\n");
+		self.commit_at("2026-11-15T12:00:00Z");
+	}
+
 	fn git_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> String {
 		let mut command = Command::new("git");
 		self.isolate(&mut command);

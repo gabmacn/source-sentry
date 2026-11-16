@@ -170,7 +170,7 @@ fn explain(
 			output::outcome_label,
 		),
 	));
-	rows.push(("Facts", describe::facts(subject)));
+	rows.push(("Facts", describe::facts(subject, evaluation.at)));
 	rows.push((
 		"Deadline",
 		describe::subject_deadline(subject)

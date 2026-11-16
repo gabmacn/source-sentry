@@ -29,6 +29,32 @@ fn explain_shows_settings_origins_facts_rules_and_the_deadline() {
 	}
 }
 
+/// A document overdue only through a source whose timing is unknown does
+/// not call the other source's deadline missed, and still shows that
+/// deadline in full.
+#[test]
+fn explain_shows_a_future_deadline_beside_unknown_timing() {
+	let repo = TestRepo::init();
+	repo.guide_with_unknown_timing();
+
+	let run =
+		repo.run(&["explain", "docs/guide.md", "--at", "2026-11-16T12:00:00Z"]);
+	run.expect_code(0);
+	let text = &run.stdout;
+	let deadline = "review by 2026-12-15: due from 2026-12-15 00:00 UTC, \
+	                overdue from 2026-12-16 00:00 UTC";
+	for expected in [
+		"Facts     overdue, timing unknown\n".to_owned(),
+		format!("Deadline  {deadline}\n"),
+		format!("counted from 2026-11-15 12:00 UTC; {deadline}\n"),
+		"changed, at an unknown time: the attested oid is not in the history"
+			.to_owned(),
+	] {
+		assert!(text.contains(&expected), "missing {expected:?} in:\n{text}");
+	}
+	assert!(!text.contains("missed"), "{text}");
+}
+
 #[test]
 fn explain_finds_unclaimed_files_and_reports_unknown_subjects() {
 	let repo = TestRepo::init();

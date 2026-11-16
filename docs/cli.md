@@ -157,6 +157,9 @@ commit's own.
   document overdue.
 - **An attested version missing from the first-parent history** cannot be
   dated: the document is `timing-unknown`, and also stale, due and overdue.
+  Its line reads `overdue, timing unknown`: a deadline that its other
+  sources set is called missed only once it has passed, and the JSON report
+  and `explain` give that deadline either way.
 - **A clock up to 24 hours after `--at`** counts from `--at` when deciding
   whether the document is due. One further ahead is a `future-dated` error,
   exit 4, rather than being moved to the evaluation instant.
