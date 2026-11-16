@@ -9,8 +9,10 @@
 //!
 //! The `source-sentry` block is the key's line plus every following line that
 //! cannot start another top-level entry: blank lines, indented lines,
-//! comments and `- ` sequence entries. Trailing blank lines and column-0
-//! comments are left out, because they read as belonging to what follows.
+//! comments and `- ` sequence entries. After its last line of content, a
+//! comment at column 0 reads as belonging to what follows, and so does
+//! everything after it, indented comments included. Trailing blank lines
+//! are left out too.
 //!
 //! A line that continues a quoted scalar or a flow collection opened above
 //! is part of that value, even at column 0, so it never starts an entry.
@@ -628,24 +630,53 @@ fn locate_block(
 			eol,
 		});
 	};
-	let mut end = key + 1;
-	while body.get(end).is_some_and(|(_, kind)| {
-		matches!(
-			kind,
-			Kind::Blank | Kind::Indented | Kind::Comment | Kind::Entry
-		)
-	}) {
-		end += 1;
-	}
-	while end > key + 1 && matches!(body[end - 1].1, Kind::Blank | Kind::Comment)
-	{
-		end -= 1;
-	}
+	let end = block_end(bytes, body, key);
 	Ok(Located::Present {
 		block: body[key].0.start..body[end - 1].0.end,
 		line: line_number(key),
 		eol,
 	})
+}
+
+/// The index after the last line of the block whose key is at `key`.
+///
+/// The block holds the lines after the key that cannot start another entry,
+/// up to its last line of content. Comments indented under it after that
+/// line stay with it, until the first comment at column 0: that comment and
+/// every line after it belong to what follows, whatever their indentation.
+/// Blank lines at the block's end are left out. A comment at column 0 that
+/// content of the block follows is inside the block.
+fn block_end(bytes: &[u8], body: &[(Line, Kind)], key: usize) -> usize {
+	let mut span = key + 1;
+	while body.get(span).is_some_and(|(_, kind)| {
+		matches!(
+			kind,
+			Kind::Blank | Kind::Indented | Kind::Comment | Kind::Entry
+		)
+	}) {
+		span += 1;
+	}
+	let content = |index: &usize| {
+		let (line, kind) = body[*index];
+		match kind {
+			Kind::Blank | Kind::Comment => false,
+			Kind::Indented => {
+				!line.content(bytes).trim_ascii_start().starts_with(b"#")
+			}
+			_ => true,
+		}
+	};
+	let last = (key..span).rev().find(content).unwrap_or(key);
+	// After the last content, only blank lines and indented comments remain,
+	// up to the first comment at column 0.
+	let mut end = last + 1;
+	while end < span && matches!(body[end].1, Kind::Blank | Kind::Indented) {
+		end += 1;
+	}
+	while end > last + 1 && body[end - 1].1 == Kind::Blank {
+		end -= 1;
+	}
+	end
 }
 
 /// The index of the one `source-sentry:` line, without a YAML parse to

@@ -218,6 +218,45 @@ fn track_from_moves_a_declaration_between_placements() {
 	assert_eq!(guide["facts"], json!(["fresh"]));
 }
 
+/// Moving a declaration out of the frontmatter, or removing its last source,
+/// keeps the comments that come after a column-0 comment below it, indented
+/// ones included: they belong to the next key.
+#[test]
+fn comments_below_a_declaration_stay_when_it_moves_or_changes() {
+	let repo = TestRepo::init();
+	let comments = "# heading for next key\n  # more about next key\ntitle: \
+	                example\n---\n# Body\n";
+	let original = format!(
+		"---\nsource-sentry:\n  sources:\n    - path: /src/a.rs\n{comments}"
+	);
+	repo.write("docs/guide.md", &original);
+	repo.commit_at("2026-10-01T10:00:00Z");
+
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--from",
+			"on-file",
+			"--to",
+			"lockfile:docs",
+			"--yes",
+		])
+		.expect_code(0);
+	assert_eq!(repo.read("docs/guide.md"), format!("---\n{comments}"));
+
+	repo.git(&["rm", "--quiet", "--cached", "docs/source-sentry.lock"]);
+	std::fs::remove_file(repo.path().join("docs/source-sentry.lock")).unwrap();
+	repo.write("docs/guide.md", &original);
+	repo
+		.run(&["untrack", "docs/guide.md", "--source", "/src/a.rs", "--yes"])
+		.expect_code(0);
+	assert_eq!(
+		repo.read("docs/guide.md"),
+		format!("---\nsource-sentry: {{}}\n{comments}")
+	);
+}
+
 /// Without a terminal and without `--yes`, nothing changes.
 #[test]
 fn without_a_terminal_or_yes_nothing_changes() {

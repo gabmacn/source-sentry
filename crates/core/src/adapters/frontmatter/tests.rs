@@ -845,6 +845,79 @@ fn rewriting_preserves_every_other_byte() {
 }
 
 #[test]
+fn comments_after_a_column_0_comment_belong_to_the_next_key() {
+	let comments = "# heading for next key\n  # more about next key\n\
+	                title: example\n---\n# Body\n";
+	// Removing the declaration, as moving it to a lockfile does.
+	for declaration in [
+		"source-sentry: {}\n",
+		"source-sentry:\n  sources:\n    - path: /a.rs\n",
+	] {
+		let text = format!("---\n{declaration}{comments}");
+		assert_eq!(
+			write_str(&text, None).unwrap(),
+			format!("---\n{comments}"),
+			"{text:?}"
+		);
+	}
+	// A blank line between them stays with the comments.
+	assert_eq!(
+		write_str(
+			"---\nsource-sentry:\n  sources:\n    - path: /a.rs\n\n# heading\n  \
+			 # more\ntitle: example\n---\n",
+			None
+		)
+		.unwrap(),
+		"---\n\n# heading\n  # more\ntitle: example\n---\n"
+	);
+	// Removing a source, which rewrites the declaration.
+	let text =
+		format!("---\nsource-sentry:\n  sources:\n    - path: /a.rs\n{comments}");
+	assert_eq!(
+		write_str(&text, Some(&Declaration::default())).unwrap(),
+		format!("---\nsource-sentry: {{}}\n{comments}")
+	);
+	// With CRLF line endings.
+	let crlf = text.replace('\n', "\r\n");
+	assert_eq!(
+		write_str(&crlf, None).unwrap(),
+		format!("---\n{comments}").replace('\n', "\r\n")
+	);
+	assert_eq!(
+		write_str(&crlf, Some(&Declaration::default())).unwrap(),
+		format!("---\nsource-sentry: {{}}\n{comments}").replace('\n', "\r\n")
+	);
+}
+
+#[test]
+fn comments_indented_under_the_declaration_belong_to_it() {
+	// Before any column-0 comment, an indented comment is the declaration's,
+	// and leaves with it.
+	let text = "---\nsource-sentry:\n  sources:\n    - path: /a.rs\n  # about a\n\n  \
+	            # more\n# heading\n  # next\ntitle: example\n---\n";
+	assert_eq!(
+		write_str(text, None).unwrap(),
+		"---\n# heading\n  # next\ntitle: example\n---\n"
+	);
+	assert_eq!(
+		write_str(text, Some(&Declaration::default())).unwrap(),
+		"---\nsource-sentry: {}\n# heading\n  # next\ntitle: example\n---\n"
+	);
+	// A column-0 comment with more of the declaration after it is inside it,
+	// as a source commented out at column 0 is.
+	let commented = "---\nsource-sentry:\n  sources:\n    - path: /a.rs\n#    - \
+	                 path: /b.rs\n    - path: /c.rs\ntitle: example\n---\n";
+	assert_eq!(
+		read_str(commented).unwrap().unwrap().sources,
+		[path_source("/a.rs"), path_source("/c.rs")]
+	);
+	assert_eq!(
+		write_str(commented, None).unwrap(),
+		"---\ntitle: example\n---\n"
+	);
+}
+
+#[test]
 fn crlf_documents_round_trip_with_crlf() {
 	let before = "---\r\ntitle: x\r\nsource-sentry:\r\n  owners: ['legal']\r\n---\r\nBody\r\n";
 	let declaration = example_declaration();
