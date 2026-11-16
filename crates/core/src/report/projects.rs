@@ -35,6 +35,17 @@ fn relative(value: &str, project: &RepoPath) -> String {
 		.unwrap_or_else(|_| value.to_owned())
 }
 
+/// A rebased pattern, written from the project root with a leading `/`, or,
+/// when it leaves the project, with the parents that `relative` gives it,
+/// as the paths beside it are.
+fn rooted(pattern: &str) -> String {
+	if pattern == ".." || pattern.starts_with("../") {
+		pattern.to_owned()
+	} else {
+		format!("/{pattern}")
+	}
+}
+
 /// Visits the report's path-bearing fields without touching declarations or text.
 fn rebase(
 	value: &mut Value,
@@ -78,7 +89,7 @@ fn rebase(
 				*text = format!("directory:{}", relative(&text[10..], project));
 			}
 			"pattern" if text.starts_with('/') => {
-				*text = format!("/{}", relative(&text[1..], project));
+				*text = rooted(&relative(&text[1..], project));
 			}
 			"expectations" => {
 				if let Some((path, state)) = text.rsplit_once('@') {

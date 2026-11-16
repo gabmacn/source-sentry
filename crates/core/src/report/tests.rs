@@ -22,11 +22,67 @@ const EXAMPLE: &str = include_str!("../../../../structure/report.example.json");
 /// Project-relative serialization preserves colons in ordinary local filenames.
 #[test]
 fn nested_report_paths_are_relative_to_their_project() {
-	let snapshot = FakeSnapshot::working_tree(None)
-		.with_file("app/.source-sentry/source-sentry.yaml", b"version: 1\n")
-		.with_file("app/source-sentry.lock", br#"{"schema":1,"documents":{"a.md":{"sources":[{"path":"/note:2026.md"}]}},"retired":{}}"#)
-		.with_file("app/a.md", b"# Guide\n")
-		.with_file("app/note:2026.md", b"# Source\n");
+	let json = nested_report(&[
+		("app/source-sentry.lock", br#"{"schema":1,"documents":{"a.md":{"sources":[{"path":"/note:2026.md"}]}},"retired":{}}"#),
+		("app/a.md", b"# Guide\n"),
+		("app/note:2026.md", b"# Source\n"),
+	]);
+	let document = nested_subject(&json, "a.md");
+	assert_eq!(document["project"], "app");
+	assert_eq!(document["declared-in"], "source-sentry.lock");
+	assert_eq!(document["sources"][0]["path"], "note:2026.md");
+}
+
+/// A pattern that leaves the project is written with parents, as its
+/// members are; one inside the project keeps its leading `/`.
+#[test]
+fn nested_report_patterns_leave_their_project_through_parents() {
+	let json = nested_report(&[
+		(
+			"app/source-sentry.lock",
+			br#"{"schema":1,"documents":{"a.md":{"sources":[{"pattern":":/src/*.txt","members":[]},{"pattern":"/lib/*.txt","members":[]}]}},"retired":{}}"#,
+		),
+		("app/a.md", b"# Guide\n"),
+		("app/lib/y.txt", b"inside\n"),
+		("src/x.txt", b"outside\n"),
+	]);
+	let sources: Vec<(&str, &str)> = nested_subject(&json, "a.md")["sources"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|source| {
+			(
+				source["path"].as_str().unwrap(),
+				source["pattern"].as_str().unwrap(),
+			)
+		})
+		.collect();
+	assert_eq!(
+		sources,
+		[
+			("../src/x.txt", "../src/*.txt"),
+			("lib/y.txt", "/lib/*.txt")
+		]
+	);
+}
+
+/// The subject of `document` in a report.
+fn nested_subject<'a>(json: &'a Value, document: &str) -> &'a Value {
+	json["subjects"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|subject| subject["document"] == document)
+		.unwrap()
+}
+
+/// The JSON check report of the nested project `app`, among `files`.
+fn nested_report(files: &[(&str, &[u8])]) -> Value {
+	let snapshot = files.iter().fold(
+		FakeSnapshot::working_tree(None)
+			.with_file("app/.source-sentry/source-sentry.yaml", b"version: 1\n"),
+		|snapshot, (file, contents)| snapshot.with_file(file, contents),
+	);
 	let configs = ConfigSet::load_project(&snapshot, &path("app")).unwrap();
 	let inventory = discover(&snapshot, &configs).unwrap();
 	let evaluation = check(
@@ -39,20 +95,11 @@ fn nested_report_paths_are_relative_to_their_project() {
 	)
 	.unwrap();
 	let report = CheckReport::new(&evaluation, Threshold::Warn);
-	let json: Value = serde_json::from_str(
+	serde_json::from_str(
 		&super::to_project_json(&report, configs.project(), configs.projects())
 			.unwrap(),
 	)
-	.unwrap();
-	let document = json["subjects"]
-		.as_array()
-		.unwrap()
-		.iter()
-		.find(|subject| subject["document"] == "a.md")
-		.unwrap();
-	assert_eq!(document["project"], "app");
-	assert_eq!(document["declared-in"], "source-sentry.lock");
-	assert_eq!(document["sources"][0]["path"], "note:2026.md");
+	.unwrap()
 }
 
 /// The repository config: the example's `production` context, which blocks
