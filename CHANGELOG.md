@@ -78,12 +78,19 @@ that version's section, so a release cannot be made without one.
 - A file saved by another program while a write is being applied now fails
   the write and is kept, instead of being overwritten. A short window right
   before the replacement remains.
+- A write that fails part-way no longer undoes a file that another program
+  saved after the write had changed it. The file is kept, and the failure
+  names it.
+- A directory above a file that becomes a symbolic link while a write is
+  applied now fails the write. On Unix, a permission change made during a
+  write is kept.
 - A regular file that replaces a tracked symbolic link is now hashed as git
   would add it. Where git checks symbolic links out as placeholder files
   (`core.symlinks=false`, the Git for Windows default), an edited
   placeholder is hashed as `git add` stores it: line endings are converted
-  under `text`, and a clean filter is refused as for any file. An unedited
-  placeholder keeps the oid the index holds.
+  under `text`, `working-tree-encoding` and `ident` are applied, and a clean
+  filter is refused as for any file. An unedited placeholder keeps the oid
+  the index holds.
 - `check` now evaluates only the cited document of another project and what
   it depends on. It reports that project's configuration errors and the
   errors met while hashing the cited document's sources, which were
@@ -94,6 +101,27 @@ that version's section, so a release cannot be made without one.
   of losing the date or moving it later.
 - Config patterns such as `documents.ignore` now read braces literally, as
   `.gitignore` does. `{a,b}` alternation is for source patterns only.
+- Character classes in config patterns read escapes as `.gitignore` does:
+  `[\]{]x.md` ignores `]x.md` and `{x.md`, and `\]` no longer closes a
+  class.
+- A config pattern that ends in an escaped space followed by unescaped
+  spaces keeps the escaped space, as `.gitignore` does, instead of failing
+  with "dangling '\'".
+- In a nested project, an unknown `--context` is reported against that
+  project's own config, not the enclosing repository's.
+- In a nested project, sources declared in a document's frontmatter are
+  checked for repeats from the project's root, as lockfile entries are.
+  Before, `/src/a.rs` and `:/src/a.rs` were refused as one file, and two
+  spellings of one file were accepted.
+- Moving a frontmatter declaration to a lockfile, or removing one of its
+  sources, no longer deletes the comments between it and the next key.
+- `rename`, series successors and `--pattern` keep a relative pattern in a
+  directory whose name contains glob characters, such as `docs/[draft]`.
+  Only a pattern that would have to spell such a directory is refused.
+- An empty `source-sentry.reviewer` or `user.name` in git's configuration
+  now hides a name set at a broader level, as git itself reads it. Before,
+  the broader name signed the review.
+- `untrack` says "1 source remains" when one source is left.
 - Attesting one source of a living series entry no longer completes the
   entry while a declared pattern that matches nothing has never been
   reviewed.
@@ -114,7 +142,9 @@ that version's section, so a release cannot be made without one.
   the workspace root, and that nested projects are checked with
   `source-sentry -C <project> check`.
 - A file whose filter driver the attribute files cannot rule out is now
-  refused as an unsupported filter, so the driver never runs.
+  refused as an unsupported filter, so the driver never runs. This holds
+  when the global, system or `info/attributes` file is a symbolic link,
+  which git follows, and when an attributes file cannot be read.
 - Files whose names are close to the file system's 255-character limit can
   now be written and deleted.
 - Reading history reports an unreadable tree as an error instead of treating
