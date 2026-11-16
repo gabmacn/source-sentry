@@ -93,9 +93,8 @@ fn on_file_source(
 	upstream: &RepoPath,
 	declaration: &Location,
 ) -> Diagnostic {
-	let mut dependent = claim.location();
-	dependent.field =
-		Some(format!("{}.sources[{}]", claim.field, source.index()));
+	let dependent =
+		claim.location_of(format!("{}.sources[{}]", claim.field, source.index()));
 	Diagnostic::new(
 		DiagnosticKind::OnFileSource,
 		declaration.clone(),

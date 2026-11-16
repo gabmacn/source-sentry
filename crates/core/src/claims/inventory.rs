@@ -308,19 +308,19 @@ pub struct Claim {
 }
 
 impl Claim {
-	/// Where the declaration is.
+	/// Where the declaration is, with the line where it begins when known:
+	/// its entry's key in a lockfile, or the `source-sentry` key in
+	/// frontmatter.
 	#[must_use]
 	pub fn location(&self) -> Location {
-		Location::field(self.declared_in.clone(), self.field.clone())
+		self.location_of(self.field.clone())
 	}
 
 	/// Where `field` of the declaration is, with its line when known.
 	#[must_use]
 	pub fn location_of(&self, field: String) -> Location {
-		let mut location = self.location();
-		location.line = self.lines.get(&field).copied();
-		location.field = Some(field);
-		location
+		let line = self.lines.get(&field).copied();
+		Location::field(self.declared_in.clone(), field).at(line, None)
 	}
 
 	/// Whether the document is a sealed record, whose sources are frozen.

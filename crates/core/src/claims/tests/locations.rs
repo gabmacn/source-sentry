@@ -1,7 +1,9 @@
 //! Field locations in local and remote lockfiles, including tombstones.
 
-use super::{BASE, REPOSITORY, REVIEW, inventory, lockfile, only};
-use crate::claims::{DiagnosticKind, entry_field};
+use super::{
+	BASE, REPOSITORY, REVIEW, inventory, kinds, lockfile, markdown, only,
+};
+use crate::claims::{DiagnosticKind, FRONTMATTER_FIELD, entry_field};
 use crate::testing::path;
 
 /// Lockfiles locate each field of an explicit rename independently, and an
@@ -378,4 +380,77 @@ fn each_tombstone_keeps_its_marker_lines() {
 				.all(|field| field.starts_with(&tombstone.field))
 		);
 	}
+}
+
+/// Diagnostics about a whole declaration carry the line where it begins:
+/// its entry's key in a lockfile, or the `source-sentry` key in frontmatter.
+#[test]
+fn declaration_diagnostics_carry_the_line_where_the_declaration_begins() {
+	let lock = r#"{
+  "schema": 1,
+  "documents": {
+    "missing.md": {
+      "owners": ["qa"]
+    },
+    "double.md": {
+      "owners": ["qa"]
+    }
+  },
+  "retired": {}
+}"#;
+	let inventory = inventory(&[
+		("source-sentry.lock", lock),
+		("double.md", &markdown("  owners: ['qa']\n")),
+	]);
+	assert_eq!(
+		kinds(&inventory),
+		[DiagnosticKind::DoubleClaim, DiagnosticKind::MissingDocument]
+	);
+	let double = &inventory.diagnostics[0];
+	assert_eq!(double.location.file, path("double.md"));
+	assert_eq!(double.location.field.as_deref(), Some(FRONTMATTER_FIELD));
+	assert_eq!(double.location.line, Some(3));
+	assert_eq!(double.related.len(), 1);
+	assert_eq!(double.related[0].file, path("source-sentry.lock"));
+	assert_eq!(
+		double.related[0].field.as_deref(),
+		Some(r#"documents["double.md"]"#)
+	);
+	assert_eq!(double.related[0].line, Some(7));
+	let missing = &inventory.diagnostics[1];
+	assert_eq!(
+		missing.location.field.as_deref(),
+		Some(r#"documents["missing.md"]"#)
+	);
+	assert_eq!(missing.location.line, Some(4));
+}
+
+/// A diagnostic about one source of a declaration keeps that source's own
+/// line, not the line where the declaration begins.
+#[test]
+fn a_source_of_a_declaration_keeps_its_own_line() {
+	let lock = r#"{
+  "documents": {
+    "choice.md": {
+      "sources": [
+        {"path": "/findings/results.md"}
+      ]
+    }
+  },
+  "retired": {},
+  "schema": 1
+}"#;
+	let inventory = inventory(&[
+		("findings/results.md", &markdown("  owners: ['qa']\n")),
+		("decisions/source-sentry.lock", lock),
+		("decisions/choice.md", ""),
+	]);
+	let diagnostic = only(&inventory, DiagnosticKind::OnFileSource);
+	assert_eq!(diagnostic.location.file, path("findings/results.md"));
+	assert_eq!(diagnostic.location.line, Some(3));
+	assert_eq!(
+		diagnostic.related[0].field.as_deref(),
+		Some(r#"documents["choice.md"].sources[0]"#)
+	);
+	assert_eq!(diagnostic.related[0].line, Some(5));
 }
