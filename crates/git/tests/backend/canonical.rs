@@ -546,6 +546,65 @@ fn an_edited_placeholder_keeps_crlf_its_link_blob_holds() {
 	}
 }
 
+/// Commits `link` as a placeholder whose link blob holds CRLF, then
+/// `attributes` for it, and sets `core.autocrlf`.
+fn crlf_placeholder_under(repo: &TestRepo, attributes: &str, autocrlf: &str) {
+	placeholder_link_to(repo, b"x\r\ny\r\n");
+	repo.write(".gitattributes", format!("link {attributes}\n"));
+	repo.git(&["add", ".gitattributes"]);
+	repo.git(&["commit", "--quiet", "--message", "attributes"]);
+	repo.git(&["config", "core.autocrlf", autocrlf]);
+}
+
+/// Where `git add` keeps the CRLF a link's blob holds, it still applies
+/// `working-tree-encoding` and `ident` to an edited placeholder, so the
+/// placeholder hashes as git stores it after those conversions.
+#[test]
+fn an_edited_placeholder_keeping_crlf_takes_its_other_conversions() {
+	let utf16: Vec<u8> = "new\r\ntarget\r\n"
+		.encode_utf16()
+		.flat_map(u16::to_le_bytes)
+		.collect();
+	let conversions: [(&str, &[u8], &[u8]); 2] = [
+		(
+			"working-tree-encoding=UTF-16LE",
+			&utf16,
+			b"new\r\ntarget\r\n",
+		),
+		(
+			"ident",
+			b"$Id: expanded-value $\r\nnew-target\r\n",
+			b"$Id$\r\nnew-target\r\n",
+		),
+	];
+	for (route, autocrlf) in [("text=auto ", "false"), ("", "true")] {
+		for (attribute, contents, stored) in conversions {
+			let repo = TestRepo::init();
+			crlf_placeholder_under(&repo, &format!("{route}{attribute}"), autocrlf);
+			repo.write("link", contents);
+
+			let hashed = canonical(&repo, "link");
+			let added = added_link(&repo, "link");
+			let case = format!("{route}{attribute}, autocrlf={autocrlf}");
+			assert_eq!(added, repo.hash(stored), "{case}");
+			assert_eq!(hashed, Canonical::Oid(added), "{case}");
+		}
+	}
+}
+
+/// When git does not compare a placeholder with its index entry, as under
+/// `assume-unchanged`, the conversions `git add` would apply cannot be
+/// computed: the placeholder is reported as holding CRLF in the index.
+#[test]
+fn an_unconvertible_placeholder_keeping_crlf_is_reported() {
+	let repo = TestRepo::init();
+	crlf_placeholder_under(&repo, "text=auto ident", "false");
+	repo.git(&["update-index", "--assume-unchanged", "link"]);
+	repo.write("link", b"$Id: expanded-value $\r\nnew-target\r\n");
+
+	assert_eq!(canonical(&repo, "link"), Canonical::CrlfInIndex);
+}
+
 /// A regular file in place of a tracked link hashes as `git add` would store
 /// it, with its usual conversions. Where the checkout holds real links, git
 /// adds it as a regular file; under `core.symlinks=false` it is an edited

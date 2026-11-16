@@ -24,8 +24,9 @@
 //! file's. `git ls-files --eol` describes only the index blobs of regular
 //! files, so it cannot show whether `git add` would keep CRLF from a link's
 //! blob. Under "auto" conversion, a placeholder whose index blob may hold
-//! CRLF is therefore hashed from its bytes, as `git add` stores it when it
-//! keeps that CRLF and no other conversion applies.
+//! CRLF is therefore hashed as `git add` stores it when it keeps that CRLF:
+//! its line endings are left alone, and `working-tree-encoding` and `ident`
+//! still apply.
 //!
 //! No index oid is reused: proving that a file is clean under the same
 //! conversion rules as its index entry is not possible without hashing it,
@@ -58,6 +59,14 @@ use crate::{
 
 /// Text the diagnostic shows when no attribute line can be named.
 const UNKNOWN_ORIGIN: &str = "origin unknown";
+
+/// Configuration that turns off the line-ending conversion `core.autocrlf`
+/// selects, and no other conversion.
+const AUTOCRLF_OFF: [&str; 2] = ["-c", "core.autocrlf=false"];
+
+/// The positions of edited placeholders whose link blob may hold CRLF text,
+/// with the route of their line-ending conversion.
+type CrlfPlaceholders = Vec<(usize, Route)>;
 
 /// Computes canonical oids of regular files in one working tree.
 pub(crate) struct Canonicalizer<'a> {
@@ -131,19 +140,20 @@ impl<'a> Canonicalizer<'a> {
 			results.push(known);
 		}
 
-		let (kept, unconverted) =
+		let (kept, placeholders) =
 			self.kept_index_crlf(paths, &conversions, &pending)?;
+		let mut placeholders = self.hash_crlf_placeholders(
+			work_dir,
+			paths,
+			&conversions,
+			&placeholders,
+		)?;
 		let mut batch = Vec::with_capacity(pending.len());
 		let mut batch_positions = Vec::with_capacity(pending.len());
 		for position in pending {
 			let path = paths[position];
-			if unconverted.contains(path) {
-				let bytes = fs::read(native(work_dir, path))
-					.map_err(|source| error::io(format!("cannot read {path}"), source))?;
-				results[position] = Some(Canonical::Oid(blob_oid(
-					self.repository.algorithm(),
-					&bytes,
-				)?));
+			if let Some(canonical) = placeholders.remove(&position) {
+				results[position] = Some(canonical);
 			} else if kept.contains(path) {
 				results[position] = Some(Canonical::CrlfInIndex);
 			} else {
@@ -175,23 +185,25 @@ impl<'a> Canonicalizer<'a> {
 	/// that `git ls-files --eol`, which reads each file, runs only where the
 	/// answer could be yes.
 	///
-	/// Returned second, the edited placeholders among the candidates whose
-	/// index blob may hold CRLF text: `git ls-files --eol` cannot judge them,
-	/// so they are hashed without conversion.
+	/// Returned second, the positions of the edited placeholders among the
+	/// candidates whose index blob may hold CRLF text, with their route:
+	/// `git ls-files --eol` cannot judge them, so
+	/// [`Canonicalizer::hash_crlf_placeholders`] hashes them.
 	fn kept_index_crlf(
 		&self,
 		paths: &[&RepoPath],
 		conversions: &[Conversion],
 		pending: &[usize],
-	) -> Result<(HashSet<RepoPath>, HashSet<RepoPath>), BackendError> {
+	) -> Result<(HashSet<RepoPath>, CrlfPlaceholders), BackendError> {
 		let git = self.repository.git();
 		let mut autocrlf = None;
 		let mut candidates = Vec::new();
-		let mut unconverted = HashSet::new();
+		let mut placeholders = Vec::new();
 		let mut encoded = HashSet::new();
 		for &position in pending {
 			let conversion = &conversions[position];
-			let candidate = match eol::route(conversion) {
+			let route = eol::route(conversion);
+			let candidate = match route {
 				Route::Auto => true,
 				Route::Never => false,
 				Route::Autocrlf => {
@@ -206,7 +218,7 @@ impl<'a> Canonicalizer<'a> {
 				continue;
 			}
 			if self.placeholders.contains(paths[position]) {
-				unconverted.insert(paths[position].clone());
+				placeholders.push((position, route));
 				continue;
 			}
 			candidates.push(paths[position]);
@@ -215,14 +227,106 @@ impl<'a> Canonicalizer<'a> {
 			}
 		}
 		if candidates.is_empty() {
-			return Ok((HashSet::new(), unconverted));
+			return Ok((HashSet::new(), placeholders));
 		}
 		let autocrlf = match autocrlf {
 			Some(value) => value,
 			None => eol::read_autocrlf(git)?,
 		};
 		let kept = eol::kept_index_crlf(git, &candidates, &encoded, autocrlf)?;
-		Ok((kept, unconverted))
+		Ok((kept, placeholders))
+	}
+
+	/// The canonical oids of edited placeholders whose link blob may hold CRLF
+	/// text under "auto" conversion, by position. `git add` then leaves their
+	/// line endings alone but still applies `working-tree-encoding` and
+	/// `ident`, and `git hash-object`, which does not read the index, would
+	/// convert the line endings too. So:
+	///
+	/// - under `core.autocrlf`, git hashes them with `core.autocrlf=false`,
+	///   which turns off only the line-ending conversion;
+	/// - under a `text=auto` or `crlf=auto` attribute, a placeholder without
+	///   `working-tree-encoding` or `ident` is hashed from its bytes, which git
+	///   stores unchanged;
+	/// - any other is hashed by `git diff`, which reads the index as
+	///   `git add` does. When git skips the file there, as under
+	///   `assume-unchanged`, it is reported as [`Canonical::CrlfInIndex`].
+	fn hash_crlf_placeholders(
+		&self,
+		work_dir: &Path,
+		paths: &[&RepoPath],
+		conversions: &[Conversion],
+		placeholders: &[(usize, Route)],
+	) -> Result<BTreeMap<usize, Canonical>, BackendError> {
+		let auto: Vec<usize> = placeholders
+			.iter()
+			.filter(|(_, route)| *route == Route::Auto)
+			.map(|&(position, _)| position)
+			.collect();
+		let auto_paths: Vec<&RepoPath> =
+			auto.iter().map(|&position| paths[position]).collect();
+		let idents = attributes::check_ident(self.repository.git(), &auto_paths)?;
+		let mut results = BTreeMap::new();
+		for (&position, ident) in auto.iter().zip(idents) {
+			let path = paths[position];
+			let converted = ident == State::Set
+				|| conversions[position]
+					.working_tree_encoding
+					.value()
+					.is_some();
+			let canonical = if converted {
+				self
+					.hash_against_index(path)?
+					.map_or(Canonical::CrlfInIndex, Canonical::Oid)
+			} else {
+				let bytes = fs::read(native(work_dir, path))
+					.map_err(|source| error::io(format!("cannot read {path}"), source))?;
+				Canonical::Oid(blob_oid(self.repository.algorithm(), &bytes)?)
+			};
+			results.insert(position, canonical);
+		}
+		let autocrlf: Vec<usize> = placeholders
+			.iter()
+			.filter(|(_, route)| *route == Route::Autocrlf)
+			.map(|&(position, _)| position)
+			.collect();
+		let autocrlf_paths: Vec<&RepoPath> =
+			autocrlf.iter().map(|&position| paths[position]).collect();
+		let ids = self.hash_paths_with(&AUTOCRLF_OFF, &autocrlf_paths)?;
+		for (position, id) in autocrlf.into_iter().zip(ids) {
+			results.insert(position, Canonical::Oid(id));
+		}
+		Ok(results)
+	}
+
+	/// The oid `git diff` gives the working-tree file at `path` against the
+	/// index, which is what `git add` would store, or `None` when git does
+	/// not compare the file, as under `assume-unchanged` or
+	/// `skip-worktree`. The LFS driver is disabled and file system
+	/// monitoring is not consulted.
+	fn hash_against_index(
+		&self,
+		path: &RepoPath,
+	) -> Result<Option<ObjectId>, BackendError> {
+		let pathspec = format!(":(literal){}", path.as_str());
+		let mut args = LFS_DRIVER_DISABLED.to_vec();
+		args.extend([
+			"-c",
+			"core.fsmonitor=false",
+			"diff",
+			"--no-color",
+			"--no-ext-diff",
+			"--no-textconv",
+			"--no-relative",
+			"--full-index",
+			"--unified=0",
+			"--",
+			&pathspec,
+		]);
+		let output = self.repository.git().output(&args, None)?;
+		diff_index_line(&output)
+			.map(|id| parse_printed(id, self.repository.algorithm()))
+			.transpose()
 	}
 
 	/// Whether git could call `content` text with CRLF (`i/crlf` or `i/mixed`):
@@ -307,6 +411,16 @@ impl<'a> Canonicalizer<'a> {
 		&self,
 		paths: &[&RepoPath],
 	) -> Result<Vec<ObjectId>, BackendError> {
+		self.hash_paths_with(&[], paths)
+	}
+
+	/// Hashes working-tree files like [`Canonicalizer::hash_paths`], with
+	/// the `-c` options `config` added.
+	fn hash_paths_with(
+		&self,
+		config: &[&str],
+		paths: &[&RepoPath],
+	) -> Result<Vec<ObjectId>, BackendError> {
 		if paths.is_empty() {
 			return Ok(Vec::new());
 		}
@@ -316,6 +430,7 @@ impl<'a> Canonicalizer<'a> {
 			input.push(b'\n');
 		}
 		let mut args = LFS_DRIVER_DISABLED.to_vec();
+		args.extend(config);
 		args.extend(["hash-object", "--stdin-paths"]);
 		let output = self.repository.git().output(&args, Some(&input))?;
 		let ids = parse_lines(&output, self.repository)?;
@@ -502,6 +617,25 @@ fn stdin_path(path: &RepoPath) -> String {
 	}
 }
 
+/// The new blob's ID in the `index <old>..<new>[ <mode>]` line of a
+/// one-file `git diff`, looked for only in the header, before the first
+/// hunk or binary patch. `None` when git printed no header.
+fn diff_index_line(output: &[u8]) -> Option<&str> {
+	output
+		.split(|&byte| byte == b'\n')
+		.take_while(|line| {
+			!line.starts_with(b"@@")
+				&& !line.starts_with(b"Binary files ")
+				&& !line.starts_with(b"GIT binary patch")
+		})
+		.filter_map(|line| line.strip_prefix(b"index "))
+		.find_map(|rest| {
+			let rest = std::str::from_utf8(rest).ok()?;
+			let (_, new) = rest.split_once("..")?;
+			new.split(' ').next()
+		})
+}
+
 /// Parses one object ID per line.
 fn parse_lines(
 	output: &[u8],
@@ -536,6 +670,25 @@ mod tests {
 		assert!(!text(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"));
 		assert!(!text(b"a\r\nb\0"));
 		assert!(!text(b"a\r\nb\rc"));
+	}
+
+	#[test]
+	fn reads_the_new_blob_from_a_diff_header_only() {
+		let old = "a".repeat(40);
+		let new = "b".repeat(40);
+		let header = format!(
+			"diff --git a/link b/link\nindex {old}..{new} 120000\n--- a/link\n\
+			 +++ b/link\n@@ -1 +1 @@\n-x\n+index {old}..{old}\n"
+		);
+		assert_eq!(diff_index_line(header.as_bytes()), Some(new.as_str()));
+		let binary = format!(
+			"diff --git a/f b/f\nindex {old}..{new}\nBinary files a/f and b/f \
+			 differ\n"
+		);
+		assert_eq!(diff_index_line(binary.as_bytes()), Some(new.as_str()));
+		let body_only = format!("@@ -1 +1 @@\nindex {old}..{new}\n");
+		assert_eq!(diff_index_line(body_only.as_bytes()), None);
+		assert_eq!(diff_index_line(b""), None);
 	}
 
 	#[test]

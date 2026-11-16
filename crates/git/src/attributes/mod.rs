@@ -98,12 +98,36 @@ pub(crate) fn check(
 	parse(&output, paths)
 }
 
-/// Parses `git check-attr -z` output: `<path>\0<attribute>\0<info>\0` for
-/// each path and attribute, in input order.
-fn parse(
-	output: &[u8],
+/// The state of git's `ident` attribute for each path, in the order given.
+/// Git collapses `$Id: ...$` to `$Id$` on adding a file only when it is set.
+///
+/// # Errors
+///
+/// Fails when `git check-attr` fails or prints something unexpected.
+pub(crate) fn check_ident(
+	git: &Git,
 	paths: &[&RepoPath],
-) -> Result<Vec<Conversion>, BackendError> {
+) -> Result<Vec<State>, BackendError> {
+	if paths.is_empty() {
+		return Ok(Vec::new());
+	}
+	let mut input = Vec::new();
+	for path in paths {
+		input.extend_from_slice(path.as_str().as_bytes());
+		input.push(0);
+	}
+	let output =
+		git.output(&["check-attr", "-z", "--stdin", "ident"], Some(&input))?;
+	let mut next_state = state_reader(&output);
+	paths.iter().map(|path| next_state(path, "ident")).collect()
+}
+
+/// Reads `git check-attr -z` output, `<path>\0<attribute>\0<info>\0` for
+/// each path and attribute, one state at a time, checking that git printed
+/// the path and attribute expected.
+fn state_reader(
+	output: &[u8],
+) -> impl FnMut(&RepoPath, &str) -> Result<State, BackendError> + '_ {
 	let unexpected = || {
 		failure(
 			BackendErrorKind::GitExecutable,
@@ -111,21 +135,28 @@ fn parse(
 		)
 	};
 	let mut fields = output.split(|&byte| byte == 0);
-	let mut next_state =
-		|path: &RepoPath, attribute: &str| -> Result<State, BackendError> {
-			let (Some(printed_path), Some(printed_attribute), Some(info)) =
-				(fields.next(), fields.next(), fields.next())
-			else {
-				return Err(unexpected());
-			};
-			if printed_path != path.as_str().as_bytes()
-				|| printed_attribute != attribute.as_bytes()
-			{
-				return Err(unexpected());
-			}
-			let info = std::str::from_utf8(info).map_err(|_| unexpected())?;
-			Ok(State::parse(info))
+	move |path: &RepoPath, attribute: &str| -> Result<State, BackendError> {
+		let (Some(printed_path), Some(printed_attribute), Some(info)) =
+			(fields.next(), fields.next(), fields.next())
+		else {
+			return Err(unexpected());
 		};
+		if printed_path != path.as_str().as_bytes()
+			|| printed_attribute != attribute.as_bytes()
+		{
+			return Err(unexpected());
+		}
+		let info = std::str::from_utf8(info).map_err(|_| unexpected())?;
+		Ok(State::parse(info))
+	}
+}
+
+/// Parses `git check-attr -z` output for [`ATTRIBUTES`], in input order.
+fn parse(
+	output: &[u8],
+	paths: &[&RepoPath],
+) -> Result<Vec<Conversion>, BackendError> {
+	let mut next_state = state_reader(output);
 	paths
 		.iter()
 		.map(|path| {
