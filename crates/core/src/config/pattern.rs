@@ -38,8 +38,9 @@ impl PatternError {
 /// pattern with a `/` at its start or in its middle is relative to the anchor,
 /// while any other pattern matches at any depth below it. A leading `!` marks
 /// an exception, which only ignore patterns may use, and `\!` or `\#` start a
-/// pattern with a literal `!` or `#`. Matching is case-sensitive on every
-/// platform, so that results never depend on the machine.
+/// pattern with a literal `!` or `#`. Braces are literal characters: `{a,b}`
+/// is no alternation here, unlike in source globs. Matching is case-sensitive
+/// on every platform, so that results never depend on the machine.
 ///
 /// The anchor is the directory of the config that consumes the pattern: the
 /// repository root for the repository config and the built-in defaults, the
@@ -115,6 +116,7 @@ impl PathPattern {
 		if glob.ends_with("/**") {
 			glob.push_str("/*");
 		}
+		let glob = literal_braces(&glob);
 		let matcher = GlobBuilder::new(&glob)
 			.literal_separator(true)
 			.backslash_escape(true)
@@ -178,6 +180,45 @@ impl PathPattern {
 			.match_indices('/')
 			.any(|(end, _)| self.matcher.is_match(&relative[..end]))
 	}
+}
+
+/// `glob` with every brace outside a character class escaped, so that the
+/// matcher reads braces, and the commas between them, as literal characters,
+/// as `.gitignore` does. Escapes and classes are copied as they are: inside a
+/// class, the matcher already takes a brace literally.
+fn literal_braces(glob: &str) -> String {
+	let mut escaped = String::with_capacity(glob.len());
+	let mut chars = glob.chars().peekable();
+	while let Some(character) = chars.next() {
+		match character {
+			'\\' => {
+				escaped.push(character);
+				escaped.extend(chars.next());
+			}
+			'[' => {
+				escaped.push(character);
+				// A leading `!` or `^` negates the class, and a `]` right
+				// after the opening (or after the negation) is a member.
+				if let Some(negation) = chars.next_if(|next| matches!(next, '!' | '^'))
+				{
+					escaped.push(negation);
+				}
+				escaped.extend(chars.next_if_eq(&']'));
+				for member in chars.by_ref() {
+					escaped.push(member);
+					if member == ']' {
+						break;
+					}
+				}
+			}
+			'{' | '}' => {
+				escaped.push('\\');
+				escaped.push(character);
+			}
+			_ => escaped.push(character),
+		}
+	}
+	escaped
 }
 
 impl PartialEq for PathPattern {

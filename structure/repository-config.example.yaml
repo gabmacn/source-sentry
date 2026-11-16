@@ -77,7 +77,8 @@ documents:
   # Config patterns use gitignore syntax: slashless patterns match at any
   # depth; a leading or internal `/` anchors at this config's directory (the
   # project root here), and a trailing `/` matches directories. Only ignore
-  # patterns allow `!` exceptions; the last match wins. Source globs use a
+  # patterns allow `!` exceptions; the last match wins. Braces are literal:
+  # '{a,b}.md' matches only a file named `{a,b}.md`. Source globs use a
   # different language, described in example.yaml.
   # include replaces the inherited list; adapters appends, and the last
   # matching mapping wins. `adapters: []` leaves the built-ins in place.

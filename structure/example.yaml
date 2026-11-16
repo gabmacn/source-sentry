@@ -49,8 +49,9 @@ source-sentry:
     # own review, but no oid. Quote patterns: YAML misreads a leading `*` or `!`.
     # Source globs match whole document-relative or `/`-rooted paths: `*`
     # never crosses `/`; a whole-component `**` spans directories. Matching
-    # is case-sensitive, including on Windows. Unlike config patterns,
-    # slashless source globs are not implicitly recursive; `!` is literal.
+    # is case-sensitive, including on Windows. `{a,b}` matches either
+    # alternative. Unlike config patterns, slashless source globs are not
+    # implicitly recursive; `!` is literal.
     # Backslashes are refused; use `[*]` for a literal wildcard.
     - pattern: '/db/migrations/*.sql'
       # Attesting the pattern writes its review and every current member's

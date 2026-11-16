@@ -1,7 +1,10 @@
 //! Path selection (eligibility and adapters) and roots.
 
+use std::collections::BTreeSet;
+
 use super::{BASE, REPOSITORY, load};
 use crate::adapters::Adapter;
+use crate::claims::SourceGlob;
 use crate::config::{
 	BUILT_IN_DOCUMENT_TYPES, ConfigSet, Eligibility, RootStatus,
 };
@@ -136,6 +139,57 @@ fn patterns_follow_gitignore_anchoring() {
 			]
 		),
 		[false, true, false, true, false, true, true, false, false]
+	);
+}
+
+#[test]
+fn braces_in_config_patterns_are_literal() {
+	let configs = load(&[(
+		REPOSITORY,
+		&format!(
+			"{BASE}documents:\n  ignore: ['{{draft,private}}.md', 'a{{.md', \
+			 'b}}.md', 'c\\{{x}}.md', '[{{]d.md']\n"
+		),
+	)]);
+	assert_eq!(
+		eligible(
+			&configs,
+			&[
+				"{draft,private}.md",
+				"docs/{draft,private}.md",
+				"draft.md",
+				"private.md",
+				"a{.md",
+				"b}.md",
+				"c{x}.md",
+				"{d.md",
+				"d.md",
+			]
+		),
+		[false, false, true, true, false, false, false, false, true]
+	);
+}
+
+#[test]
+fn braces_alternate_in_source_globs_but_not_in_config_patterns() {
+	let tracked = BTreeSet::from([
+		path("draft.md"),
+		path("private.md"),
+		path("{draft,private}.md"),
+	]);
+	let source = SourceGlob::compile(None, "/{draft,private}.md")
+		.expect("the source glob compiles");
+	assert_eq!(
+		source.expand(&tracked),
+		BTreeSet::from([path("draft.md"), path("private.md")])
+	);
+	let configs = load(&[(
+		REPOSITORY,
+		&format!("{BASE}documents:\n  ignore: ['/{{draft,private}}.md']\n"),
+	)]);
+	assert_eq!(
+		eligible(&configs, &["draft.md", "private.md", "{draft,private}.md"]),
+		[true, true, false]
 	);
 }
 

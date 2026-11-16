@@ -502,6 +502,8 @@ Paths are stored in one canonical spelling, with `/` separators.
 > differ between machines.
 
 Paths are matched with globs, and series versions with regular expressions.
+Source patterns allow `{a,b}` alternation. Config patterns, such as
+`documents.ignore`, use `.gitignore` syntax, in which braces are literal.
 
 > **Why.** Globs are what `.gitignore` taught everyone, and the punctuation
 > and anchoring of regular expressions are error-prone for paths. Parsing a
