@@ -230,7 +230,8 @@ lacks, it stops with exit 4 and says how to fetch it.
 
 **A document keeps its clocks when it moves.** History is followed through
 its earlier tracking places, and `rename` records where a document came
-from, so that neither a move nor a rename restarts a clock.
+from, so that neither a move nor a rename restarts a clock: the document's
+own, or that of a document in the same project that cites it.
 
 > **Why.** The earlier path is recorded rather than inferred, because
 > inference from the lockfile's history can be misled by a hand edit, or by
