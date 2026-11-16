@@ -149,6 +149,11 @@ that version's section, so a release cannot be made without one.
 - In the full-screen review, the facts at the top of the pane no longer draw
   over the sidebar, and very long facts no longer crash the screen; they are
   cut with an ellipsis.
+- In the full-screen review, the confirmation of `a` or of picked documents,
+  a path or name shown whole, and the projects box scroll when they hold
+  more than fits, so every document, character and project can be read. The
+  arrow keys, Page Up, Page Down and the wheel scroll these boxes instead of
+  closing them.
 - `install.sh` quotes the install directory in the `fish_add_path` line it
   prints, so a directory containing a space is passed as one argument.
 - The recipes' guide protects the installed Forgejo workflow file, every
