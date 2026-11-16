@@ -19,7 +19,9 @@
 //! 3. **Commit.** Each file to delete is renamed onto its backup name, then
 //!    each staged file is renamed over its target. Just before each rename,
 //!    the target is checked again: unchanged bytes, or a still-free path for
-//!    a new file, pass; anything else is verified again as in phase 1. If a
+//!    a new file, pass; anything else is verified again as in phase 1, and
+//!    a file whose bytes differ from those read during verification fails
+//!    even when git would store them as the same object. If a
 //!    check or a rename fails, the steps already taken are undone in
 //!    reverse: backups are renamed back, replaced files are restored from
 //!    the contents read during verification, and new files are removed. A
@@ -78,7 +80,12 @@ pub enum ApplyError {
 	/// A target's canonical oid is not the one the plan expects, so the file
 	/// changed after the plan was made. For a delete, `expected` is always
 	/// `Some`, and `actual` is `None` when the file is missing.
-	#[error("{path} changed since the plan was made: expected {}, found {}", describe(expected.as_ref()), describe(actual.as_ref()))]
+	///
+	/// When `expected` and `actual` are equal, the file's bytes changed after
+	/// they were read for the plan, although git would store them as the
+	/// same object: line endings, or the text inside an `$Id$` keyword, are
+	/// content another program wrote, so the file is kept.
+	#[error("{}", stale(path, expected.as_ref(), actual.as_ref()))]
 	Stale {
 		/// The target.
 		path: RepoPath,
@@ -199,6 +206,35 @@ fn describe(id: Option<&ObjectId>) -> String {
 	id.map_or_else(|| "no file".to_owned(), ToString::to_string)
 }
 
+/// The message of an [`ApplyError::Stale`].
+fn stale(
+	path: &RepoPath,
+	expected: Option<&ObjectId>,
+	actual: Option<&ObjectId>,
+) -> String {
+	match (expected, actual) {
+		(Some(expected), Some(actual)) if expected == actual => format!(
+			"{path} changed since the plan was made: its bytes differ, although \
+			 git would store them as the same object, {expected}"
+		),
+		_ => format!(
+			"{path} changed since the plan was made: expected {}, found {}",
+			describe(expected),
+			describe(actual)
+		),
+	}
+}
+
+/// The failure for a target whose bytes changed after they were read for
+/// the plan, although git would store them as the object it expects.
+fn saved_as_same_object(path: &RepoPath, expected: &ObjectId) -> ApplyError {
+	ApplyError::Stale {
+		path: path.clone(),
+		expected: Some(expected.clone()),
+		actual: Some(expected.clone()),
+	}
+}
+
 /// Explains a [`Canonical`] that is not an oid.
 fn describe_reason(reason: &Canonical) -> String {
 	match reason {
@@ -273,7 +309,8 @@ impl GitRepository {
 	/// Immediately before each rename, the target is checked again against
 	/// what verification found, so that a file another program saves while
 	/// the plan is being applied fails the plan, which is then undone, rather
-	/// than being overwritten. No file is locked, so a short window remains:
+	/// than being overwritten, even when git would store the saved bytes as
+	/// the same object. No file is locked, so a short window remains:
 	/// a change made between that last check and the rename itself is still
 	/// replaced.
 	///
@@ -399,9 +436,13 @@ impl GitRepository {
 	/// permissions, are unchanged, or a new file's path that is still free,
 	/// passes at once. Anything else is verified again exactly as the
 	/// verification phase verifies it, and fails with that phase's error. A
-	/// rewritten file that still meets the expectation passes, and its
-	/// current contents and permissions become what a rollback restores; the
-	/// staged replacement takes those permissions too.
+	/// file that still meets the expectation fails all the same when its
+	/// bytes differ from those read during verification, with an
+	/// [`ApplyError::Stale`] whose two oids are equal: git would store the
+	/// new bytes as the same object, but they are another program's. A file
+	/// whose permissions alone changed passes, and its current permissions
+	/// become what a rollback restores; the staged replacement takes them
+	/// too.
 	fn recheck(
 		&self,
 		work_dir: &Path,
@@ -435,6 +476,14 @@ impl GitRepository {
 				}];
 				self.verify(index, &targets, &[])?;
 				let [WriteTarget { inspected, .. }] = targets;
+				if let (Some(kept), Some(current), Some(expected)) = (
+					original.as_ref(),
+					inspected.original.as_ref(),
+					write.expected.as_ref(),
+				) && kept.contents != current.contents
+				{
+					return Err(saved_as_same_object(path, expected));
+				}
 				if let Some(current) = &inspected.original {
 					staged
 						.set_permissions(&current.permissions)
@@ -465,7 +514,9 @@ impl GitRepository {
 				let targets = [inspect_delete(work_dir, delete)?];
 				self.verify(index, &[], &targets)?;
 				let [DeleteTarget { original, .. }] = targets;
-				*contents = original.contents;
+				if original.contents != *contents {
+					return Err(saved_as_same_object(path, &delete.expected));
+				}
 			}
 		}
 		Ok(())
@@ -1568,23 +1619,129 @@ mod tests {
 		assert_eq!(mode(&target), executable);
 	}
 
-	/// A save that changes the bytes but not the canonical oid still meets
-	/// the plan's expectation, as it would have before verification.
+	/// Checks that `result` is the failure for a save whose bytes git would
+	/// store as `expected`, the object the plan expects for `name`.
+	fn assert_saved_as_same_object(
+		result: &Result<(), ApplyError>,
+		name: &str,
+		expected: &ObjectId,
+	) {
+		match result {
+			Err(
+				error @ ApplyError::Stale {
+					path,
+					expected: Some(planned),
+					actual: Some(actual),
+				},
+			) => {
+				assert_eq!(path, &RepoPath::new(name).unwrap());
+				assert_eq!(planned, expected);
+				assert_eq!(actual, expected);
+				assert_eq!(
+					error.to_string(),
+					format!(
+						"{name} changed since the plan was made: its bytes differ, \
+						 although git would store them as the same object, {expected}"
+					)
+				);
+			}
+			other => panic!("expected a stale plan, got {other:?}"),
+		}
+	}
+
+	/// A save that changes the bytes but not the canonical oid fails the
+	/// write, and the saved file is kept: its line endings are content
+	/// another program wrote.
 	#[test]
-	fn a_save_that_keeps_the_canonical_oid_is_replaced() {
+	fn a_save_that_keeps_the_canonical_oid_fails_the_write() {
 		let (_root, work) =
 			repository(&[(".gitattributes", b"*.md text\n"), ("a.md", b"a\n")]);
 		let plan = WritePlan {
 			writes: vec![rewrite(&work, "a.md", b"new a\n")],
 			deletes: Vec::new(),
 		};
+		let expected = plan.writes[0].expected.clone().unwrap();
 		let edited = work.join("a.md");
-		apply_meanwhile(&work, &plan, move || {
+		let result = apply_meanwhile(&work, &plan, move || {
 			fs::write(edited, b"a\r\n").unwrap();
-		})
-		.unwrap();
+		});
 
-		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"new a\n");
+		assert_eq!(oid(&work, "a.md"), expected);
+		assert_saved_as_same_object(&result, "a.md", &expected);
+		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"a\r\n");
+		assert_eq!(names(&work), [".git", ".gitattributes", "a.md"]);
+	}
+
+	/// Line endings under `text=auto`, and the text inside an `$Id$`
+	/// keyword under `ident`, are content another program wrote: a save that
+	/// changes only them fails the write, the saved file is kept, and the
+	/// step already taken is undone.
+	#[test]
+	fn a_save_git_stores_as_the_same_object_is_kept() {
+		let cases: [(&str, &[u8], &[u8]); 2] = [
+			("*.md text=auto\n", b"a\n", b"a\r\n"),
+			(
+				"*.md ident text=auto\n",
+				b"$Id$\n",
+				b"$Id: manual note from editor $\n",
+			),
+		];
+		for (case, before, saved) in cases {
+			let (_root, work) = repository(&[
+				(".gitattributes", case.as_bytes()),
+				("a.md", b"old a\n"),
+				("b.md", before),
+			]);
+			let plan = WritePlan {
+				writes: vec![
+					rewrite(&work, "a.md", b"new a\n"),
+					rewrite(&work, "b.md", b"planned replacement\n"),
+				],
+				deletes: Vec::new(),
+			};
+			let expected = plan.writes[1].expected.clone().unwrap();
+			let edited = work.join("b.md");
+			let result = apply_meanwhile(&work, &plan, move || {
+				fs::write(edited, saved).unwrap();
+			});
+
+			assert_eq!(oid(&work, "b.md"), expected, "{case}");
+			assert_saved_as_same_object(&result, "b.md", &expected);
+			assert_eq!(fs::read(work.join("a.md")).unwrap(), b"old a\n", "{case}");
+			assert_eq!(fs::read(work.join("b.md")).unwrap(), saved, "{case}");
+			assert_eq!(
+				names(&work),
+				[".git", ".gitattributes", "a.md", "b.md"],
+				"{case}"
+			);
+		}
+	}
+
+	/// A file to delete that is saved with bytes git would store as the
+	/// same object is kept, and the delete fails.
+	#[test]
+	fn a_file_to_delete_saved_as_the_same_object_is_kept() {
+		let (_root, work) = repository(&[
+			(".gitattributes", b"*.lock text=auto\n"),
+			("gone.lock", b"{}\n"),
+		]);
+		let expected = oid(&work, "gone.lock");
+		let plan = WritePlan {
+			writes: Vec::new(),
+			deletes: vec![PlannedDelete {
+				path: RepoPath::new("gone.lock").unwrap(),
+				expected: expected.clone(),
+			}],
+		};
+		let edited = work.join("gone.lock");
+		let result = apply_meanwhile(&work, &plan, move || {
+			fs::write(edited, b"{}\r\n").unwrap();
+		});
+
+		assert_eq!(oid(&work, "gone.lock"), expected);
+		assert_saved_as_same_object(&result, "gone.lock", &expected);
+		assert_eq!(fs::read(work.join("gone.lock")).unwrap(), b"{}\r\n");
+		assert_eq!(names(&work), [".git", ".gitattributes", "gone.lock"]);
 	}
 
 	/// A write step over `name`, which holds `old` beforehand when given.
