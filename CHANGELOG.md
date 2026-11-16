@@ -76,7 +76,8 @@ that version's section, so a release cannot be made without one.
   array could be refused as ambiguous, and in a nested project the command
   could fail outright. `diff --help` now names that directory correctly.
 - A file saved by another program while a write is being applied now fails
-  the write and is kept, instead of being overwritten. A short window right
+  the write and is kept, instead of being overwritten, even when only its
+  line endings or the text inside `$Id$` changed. A short window right
   before the replacement remains.
 - A write that fails part-way no longer undoes a file that another program
   saved after the write had changed it. The file is kept, and the failure
@@ -90,7 +91,13 @@ that version's section, so a release cannot be made without one.
   placeholder is hashed as `git add` stores it: line endings are converted
   under `text`, `working-tree-encoding` and `ident` are applied, and a clean
   filter is refused as for any file. An unedited placeholder keeps the oid
-  the index holds.
+  the index holds. An edited placeholder marked `assume-unchanged`, which
+  git does not compare, stops `check` with exit 4 and the command that
+  clears the mark.
+- A source in a merge conflict is classified by the file on disk. A regular
+  file beside a link or submodule stage is hashed as `git add` stores it
+  and is no longer reported missing, and CRLF kept in the index is
+  reported exactly when `git add` would keep it.
 - `check` now evaluates only the cited document of another project and what
   it depends on. It reports that project's configuration errors and the
   errors met while hashing the cited document's sources, which were
@@ -98,17 +105,33 @@ that version's section, so a release cannot be made without one.
   longer stops the check.
 - A document that cites a renamed document, in its own project or another,
   now keeps its drift clock, deadline and facts across the rename, instead
-  of losing the date or moving it later.
+  of losing the date or moving it later. It keeps them after the renamed
+  document is retired, too.
+- A document that is overdue because a change could not be dated no longer
+  calls the future deadline of its other sources missed. Its line reads
+  `overdue, timing unknown` until that deadline has passed.
 - Config patterns such as `documents.ignore` now read braces literally, as
   `.gitignore` does. `{a,b}` alternation is for source patterns only.
 - Character classes in config patterns read escapes as `.gitignore` does:
   `[\]{]x.md` ignores `]x.md` and `{x.md`, and `\]` no longer closes a
   class.
+- Config patterns read named classes such as `[[:alpha:]]`, and a hyphen
+  after a range as in `[a-c-e]`, as `.gitignore` does. A class name git
+  does not know, such as `[[:word:]]`, is a configuration error.
 - A config pattern that ends in an escaped space followed by unescaped
   spaces keeps the escaped space, as `.gitignore` does, instead of failing
   with "dangling '\'".
 - In a nested project, an unknown `--context` is reported against that
-  project's own config, not the enclosing repository's.
+  project's own config, not the enclosing repository's, and messages about
+  contexts and settings name "the project's config".
+- An invalid context now stops every command that works in its project
+  with exit 3, as `check` reports it. Before, `track`, `attest` and the
+  other commands that write went on, and so did `explain` and `diff`.
+- A declaration that holds one pattern under two spellings, such as
+  `src/*.rs` and `/docs/src/*.rs` in `docs/guide.md`, is refused as one
+  holding two spellings of one path is, and `track` refuses to add such a
+  second spelling. Before, a command that named the second spelling
+  changed the first.
 - In a nested project, sources declared in a document's frontmatter are
   checked for repeats from the project's root, as lockfile entries are.
   Before, `/src/a.rs` and `:/src/a.rs` were refused as one file, and two
