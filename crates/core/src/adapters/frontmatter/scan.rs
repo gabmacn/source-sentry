@@ -13,10 +13,12 @@
 //! comments are left out, because they read as belonging to what follows.
 //!
 //! A line that continues a quoted scalar or a flow collection opened above
-//! is part of that value, even at column 0, so it never starts an entry;
-//! unless something opened is never closed, which is a mistake that the scan
-//! then reads past as written. A double-quoted key is compared after its
-//! escapes are resolved, as YAML reads it.
+//! is part of that value, even at column 0, so it never starts an entry.
+//! Each value is judged on its own: one that is never closed is a mistake,
+//! which the scan reads past as written, from the line after the one that
+//! opened it, and it changes nothing about the values around it. A
+//! double-quoted key is compared after its escapes are resolved, as YAML
+//! reads it.
 //!
 //! The scan works on bytes, so other keys need not be valid UTF-8.
 
@@ -403,32 +405,36 @@ fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Open {
 /// collection left open by an entry above, so that none of them is taken
 /// for a key.
 ///
-/// Only when everything opened also closes before the frontmatter ends: an
-/// unclosed quote or bracket is a mistake, after which the lines are read
-/// as they were written rather than swallowed, so that a typo in another
-/// key never hides the declaration.
+/// Each value is judged on its own. A value that closes keeps its marks,
+/// whatever happens to the values after it. A value that never closes before
+/// the frontmatter ends is a mistake: it marks nothing, and the scan reads
+/// on from the line after the one that opened it, as written, so that a
+/// typo in another key never hides the declaration.
 fn mark_continuations(bytes: &[u8], body: &mut [(Line, Kind)]) {
-	let mut open = Open::default();
-	let mut continued = Vec::new();
-	for (index, (line, kind)) in body.iter().enumerate() {
+	let mut index = 0;
+	while index < body.len() {
+		let (line, kind) = body[index];
+		index += 1;
 		let content = line.content(bytes);
-		if open.is_open() {
-			continued.push(index);
-			open = advance(open, content, false);
-		} else {
-			let start = match kind {
-				Kind::Key(_) => key_of(content).map(|(_, start)| start),
-				Kind::Explicit | Kind::Entry => Some(1),
-				_ => None,
-			};
-			if let Some(start) = start {
-				open = advance(Open::default(), &content[start..], true);
-			}
+		let start = match kind {
+			Kind::Key(_) => key_of(content).map(|(_, start)| start),
+			Kind::Explicit | Kind::Entry => Some(1),
+			_ => None,
+		};
+		let Some(start) = start else {
+			continue;
+		};
+		let mut open = advance(Open::default(), &content[start..], true);
+		let mut end = index;
+		while open.is_open() && end < body.len() {
+			open = advance(open, body[end].0.content(bytes), false);
+			end += 1;
 		}
-	}
-	if !open.is_open() {
-		for index in continued {
-			body[index].1 = Kind::Indented;
+		if !open.is_open() {
+			for (_, kind) in &mut body[index..end] {
+				*kind = Kind::Indented;
+			}
+			index = end;
 		}
 	}
 }

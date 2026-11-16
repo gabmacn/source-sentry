@@ -378,6 +378,65 @@ fn invalid_yaml_in_other_keys_still_reads() {
 }
 
 #[test]
+fn a_closed_value_stays_closed_when_a_later_value_never_closes() {
+	// `tags` never closes, so the frontmatter does not parse, and the line
+	// scan alone must see that the title's middle line is quoted text.
+	let quoted = "title: \"begin\nsource-sentry: {}\nend\"\ntags: [a, b\n";
+	let declared =
+		format!("---\nsource-sentry:\n  owners: [docs]\n{quoted}---\n# Body\n");
+	assert_eq!(read_str(&declared), Ok(Some(owned_by(&["docs"]))));
+	assert_eq!(
+		write_str(&declared, Some(&owned_by(&["legal"]))).unwrap(),
+		format!("---\nsource-sentry:\n  owners: ['legal']\n{quoted}---\n# Body\n")
+	);
+
+	let undeclared = format!("---\n{quoted}---\n# Body\n");
+	assert_eq!(read_str(&undeclared), Ok(None));
+	assert_eq!(write_str(&undeclared, None).unwrap(), undeclared);
+	let added = write_str(&undeclared, Some(&owned_by(&["legal"]))).unwrap();
+	assert_eq!(
+		added,
+		format!("---\n{quoted}source-sentry:\n  owners: ['legal']\n---\n# Body\n")
+	);
+	assert_eq!(read_str(&added), Ok(Some(owned_by(&["legal"]))));
+}
+
+#[test]
+fn a_closed_flow_collection_stays_closed_before_an_unclosed_quote() {
+	let before = "---\nother: [\nsource-sentry: {}\n]\nsource-sentry:\n  owners: \
+	              [docs]\ntitle: \"never closed\n---\n";
+	assert_eq!(read_str(before), Ok(Some(owned_by(&["docs"]))));
+	assert_eq!(
+		write_str(before, Some(&owned_by(&["legal"]))).unwrap(),
+		"---\nother: [\nsource-sentry: {}\n]\nsource-sentry:\n  owners: \
+		 ['legal']\ntitle: \"never closed\n---\n"
+	);
+}
+
+#[test]
+fn values_after_one_that_never_closes_are_read_as_written() {
+	// `tags` never closes. The lines after it are read as written: the title
+	// is quoted text that closes, and the declaration follows it.
+	let before = "---\ntags: [a, b\ntitle: \"x\nsource-sentry: {}\ny\"\n\
+	              source-sentry:\n  owners: [docs]\n---\n";
+	assert_eq!(read_str(before), Ok(Some(owned_by(&["docs"]))));
+	assert_eq!(
+		write_str(before, Some(&owned_by(&["legal"]))).unwrap(),
+		"---\ntags: [a, b\ntitle: \"x\nsource-sentry: {}\ny\"\n\
+		 source-sentry:\n  owners: ['legal']\n---\n"
+	);
+
+	// A key line after a quote that never closes is read as written too: the
+	// quote reads as a mistake on its own line.
+	let unclosed = "---\ntitle: \"begin\nsource-sentry:\n  owners: [docs]\n---\n";
+	assert_eq!(read_str(unclosed), Ok(Some(owned_by(&["docs"]))));
+	assert_eq!(
+		write_str(unclosed, Some(&owned_by(&["legal"]))).unwrap(),
+		"---\ntitle: \"begin\nsource-sentry:\n  owners: ['legal']\n---\n"
+	);
+}
+
+#[test]
 fn an_empty_key_is_an_error() {
 	for text in [
 		"---\ntitle: x\nsource-sentry:\n---\n",
