@@ -2,6 +2,8 @@
 //! scrolling through every wrapped row, and headings that stay within their
 //! pane at any size.
 
+use std::rc::Rc;
+
 use super::super::app::{App, Area, Key, Pane};
 use super::super::draw;
 use super::{drawn, fixture, press, shows};
@@ -97,4 +99,31 @@ fn a_line_taller_than_the_pane_scrolls_to_its_last_row() {
 	press(&mut app, &[Key::PageDown; 10]);
 	assert_eq!(app.scroll.1, 30);
 	assert!(shows(&drawn(&app, 80, 20), "WRAPPED_TAIL"));
+}
+
+/// The cells of `row` from column `x`, as drawn.
+fn from_column(row: &str, x: usize) -> String {
+	row.chars().skip(x).collect()
+}
+
+/// The pane's heading keeps within the pane: facts too long for it are cut
+/// with an ellipsis, after the outcome, and the sidebar beside it keeps its
+/// divider and its count of documents.
+#[test]
+fn the_pane_heading_keeps_within_the_pane() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let screen = drawn(&app, 80, 20);
+	assert_eq!(screen[2].chars().nth(28), Some('2'), "{}", screen[2]);
+	assert_eq!(screen[2].chars().nth(30), Some('│'), "{}", screen[2]);
+	let heading = from_column(&screen[2], 31);
+	assert!(heading.starts_with(" warn  overdue"), "{heading}");
+	assert!(heading.ends_with('…'), "{heading}");
+	// Facts as wide as the screen are cut in the same way.
+	Rc::make_mut(app.shown.as_mut().unwrap()).facts = "x".repeat(79);
+	let screen = drawn(&app, 80, 20);
+	assert_eq!(screen[2].chars().nth(30), Some('│'), "{}", screen[2]);
+	let heading = from_column(&screen[2], 31);
+	assert_eq!(heading, format!(" warn  {}…", "x".repeat(40)));
 }

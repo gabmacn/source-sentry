@@ -289,6 +289,19 @@ impl Pen<'_> {
 		start
 	}
 
+	/// Writes `text` so that it ends before column `end` and starts at
+	/// column `from` or after it, cut with an ellipsis where it does not fit,
+	/// and returns the column where it starts.
+	fn right_within(
+		&mut self,
+		(from, end): (u16, u16),
+		y: u16,
+		text: &str,
+		style: Style,
+	) -> u16 {
+		self.right(end, y, &fit(text, end.saturating_sub(from)), style)
+	}
+
 	/// Gives every cell of `area` this style.
 	fn fill(&mut self, area: Rect, style: Style) {
 		self
@@ -331,7 +344,8 @@ impl Pen<'_> {
 		for (key, action) in keys {
 			// One that does not fit whole is left out; a shorter one after it
 			// may still fit.
-			if x + width(key) + 3 + width(action) > end {
+			let needs = width(key).saturating_add(3).saturating_add(width(action));
+			if x.saturating_add(needs) > end {
 				continue;
 			}
 			let start = x;
@@ -477,7 +491,7 @@ fn header(app: &App, pen: &mut Pen, columns: u16) {
 /// words, so that the progress never runs over a field.
 fn progress(app: &App, pen: &mut Pen, from: u16, columns: u16) {
 	let (done, total) = app.progress();
-	let end = columns - 1;
+	let end = columns.saturating_sub(1);
 	let room = end.saturating_sub(from);
 	let words = format!("{done} of {total} reviewed");
 	let bar: u16 = 14;
@@ -493,12 +507,13 @@ fn progress(app: &App, pen: &mut Pen, from: u16, columns: u16) {
 	let filled = (usize::from(bar) * done)
 		.checked_div(total)
 		.and_then(|filled| u16::try_from(filled).ok())
-		.unwrap_or(bar);
+		.unwrap_or(bar)
+		.min(bar);
 	pen.rule(end - bar, 0, filled, "█", Style::new().fg(BLUE));
 	pen.rule(
 		end - bar + filled,
 		0,
-		bar - filled,
+		bar.saturating_sub(filled),
 		"░",
 		Style::new().fg(BLUE),
 	);
@@ -556,7 +571,7 @@ fn sidebar(app: &App, pen: &mut Pen, area: Rect) {
 /// they do not all fit. Returns the row after the last.
 fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 	let workspace = app.workspace();
-	let name_width = area.width - 8;
+	let name_width = area.width.saturating_sub(8);
 	let mut y = area.y;
 	pen.text(
 		area.x + 1,
@@ -637,7 +652,7 @@ fn queue(app: &App, pen: &mut Pen, area: Rect) -> u16 {
 /// all fit.
 fn others(app: &App, pen: &mut Pen, area: Rect) {
 	let workspace = app.workspace();
-	let name_width = area.width - 8;
+	let name_width = area.width.saturating_sub(8);
 	let room = usize::from(area.height);
 	let at = match app.cursor {
 		Cursor::Other(index) => index,
@@ -730,19 +745,24 @@ fn glow(pen: &mut Pen, area: Rect) {
 /// The document on display: its name and details, then its changes, its
 /// text, or on a wide screen both.
 fn pane(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
-	let mut end = pen.right(
-		area.right(),
+	// The facts end at the pane's right edge, after the outcome. Both keep
+	// within the pane, the facts cut where they would leave the outcome no
+	// room.
+	let outcome = shown.outcome.map(output::outcome_name);
+	let before = outcome.map_or(0, |outcome| width(outcome) + 2);
+	let mut end = pen.right_within(
+		(area.x.saturating_add(before), area.right()),
 		area.y,
 		&shown.facts.replace(", ", " · "),
 		text(),
 	);
-	if let Some(outcome) = shown.outcome {
-		end = pen.right(
-			end - 2,
+	if let (Some(outcome), Some(kind)) = (outcome, shown.outcome) {
+		end = pen.right_within(
+			(area.x, end.saturating_sub(2)),
 			area.y,
-			output::outcome_name(outcome),
+			outcome,
 			Style::new()
-				.fg(outcome_color(outcome))
+				.fg(outcome_color(kind))
 				.add_modifier(Modifier::BOLD),
 		);
 	}
@@ -774,7 +794,13 @@ fn pane(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 			},
 		),
 	] {
-		x = pen.text(x, area.y + 1, &format!("{label} "), dim(), u16::MAX);
+		x = pen.text(
+			x,
+			area.y + 1,
+			&format!("{label} "),
+			dim(),
+			area.right().saturating_sub(x),
+		);
 		x = pen.text(
 			x,
 			area.y + 1,
@@ -908,9 +934,9 @@ fn changes(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 	} else {
 		dim().add_modifier(Modifier::BOLD)
 	};
-	pen.text(area.x, area.y, "SOURCES", heading, u16::MAX);
-	pen.right(
-		area.right(),
+	let after = pen.text(area.x, area.y, "SOURCES", heading, area.width);
+	pen.right_within(
+		(after.saturating_add(1), area.right()),
 		area.y,
 		&format!("{} changed of {}", shown.files.len(), shown.total),
 		dim(),
@@ -988,21 +1014,22 @@ fn files(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) -> u16 {
 		} else if let Some(joint) = joint(&shown.owners, index) {
 			pen.text(area.x, y, joint, mark.unwrap_or_else(dim), 1);
 		}
-		let mut start = pen.right(
-			area.right() - 1,
+		let from = area.x + 1;
+		let mut start = pen.right_within(
+			(from, area.right().saturating_sub(1)),
 			y,
 			&format!("{} → {}", file.old, file.new),
 			mark.unwrap_or_else(dim),
 		);
 		if let Some((added, removed)) = file.counts {
-			start = pen.right(
-				start - 3,
+			start = pen.right_within(
+				(from, start.saturating_sub(3)),
 				y,
 				&format!("-{removed}"),
 				mark.unwrap_or(Style::new().fg(REMOVED.0)),
 			);
-			start = pen.right(
-				start - 1,
+			start = pen.right_within(
+				(from, start.saturating_sub(1)),
 				y,
 				&format!("+{added}"),
 				mark.unwrap_or(Style::new().fg(ADDED.0)),
@@ -1081,7 +1108,7 @@ fn rows(app: &App, drawn: &[(usize, bool, String)], pen: &mut Pen, area: Rect) {
 /// The document's own text, numbered.
 fn document(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 	let active = app.pane == Pane::Document;
-	pen.text(
+	let after = pen.text(
 		area.x,
 		area.y,
 		"THE DOCUMENT",
@@ -1090,7 +1117,7 @@ fn document(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 		} else {
 			dim().add_modifier(Modifier::BOLD)
 		},
-		u16::MAX,
+		area.width,
 	);
 	let lines = match &shown.text {
 		Ok(lines) => lines,
@@ -1105,8 +1132,8 @@ fn document(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 			return;
 		}
 	};
-	pen.right(
-		area.right(),
+	pen.right_within(
+		(after.saturating_add(1), area.right()),
 		area.y,
 		&format!("{} lines", lines.len()),
 		dim(),
@@ -1349,9 +1376,14 @@ fn buttons(app: &App, pen: &mut Pen, y: u16, columns: u16) {
 		row
 	};
 	let needs = |buttons: &[(&str, &str)]| {
-		buttons.iter().fold(1, |total, (key, action)| {
-			total + width(key) + 3 + width(action) + GAP
-		}) - GAP
+		buttons
+			.iter()
+			.fold(1, |total: u16, (key, action)| {
+				total
+					.saturating_add(width(key) + 3 + width(action))
+					.saturating_add(GAP)
+			})
+			.saturating_sub(GAP)
 	};
 	// The pane's swap names where it leads, unless that costs a button.
 	let long = row(match app.pane {
@@ -1399,6 +1431,10 @@ fn frame(
 		columns,
 		rows,
 	);
+	let (last_column, last_row) = (
+		inside.right().saturating_sub(1),
+		inside.bottom().saturating_sub(1),
+	);
 	pen.hits.push((inside, Target::Box));
 	// The box starts from empty cells, so that nothing it covers shows
 	// through: neither a character nor its weight.
@@ -1411,16 +1447,16 @@ fn frame(
 	}
 	pen.fill(inside, Style::new().fg(CREAM).bg(INK));
 	pen.rule(inside.x, inside.y, inside.width, "─", text());
-	pen.rule(inside.x, inside.bottom() - 1, inside.width, "─", text());
+	pen.rule(inside.x, last_row, inside.width, "─", text());
 	for y in inside.y..inside.bottom() {
 		pen.text(inside.x, y, "│", text(), 1);
-		pen.text(inside.right() - 1, y, "│", text(), 1);
+		pen.text(last_column, y, "│", text(), 1);
 	}
 	for (x, y, corner) in [
 		(inside.x, inside.y, "┌"),
-		(inside.right() - 1, inside.y, "┐"),
-		(inside.x, inside.bottom() - 1, "└"),
-		(inside.right() - 1, inside.bottom() - 1, "┘"),
+		(last_column, inside.y, "┐"),
+		(inside.x, last_row, "└"),
+		(last_column, last_row, "┘"),
 	] {
 		pen.text(x, y, corner, text(), 1);
 	}
@@ -1717,7 +1753,7 @@ fn listed_row(
 	}
 	if detail > 0 {
 		pen.text(
-			end - detail,
+			end.saturating_sub(detail),
 			y,
 			&fit(&row.detail, detail),
 			plain(dim()),
