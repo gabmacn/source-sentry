@@ -64,10 +64,30 @@ fn summary(workspace: &Workspace, summary: &UntrackSummary) -> String {
 		};
 		let _ = writeln!(text, "  {kind}  `{declared}`");
 	}
-	let _ = writeln!(
-		text,
-		"{} remain",
-		describe::count(summary.declaration.sources.len(), "source", "sources")
-	);
+	let _ = writeln!(text, "{}", remaining(summary.declaration.sources.len()));
 	text
+}
+
+/// How many sources the declaration keeps, with the verb agreeing.
+fn remaining(count: usize) -> String {
+	let verb = if count == 1 { "remains" } else { "remain" };
+	format!("{} {verb}", describe::count(count, "source", "sources"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::remaining;
+
+	/// One remaining source takes the singular verb.
+	#[test]
+	fn one_source_remains() {
+		assert_eq!(remaining(1), "1 source remains");
+	}
+
+	/// Several remaining sources, or none, take the plural verb.
+	#[test]
+	fn several_sources_remain() {
+		assert_eq!(remaining(2), "2 sources remain");
+		assert_eq!(remaining(0), "0 sources remain");
+	}
 }
