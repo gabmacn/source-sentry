@@ -393,7 +393,9 @@ impl GitRepository {
 	}
 
 	/// Checks, just before a step is taken, that its target is still as
-	/// verification found it. A file whose bytes are unchanged, or a new
+	/// verification found it. The directories above it are inspected again,
+	/// and one that has become a symbolic link or a file fails the step with
+	/// verification's error. Then a file whose bytes are unchanged, or a new
 	/// file's path that is still free, passes at once. Anything else is
 	/// verified again exactly as the verification phase verifies it, and
 	/// fails with that phase's error. A rewritten file that still meets the
@@ -413,6 +415,7 @@ impl GitRepository {
 				original,
 				..
 			} => {
+				inspect_parents(work_dir, path)?;
 				let contents = original.as_ref().map(|kept| kept.contents.as_slice());
 				if unchanged(target, contents) {
 					return Ok(());
@@ -436,6 +439,7 @@ impl GitRepository {
 				contents,
 				..
 			} => {
+				inspect_parents(work_dir, path)?;
 				if unchanged(target, Some(contents)) {
 					return Ok(());
 				}
@@ -673,30 +677,7 @@ struct Original {
 
 /// Inspects a target without following symbolic links.
 fn inspect(work_dir: &Path, path: &RepoPath) -> Result<Inspected, ApplyError> {
-	let mut missing_directories = Vec::new();
-	let mut directory = work_dir.to_path_buf();
-	let components: Vec<&str> = path.components().collect();
-	let (_, parents) = components.split_last().unwrap_or((&"", &[]));
-	for component in parents {
-		directory.push(component);
-		if !missing_directories.is_empty() {
-			missing_directories.push(directory.clone());
-			continue;
-		}
-		match fs::symlink_metadata(&directory) {
-			Ok(metadata) if metadata.file_type().is_symlink() => {
-				return Err(unwritable(path, Unwritable::SymbolicLink));
-			}
-			Ok(metadata) if metadata.is_dir() => {}
-			Ok(_) => return Err(unwritable(path, Unwritable::NotAFile)),
-			Err(source) if is_absence(&source) => {
-				missing_directories.push(directory.clone());
-			}
-			Err(source) => {
-				return Err(error::io(format!("cannot inspect {path}"), source).into());
-			}
-		}
-	}
+	let missing_directories = inspect_parents(work_dir, path)?;
 	let native = native(work_dir, path);
 	let original = if missing_directories.is_empty() {
 		match fs::symlink_metadata(&native) {
@@ -726,6 +707,40 @@ fn inspect(work_dir: &Path, path: &RepoPath) -> Result<Inspected, ApplyError> {
 		missing_directories,
 		original,
 	})
+}
+
+/// Inspects the directories above a target without following symbolic
+/// links, and returns those that do not exist yet, outermost first. A
+/// directory above the target that is a symbolic link or a file refuses it.
+fn inspect_parents(
+	work_dir: &Path,
+	path: &RepoPath,
+) -> Result<Vec<PathBuf>, ApplyError> {
+	let mut missing_directories = Vec::new();
+	let mut directory = work_dir.to_path_buf();
+	let components: Vec<&str> = path.components().collect();
+	let (_, parents) = components.split_last().unwrap_or((&"", &[]));
+	for component in parents {
+		directory.push(component);
+		if !missing_directories.is_empty() {
+			missing_directories.push(directory.clone());
+			continue;
+		}
+		match fs::symlink_metadata(&directory) {
+			Ok(metadata) if metadata.file_type().is_symlink() => {
+				return Err(unwritable(path, Unwritable::SymbolicLink));
+			}
+			Ok(metadata) if metadata.is_dir() => {}
+			Ok(_) => return Err(unwritable(path, Unwritable::NotAFile)),
+			Err(source) if is_absence(&source) => {
+				missing_directories.push(directory.clone());
+			}
+			Err(source) => {
+				return Err(error::io(format!("cannot inspect {path}"), source).into());
+			}
+		}
+	}
+	Ok(missing_directories)
 }
 
 /// Inspects the file a delete removes, which must exist.
@@ -1162,7 +1177,9 @@ mod tests {
 			git(&["config", key, value]);
 		}
 		for (name, contents) in files {
-			fs::write(work.join(name), contents).unwrap();
+			let file = work.join(name);
+			fs::create_dir_all(file.parent().unwrap()).unwrap();
+			fs::write(file, contents).unwrap();
 		}
 		git(&["add", "--all"]);
 		git(&["commit", "--quiet", "--message", "files"]);
@@ -1418,6 +1435,60 @@ mod tests {
 			b"{\"saved\": true}\n"
 		);
 		assert_eq!(names(&work), [".git", "gone.lock"]);
+	}
+
+	/// Makes `link` a symbolic link to the directory `target`, or returns
+	/// `false` where this process may not create one.
+	#[cfg(any(unix, windows))]
+	fn link_directory(target: &Path, link: &Path) -> bool {
+		#[cfg(unix)]
+		let made = std::os::unix::fs::symlink(target, link);
+		#[cfg(windows)]
+		let made = std::os::windows::fs::symlink_dir(target, link);
+		match made {
+			Ok(()) => true,
+			// ERROR_PRIVILEGE_NOT_HELD: neither administrator rights nor
+			// Developer Mode.
+			#[cfg(windows)]
+			Err(error) if error.raw_os_error() == Some(1314) => false,
+			Err(error) => panic!("cannot link {}: {error}", link.display()),
+		}
+	}
+
+	#[cfg(any(unix, windows))]
+	#[test]
+	fn a_parent_directory_linked_after_verification_is_refused() {
+		let (root, work) = repository(&[("docs/a.md", b"a\n")]);
+		let probe = root.path().join("probe");
+		if !link_directory(&work, &probe) {
+			return;
+		}
+		fs::remove_dir(&probe)
+			.or_else(|_| fs::remove_file(&probe))
+			.unwrap();
+		let plan = WritePlan {
+			writes: vec![rewrite(&work, "docs/a.md", b"new a\n")],
+			deletes: Vec::new(),
+		};
+		// The directory moves away, and a link to it takes its place, so the
+		// target reached through the link holds the same bytes.
+		let docs = work.join("docs");
+		let moved = root.path().join("moved");
+		let linked = moved.clone();
+		let result = apply_meanwhile(&work, &plan, move || {
+			fs::rename(&docs, &linked).unwrap();
+			assert!(link_directory(&linked, &docs));
+		});
+
+		match result {
+			Err(ApplyError::Unwritable { path, reason }) => {
+				assert_eq!(path, RepoPath::new("docs/a.md").unwrap());
+				assert_eq!(reason, Unwritable::SymbolicLink);
+			}
+			other => panic!("expected a refused link, got {other:?}"),
+		}
+		assert_eq!(fs::read(moved.join("a.md")).unwrap(), b"a\n");
+		assert_eq!(names(&moved), ["a.md"]);
 	}
 
 	/// A save that changes the bytes but not the canonical oid still meets
