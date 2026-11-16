@@ -72,7 +72,40 @@ that version's section, so a release cannot be made without one.
   the write and is kept, instead of being overwritten. A short window right
   before the replacement remains.
 - A regular file that replaces a tracked symbolic link is now hashed as git
-  would add it, unless `core.symlinks` is false.
+  would add it. Where git checks symbolic links out as placeholder files
+  (`core.symlinks=false`, the Git for Windows default), an edited
+  placeholder is hashed as `git add` stores it: line endings are converted
+  under `text`, and a clean filter is refused as for any file. An unedited
+  placeholder keeps the oid the index holds.
+- `check` now evaluates only the cited document of another project and what
+  it depends on. It reports that project's configuration errors and the
+  errors met while hashing the cited document's sources, which were
+  dropped before, and a fault in an unrelated document of that project no
+  longer stops the check.
+- A document that cites a renamed document in its own project now keeps its
+  drift clock, deadline and facts across the rename, instead of losing the
+  date or moving it later.
+- Config patterns such as `documents.ignore` now read braces literally, as
+  `.gitignore` does. `{a,b}` alternation is for source patterns only.
+- Attesting one source of a living series entry no longer completes the
+  entry while a declared pattern that matches nothing has never been
+  reviewed.
+- A declaration that defines a YAML anchor is no longer rewritten when
+  another frontmatter key is malformed. The write is refused instead of
+  leaving a dangling alias.
+- Preset imports may nest at most 32 deep and expand to at most 4,096
+  presets per config. A longer chain is a configuration error instead of a
+  crash, and a multiplying chain no longer exhausts memory.
+- A command whose output cannot be written, such as a JSON report piped to
+  a reader that has exited, now exits 4 and says why on standard error,
+  instead of exiting with its ordinary status.
+- The `dependency-cycle` diagnostic says when other cycles may remain among
+  the same documents.
+- `check` and `explain` no longer print the same `outside-authority` advice
+  twice for one declaration. The summary still counts each failure.
+- The install guide says that the moon `check` task covers the project at
+  the workspace root, and that nested projects are checked with
+  `source-sentry -C <project> check`.
 - A file whose filter driver the attribute files cannot rule out is now
   refused as an unsupported filter, so the driver never runs.
 - Files whose names are close to the file system's 255-character limit can
