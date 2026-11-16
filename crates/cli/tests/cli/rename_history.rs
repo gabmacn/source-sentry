@@ -402,3 +402,76 @@ fn rename_history_treats_unreadable_declarations_conservatively() {
 		assert!(explained.contains(expected), "{explained}");
 	}
 }
+
+/// A document that cites a renamed document keeps the clock that the
+/// source's change started, with the same deadline, facts and exit code,
+/// before and after the rename is committed, even where the new path once
+/// held the attested content.
+#[test]
+fn rename_history_keeps_the_clocks_of_citing_documents() {
+	for reused in [false, true] {
+		let repo = TestRepo::init();
+		if reused {
+			repo.write(
+				".source-sentry/source-sentry.yaml",
+				"version: 1\ndocuments:\n  ignore: [renamed.md]\n",
+			);
+			repo.write("renamed.md", "# Source v1\n");
+		}
+		repo.write("source.md", "# Source v1\n");
+		repo.write("guide.md", "# Guide\n");
+		repo.run(&["track", "source.md", "--yes"]).expect_code(0);
+		repo
+			.run(&["attest", "source.md", "--reread", "--yes"])
+			.expect_code(0);
+		repo
+			.run(&[
+				"track",
+				"guide.md",
+				"--source",
+				"source.md",
+				"--grace",
+				"7",
+				"--yes",
+			])
+			.expect_code(0);
+		repo
+			.run(&["attest", "guide.md", "--reread", "--yes"])
+			.expect_code(0);
+		repo.commit_at("2026-10-01T12:00:00Z");
+		repo.write("source.md", "# Source v2\n");
+		repo.commit_at("2026-10-02T12:00:00Z");
+		let check = || {
+			repo
+				.run(&["check", "--format", "json", "--at", "2026-10-10T12:00:00Z"])
+				.json()
+		};
+		let before = check();
+		let guide = document(&before, "guide.md");
+		assert_eq!(
+			guide["sources"][0]["clock"]["since"],
+			"2026-10-02T12:00:00Z"
+		);
+		assert_eq!(guide["deadline"]["due"], "2026-10-09");
+		assert_eq!(guide["facts"], json!(["stale", "due", "overdue"]));
+		if reused {
+			repo.git(&["rm", "--quiet", "renamed.md"]);
+		}
+		repo.git(&["mv", "source.md", "renamed.md"]);
+		repo
+			.run(&["rename", "source.md", "renamed.md", "--yes"])
+			.expect_code(0);
+		for committed in [false, true] {
+			if committed {
+				repo.commit_at("2026-10-04T12:00:00Z");
+			}
+			let after = check();
+			let moved = document(&after, "guide.md");
+			assert_eq!(moved["sources"][0]["path"], "renamed.md");
+			assert_eq!(moved["sources"][0]["clock"], guide["sources"][0]["clock"]);
+			assert_eq!(moved["deadline"], guide["deadline"]);
+			assert_eq!(moved["facts"], guide["facts"]);
+			assert_eq!(after["exit-code"], before["exit-code"]);
+		}
+	}
+}

@@ -608,6 +608,32 @@ pub fn drift_sources<H: History>(
 	drift_of(history, revision, at, queries)
 }
 
+/// Finds each source's drift as [`drift_sources`] does, except that a stale
+/// query for which `along` returns a predicate is searched with that
+/// predicate instead of the comparison at the query's path.
+///
+/// `along` receives the query's position. Its predicate must hold exactly
+/// where the source differed from its attestation at the commit asked, as a
+/// renamed document's source does along its earlier paths. Every other
+/// query is answered as [`drift_sources`] answers it.
+///
+/// # Errors
+///
+/// Fails as [`drift`] does, and when a predicate fails.
+pub(crate) fn drift_sources_along<H, P>(
+	history: &H,
+	revision: &Revision,
+	at: DateTime<Utc>,
+	queries: &[SourceQuery],
+	along: impl FnMut(usize) -> Option<P>,
+) -> Result<Vec<Result<Drift, ClockError>>, BackendError>
+where
+	H: History,
+	P: RunPredicate,
+{
+	search(history, revision, at, queries, along)
+}
+
 /// The search behind [`drift`] and [`drift_sources`].
 fn drift_of<H: History, Q: Attested>(
 	history: &H,
@@ -615,6 +641,23 @@ fn drift_of<H: History, Q: Attested>(
 	at: DateTime<Utc>,
 	queries: &[Q],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
+	search(history, revision, at, queries, |_| None::<Drifted<'static>>)
+}
+
+/// The search behind every drift question: a query for which `along`
+/// returns a predicate is searched with it, and any other with [`Drifted`].
+fn search<H, Q, P>(
+	history: &H,
+	revision: &Revision,
+	at: DateTime<Utc>,
+	queries: &[Q],
+	mut along: impl FnMut(usize) -> Option<P>,
+) -> Result<Vec<Result<Drift, ClockError>>, BackendError>
+where
+	H: History,
+	Q: Attested,
+	P: RunPredicate,
+{
 	let is_fresh = |query: &Q| query.current_oid() == Some(query.attested_oid());
 	// Without history, a fresh source is final and a stale one has not
 	// started its clock. The walk below refines the stale ones.
@@ -632,15 +675,20 @@ fn drift_of<H: History, Q: Attested>(
 		return Ok(outcomes);
 	};
 
-	let (walked, mut predicates): (Vec<usize>, Vec<Drifted<'_>>) = queries
+	let (walked, mut predicates): (Vec<usize>, Vec<Search<'_, P>>) = queries
 		.iter()
 		.enumerate()
 		.filter(|(_, query)| !is_fresh(query))
 		.map(|(index, query)| {
-			let predicate = Drifted {
-				path: query.source_path(),
-				attested: query.attested_oid(),
-			};
+			let predicate = along(index).map_or_else(
+				|| {
+					Search::Path(Drifted {
+						path: query.source_path(),
+						attested: query.attested_oid(),
+					})
+				},
+				Search::Along,
+			);
 			(index, predicate)
 		})
 		.unzip();
@@ -677,6 +725,35 @@ impl RunPredicate for Drifted<'_> {
 		blobs: &[Option<&ObjectId>],
 	) -> Result<bool, BackendError> {
 		Ok(blobs != [Some(self.attested)])
+	}
+}
+
+/// One drift question's predicate: the comparison at the query's path, or
+/// the predicate a caller supplied in its place.
+enum Search<'q, P> {
+	/// The blob at the query's path differs from its attested oid.
+	Path(Drifted<'q>),
+	/// The caller's predicate.
+	Along(P),
+}
+
+impl<P: RunPredicate> RunPredicate for Search<'_, P> {
+	fn paths(&self) -> &[RepoPath] {
+		match self {
+			Self::Path(predicate) => predicate.paths(),
+			Self::Along(predicate) => predicate.paths(),
+		}
+	}
+
+	fn holds(
+		&mut self,
+		commit: &Commit,
+		blobs: &[Option<&ObjectId>],
+	) -> Result<bool, BackendError> {
+		match self {
+			Self::Path(predicate) => predicate.holds(commit, blobs),
+			Self::Along(predicate) => predicate.holds(commit, blobs),
+		}
 	}
 }
 

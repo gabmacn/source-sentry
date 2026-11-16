@@ -22,6 +22,13 @@
 //! its history: for a local document, the lockfile of every directory above
 //! it; for a remote document, every other owner's lockfile.
 //!
+//! # Renames
+//!
+//! A query follows its document's renames to the earlier paths, up to the
+//! commit that introduced each rename. [`drifts`] applies the same rule to
+//! a renamed document that another document cites as a source, so its
+//! drift is read at the path it had at each commit.
+//!
 //! # Files that cannot be read
 //!
 //! A declaring file that fails to parse at a commit never helps the document:
@@ -37,7 +44,8 @@ use chrono::{DateTime, Utc};
 use crate::adapters::frontmatter;
 use crate::adapters::lockfile::{LocalLockfile, RemoteLockfile};
 use crate::evaluate::clock::{
-	ClockError, ObligationStart, RunPredicate, introduced_at,
+	ClockError, Drift, ObligationStart, RunPredicate, SourceQuery,
+	drift_sources_along, introduced_at,
 };
 use crate::model::{
 	Declaration, DocumentId, Retired, Review, Seal, SourceDecl,
@@ -481,48 +489,29 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 					.blobs_at(&commit.id, &self.provenance.paths())?;
 				historical.iter().map(Option::as_ref).collect()
 			};
-			let mut evidence = Evidence::default();
-			let mut nearest = false;
-			for (site, oid) in self.provenance.sites().iter().zip(view) {
-				let Some(oid) = oid else {
-					continue;
-				};
-				let primary = !self.provenance.original()
-					&& matches!(site.kind, SiteKind::LocalLockfile { .. })
-					&& !std::mem::replace(&mut nearest, true);
-				let parsed = self.reader.parse(oid, site)?;
-				match parsed.entry(self.provenance.document()) {
-					Entry::Unreadable => evidence.unreadable |= !site.former || primary,
-					Entry::Found {
+			let original = self.provenance.original();
+			let evidence = identity_evidence(
+				self.reader,
+				&self.provenance,
+				&view,
+				|project, document, declaration, retired| {
+					let live = self.occurrences(
+						project,
+						document,
 						declaration,
-						retired,
-					} => {
-						let live = self.occurrences(
-							&site.project,
-							self.provenance.document(),
-							declaration,
-							&[],
-							own_path_exists,
-						);
-						evidence.live_occurrences += live;
-						evidence.occurrences += live
-							+ self.occurrences(
-								&site.project,
-								self.provenance.document(),
-								None,
-								if self.provenance.original() {
-									retired
-								} else {
-									&[]
-								},
-								own_path_exists,
-							);
-						if let Some(declaration) = declaration {
-							evidence.record(&site.project, declaration)?;
-						}
-					}
-				}
-			}
+						&[],
+						own_path_exists,
+					);
+					let earlier = self.occurrences(
+						project,
+						document,
+						None,
+						if original { retired } else { &[] },
+						own_path_exists,
+					);
+					(live, live + earlier)
+				},
+			)?;
 			// Before a rename, the carried marker belonged to the old live
 			// declaration, independently of older tombstones at either path.
 			let required = if self.provenance.original() {
@@ -548,6 +537,203 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 			);
 		}
 	}
+}
+
+/// What the declaring files of `provenance`'s active identity say at one
+/// commit, given their blobs in the order of its sites: the rename markers of
+/// the readable declarations, whether an authoritative file cannot be read,
+/// and, from `count`, how many markers match a condition.
+///
+/// `count` receives each readable entry's project, the active document, its
+/// declaration and its tombstones, and returns the matches in the live
+/// declaration and in all, in that order.
+///
+/// # Errors
+///
+/// Fails when the backend fails, a blob is missing, or a rename marker's
+/// former path cannot be resolved.
+fn identity_evidence<H: History>(
+	reader: &Reader<'_, H>,
+	provenance: &Provenance,
+	view: &[Option<&ObjectId>],
+	mut count: impl FnMut(
+		&RepoPath,
+		&DocumentId,
+		Option<&Declaration>,
+		&[Retired],
+	) -> (usize, usize),
+) -> Result<Evidence, BackendError> {
+	let mut evidence = Evidence::default();
+	let mut nearest = false;
+	for (site, oid) in provenance.sites().iter().zip(view) {
+		let Some(oid) = oid else {
+			continue;
+		};
+		let primary = !provenance.original()
+			&& matches!(site.kind, SiteKind::LocalLockfile { .. })
+			&& !std::mem::replace(&mut nearest, true);
+		let parsed = reader.parse(oid, site)?;
+		match parsed.entry(provenance.document()) {
+			Entry::Unreadable => evidence.unreadable |= !site.former || primary,
+			Entry::Found {
+				declaration,
+				retired,
+			} => {
+				let (live, all) =
+					count(&site.project, provenance.document(), declaration, retired);
+				evidence.live_occurrences += live;
+				evidence.occurrences += all;
+				if let Some(declaration) = declaration {
+					evidence.record(&site.project, declaration)?;
+				}
+			}
+		}
+	}
+	Ok(evidence)
+}
+
+/// Each drift question's answer, with one walk for all of them, as
+/// [`drift_sources`](crate::evaluate::clock::drift_sources) gives it, except
+/// that a question whose source is a renamed document follows that document
+/// to its earlier paths.
+///
+/// `lineages` has one entry per query: the query that reads the source
+/// document's declaration, whose renames lead to its earlier paths, or
+/// `None` for a source that was never renamed or is no tracked document.
+/// Only the identity of such a query is read, never its condition. The walk
+/// reads each renamed source at its own path back to the commit that
+/// introduced its latest rename, and then at the earlier path, by the same
+/// boundary rule as [`starts`], so a rename never resets the clock of a
+/// document that cites the renamed one.
+///
+/// # Errors
+///
+/// Fails as [`drift_sources`](crate::evaluate::clock::drift_sources) does,
+/// and when a declaring file's blob is missing from the object database.
+pub(super) fn drifts<H: History>(
+	history: &H,
+	revision: &Revision,
+	at: DateTime<Utc>,
+	queries: &[SourceQuery],
+	lineages: &[Option<Query>],
+) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
+	let reader = Reader {
+		history,
+		cache: RefCell::new(HashMap::new()),
+	};
+	let mut followed = queries
+		.iter()
+		.enumerate()
+		.map(|(index, query)| {
+			lineages
+				.get(index)
+				.and_then(Option::as_ref)
+				.filter(|lineage| !lineage.renamed.is_empty())
+				.map(|lineage| Followed::new(lineage, query, &reader))
+				.transpose()
+		})
+		.collect::<Result<Vec<_>, _>>()?;
+	drift_sources_along(history, revision, at, queries, |index| {
+		followed.get_mut(index)?.take()
+	})
+}
+
+/// Holds while a renamed document, cited as a source, differs from its
+/// attested oid at the path it had at each commit, and wherever its
+/// declaration cannot be read.
+struct Followed<'q, 'r, H> {
+	/// The oid the citing document attested.
+	attested: &'q ObjectId,
+	reader: &'r Reader<'r, H>,
+	/// The sites' paths, in order, then the source's current path.
+	paths: Vec<RepoPath>,
+	/// The identity active at this point in the backwards walk.
+	provenance: Provenance,
+}
+
+impl<'q, 'r, H> Followed<'q, 'r, H> {
+	/// The predicate for `query`, whose source is the document `lineage`
+	/// reads.
+	///
+	/// # Errors
+	///
+	/// Fails when a rename's former path cannot be resolved.
+	fn new(
+		lineage: &Query,
+		query: &'q SourceQuery,
+		reader: &'r Reader<'r, H>,
+	) -> Result<Self, BackendError> {
+		let mut paths: Vec<RepoPath> =
+			lineage.sites.iter().map(|site| site.path.clone()).collect();
+		paths.push(query.path.clone());
+		Ok(Self {
+			attested: &query.attested,
+			reader,
+			paths,
+			provenance: Provenance::new(lineage)?,
+		})
+	}
+}
+
+impl<H: History> RunPredicate for Followed<'_, '_, H> {
+	fn paths(&self) -> &[RepoPath] {
+		&self.paths
+	}
+
+	fn holds(
+		&mut self,
+		commit: &Commit,
+		blobs: &[Option<&ObjectId>],
+	) -> Result<bool, BackendError> {
+		loop {
+			let historical;
+			let (view, source) = if self.provenance.original() {
+				let (source, view) = blobs.split_last().ok_or_else(missing_blob)?;
+				(view.to_vec(), *source)
+			} else {
+				let DocumentId::Local(path) = self.provenance.document() else {
+					return Err(BackendError::new(
+						BackendErrorKind::Git,
+						"a renamed source's earlier identity is not a path",
+					));
+				};
+				let mut paths = self.provenance.paths();
+				paths.push(path.clone());
+				historical = self.reader.history.blobs_at(&commit.id, &paths)?;
+				if historical.len() != paths.len() {
+					return Err(missing_blob());
+				}
+				let (source, view) =
+					historical.split_last().ok_or_else(missing_blob)?;
+				(view.iter().map(Option::as_ref).collect(), source.as_ref())
+			};
+			// No condition is counted: the walk only needs the markers that
+			// decide which path the source had. The chain is known from the
+			// start, so the last two arguments, which only matter while a
+			// chain is still to be learned, have no effect.
+			let evidence = identity_evidence(
+				self.reader,
+				&self.provenance,
+				&view,
+				|_, _, _, _| (0, 0),
+			)?;
+			if self.provenance.follow(&evidence, 1, true)? {
+				continue;
+			}
+			// Where the declaration cannot be read, the path the source had is
+			// uncertain, and drift is taken to exist, as an obligation is, so
+			// the clock starts no later.
+			return Ok(evidence.unreadable || source != Some(self.attested));
+		}
+	}
+}
+
+/// The error for a walk that read fewer blobs than it asked for.
+fn missing_blob() -> BackendError {
+	BackendError::new(
+		BackendErrorKind::Git,
+		"the backend returned fewer blobs than the paths asked for",
+	)
 }
 
 /// The local path used to resolve a historical source, if it is local.

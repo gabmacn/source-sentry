@@ -1,7 +1,7 @@
 //! Batching clock questions, and turning answers into timings with deadlines.
 //!
 //! Every drift question, including a deleted pattern member's, goes into one
-//! [`drift_sources`] call, and every new obligation or completion into one
+//! [`drifts`] call, and every new obligation or completion into one
 //! [`starts`] call, so the whole evaluation walks the first-parent history
 //! at most twice.
 
@@ -9,12 +9,12 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 
-use super::history::{Query, starts};
+use super::history::{Query, drifts, starts};
 use super::model::{StartedClock, Timing};
 use super::scopes::schedule_diagnostic;
 use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location};
 use crate::evaluate::clock::{
-	ClockError, ClockStart, Drift, ObligationStart, SourceQuery, drift_sources,
+	ClockError, ClockStart, Drift, ObligationStart, SourceQuery,
 };
 use crate::evaluate::schedule::{Deadline, EffectiveSchedule, TimeZone};
 use crate::evaluate::settings::EffectiveSettings;
@@ -36,20 +36,27 @@ pub(super) enum Slot {
 #[derive(Debug, Default)]
 pub(super) struct Requests {
 	drift: Vec<SourceQuery>,
+	/// For each drift question, the query that reads its source's
+	/// declaration when the source is a renamed document.
+	lineages: Vec<Option<Query>>,
 	/// Each drift question's position, by path and attested oid. The current
-	/// state follows from the path, which the snapshot either has or lacks.
+	/// state follows from the path, which the snapshot either has or lacks,
+	/// and so does the lineage, which the evaluated inventory gives the path.
 	drift_positions: BTreeMap<(RepoPath, ObjectId), usize>,
 	starts: Vec<Query>,
 }
 
 impl Requests {
 	/// Asks when the source at `path`, attested at `attested` and now at
-	/// `current`, or absent when `current` is `None`, drifted.
+	/// `current`, or absent when `current` is `None`, drifted. `lineage`
+	/// reads the source's declaration when it is a renamed document, whose
+	/// earlier paths the search then follows.
 	pub(super) fn drift(
 		&mut self,
 		path: &RepoPath,
 		attested: &ObjectId,
 		current: Option<&ObjectId>,
+		lineage: Option<Query>,
 	) -> Slot {
 		let key = (path.clone(), attested.clone());
 		if let Some(&position) = self.drift_positions.get(&key) {
@@ -60,6 +67,7 @@ impl Requests {
 			attested: attested.clone(),
 			current: current.cloned(),
 		});
+		self.lineages.push(lineage);
 		let position = self.drift.len() - 1;
 		self.drift_positions.insert(key, position);
 		Slot::Drift(position)
@@ -84,7 +92,7 @@ impl Requests {
 		at: DateTime<Utc>,
 	) -> Result<Answers, BackendError> {
 		let answers = Answers {
-			drift: drift_sources(history, revision, at, &self.drift)?,
+			drift: drifts(history, revision, at, &self.drift, &self.lineages)?,
 			starts: starts(history, revision, at, &self.starts)?,
 		};
 		// Both functions promise one answer per question; this keeps a broken

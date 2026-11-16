@@ -164,10 +164,18 @@ impl<'i> Planner<'i, '_, '_> {
 		} else if let Some(current) = &current {
 			match &attested {
 				Some(attested) if attested == current => (SourceState::Fresh, None),
-				Some(attested) => (
-					SourceState::Drifted,
-					Some(self.requests.drift(&source.path, attested, Some(current))),
-				),
+				Some(attested) => {
+					let lineage = self.lineage(&source.path);
+					(
+						SourceState::Drifted,
+						Some(self.requests.drift(
+							&source.path,
+							attested,
+							Some(current),
+							lineage,
+						)),
+					)
+				}
 				None => (
 					SourceState::Unattested,
 					(!unattested).then(|| {
@@ -236,20 +244,26 @@ impl<'i> Planner<'i, '_, '_> {
 			};
 			let attested = attestation.map(|found| found.oid.clone());
 			let (state, slot) = match (membership, &attested, &current) {
-				(Membership::Removed(found), _, _) => (
-					SourceState::Removed,
-					Some(self.requests.drift(path, &found.oid, None)),
-				),
+				(Membership::Removed(found), _, _) => {
+					let lineage = self.lineage(path);
+					(
+						SourceState::Removed,
+						Some(self.requests.drift(path, &found.oid, None, lineage)),
+					)
+				}
 				(Membership::Matched(_), _, None) => (SourceState::Unhashable, None),
 				(Membership::Matched(_), Some(attested), Some(current))
 					if attested == current =>
 				{
 					(SourceState::Fresh, None)
 				}
-				(Membership::Matched(_), Some(attested), Some(current)) => (
-					SourceState::Drifted,
-					Some(self.requests.drift(path, attested, Some(current))),
-				),
+				(Membership::Matched(_), Some(attested), Some(current)) => {
+					let lineage = self.lineage(path);
+					(
+						SourceState::Drifted,
+						Some(self.requests.drift(path, attested, Some(current), lineage)),
+					)
+				}
 				(Membership::Matched(_), None, Some(_)) => (
 					SourceState::Added,
 					(!unattested).then(|| {
@@ -281,6 +295,27 @@ impl<'i> Planner<'i, '_, '_> {
 				field: field.clone(),
 			});
 		}
+	}
+
+	/// The query that reads the declaration of the document at `path`, when
+	/// it is a renamed document of the evaluated project, so that a drift
+	/// search follows it to its earlier paths. A source that is no tracked
+	/// document here, or was never renamed, has none and is searched at its
+	/// path alone. Of several claims, the first is read.
+	fn lineage(&mut self, path: &RepoPath) -> Option<Query> {
+		let inventory = self.inventory;
+		let claim = inventory
+			.claims_of(&DocumentId::Local(path.clone()))
+			.next()
+			.filter(|claim| !claim.declaration.renamed.is_empty())?;
+		Some(Query {
+			project: inventory.project.clone(),
+			projects: inventory.projects.clone(),
+			renamed: claim.declaration.renamed.clone(),
+			document: claim.document.clone(),
+			sites: sites(claim, inventory, self.scopes),
+			condition: Condition::Declared,
+		})
 	}
 }
 

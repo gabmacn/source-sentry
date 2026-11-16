@@ -754,3 +754,75 @@ fn an_uncommitted_deletion_has_not_started() {
 	let outcomes = drift_sources(&history, &revision, day(1), &queries).unwrap();
 	assert_eq!(outcomes, vec![Ok(Drift::NotStarted), Ok(Drift::Fresh)]);
 }
+
+/// A query given its own predicate is searched with it, and the others are
+/// answered exactly as `drift_sources` answers them. A fresh query is never
+/// asked for a predicate.
+#[test]
+fn a_supplied_predicate_replaces_only_its_own_querys_search() {
+	let mut history = FakeHistory::new();
+	history.commit(
+		day(0),
+		&[("src/a.rs", Some(b"A")), ("src/old.rs", Some(b"B"))],
+	);
+	let changed = history.commit(day(2), &[("src/old.rs", Some(b"B2"))]);
+	history.commit(
+		day(4),
+		&[
+			("src/a.rs", Some(b"A2")),
+			("src/old.rs", None),
+			("src/new.rs", Some(b"B2")),
+		],
+	);
+	let revision = working(&history);
+	let queries = [
+		SourceQuery {
+			path: path("src/a.rs"),
+			attested: fake_oid(b"A"),
+			current: Some(fake_oid(b"A2")),
+		},
+		SourceQuery {
+			path: path("src/new.rs"),
+			attested: fake_oid(b"B"),
+			current: Some(fake_oid(b"B2")),
+		},
+		SourceQuery {
+			path: path("src/c.rs"),
+			attested: fake_oid(b"C"),
+			current: Some(fake_oid(b"C")),
+		},
+	];
+	let plain = drift_sources(&history, &revision, day(5), &queries).unwrap();
+	assert_eq!(plain[1], Ok(Drift::TimingUnknown));
+
+	let none = drift_sources_along(&history, &revision, day(5), &queries, |_| {
+		None::<FnPredicate<fn(&Commit, &[Option<&ObjectId>]) -> _>>
+	})
+	.unwrap();
+	assert_eq!(none, plain);
+
+	let asked = RefCell::new(Vec::new());
+	let attested = fake_oid(b"B");
+	let along =
+		drift_sources_along(&history, &revision, day(5), &queries, |index| {
+			asked.borrow_mut().push(index);
+			(index == 1).then(|| {
+				FnPredicate::new(
+					vec![path("src/new.rs"), path("src/old.rs")],
+					|_commit, blobs: &[Option<&ObjectId>]| {
+						Ok(blobs.iter().all(|blob| *blob != Some(&attested)))
+					},
+				)
+			})
+		})
+		.unwrap();
+	assert_eq!(*asked.borrow(), [0, 1]);
+	assert_eq!(
+		along,
+		vec![
+			plain[0].clone(),
+			Ok(Drift::Started(started(&changed, day(2)))),
+			Ok(Drift::Fresh),
+		]
+	);
+}
