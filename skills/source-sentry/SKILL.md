@@ -135,9 +135,10 @@ file it matches, and every file that no longer does. `--reread` also
 records that you reread the entire document, not only the parts the changes
 touch. A document without sources can only be reviewed with `--reread`.
 
-No command withdraws a recorded review. Until it is committed, a review is
-an ordinary change to a lockfile, or to the document's frontmatter, which
-git can restore. Tell the person before you discard anything.
+Outside the interactive `review` session that recorded it, no command
+withdraws a recorded review. Until it is committed, a review is an ordinary
+change to a lockfile, or to the document's frontmatter, which git can
+restore. Tell the person before you discard anything.
 
 `source-sentry review` walks the same steps interactively, but it needs a
 terminal; agents use `diff` and `attest`.
