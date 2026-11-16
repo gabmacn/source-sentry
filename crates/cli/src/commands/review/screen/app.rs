@@ -11,7 +11,7 @@ use ratatui::layout::{Position, Rect};
 use source_sentry_core::evaluate::Timing;
 use source_sentry_core::model::{DocumentId, Outcome};
 use source_sentry_core::mutate::{
-	Baseline, Current, DocumentDiff, Selection, SourceSpec,
+	Baseline, Current, DocumentDiff, Expectation, Selection, SourceSpec,
 };
 
 use super::super::Batch;
@@ -164,6 +164,47 @@ fn moved(at: usize, key: Key, last: usize) -> usize {
 		Key::Down => (at + 1).min(last),
 		Key::PageUp => at.saturating_sub(LISTED_PAGE),
 		_ => (at + LISTED_PAGE).min(last),
+	}
+}
+
+/// The comparison on display narrowed to the picked sources, by their
+/// places among those the document declares, for a review of them alone.
+/// Its expectations are those a write of that selection checks, taken from
+/// what was displayed: each current file of a picked source, and each
+/// former member of a picked pattern that no picked source still includes.
+fn narrowed(whole: &DocumentDiff, picked: &BTreeSet<usize>) -> DocumentDiff {
+	let sources: Vec<_> = picked
+		.iter()
+		.filter_map(|place| whole.sources.get(*place))
+		.cloned()
+		.collect();
+	let mut present = BTreeMap::new();
+	let mut removed = BTreeSet::new();
+	for entry in sources.iter().flat_map(|source| &source.entries) {
+		match &entry.current {
+			Current::Present { oid, .. } => {
+				present.insert(entry.path.clone(), oid.clone());
+			}
+			Current::Missing => {
+				removed.insert(entry.path.clone());
+			}
+		}
+	}
+	removed.retain(|path| !present.contains_key(path));
+	let mut expectations: Vec<Expectation> = removed
+		.into_iter()
+		.map(|path| Expectation::Absent { path })
+		.chain(
+			present
+				.into_iter()
+				.map(|(path, oid)| Expectation::Present { path, oid }),
+		)
+		.collect();
+	expectations.sort_by(|left, right| left.path().cmp(right.path()));
+	DocumentDiff {
+		document: whole.document.clone(),
+		sources,
+		expectations,
 	}
 }
 
@@ -1852,7 +1893,8 @@ impl<'a> App<'a> {
 
 	/// Records the answer for the document on display, then moves on. With
 	/// sources picked, the review covers those alone, as `attest --source`
-	/// does, and is compared again for exactly them.
+	/// does. Either way it is bound to the comparison on display, so that a
+	/// source changed since is refused rather than recorded unseen.
 	fn record(&mut self, reread: bool) -> Result<(), Failure> {
 		let Some((id, whole)) = self.shown.as_ref().and_then(|shown| {
 			shown
@@ -1865,13 +1907,7 @@ impl<'a> App<'a> {
 		let selection = self.selection();
 		let compared = match &selection {
 			None => whole,
-			Some(selection) => match self.session.compare_selected(&id, selection) {
-				Ok(compared) => compared,
-				Err(failure) => {
-					self.notice = Some(failure.message);
-					return Ok(());
-				}
-			},
+			Some(_) => narrowed(&whole, &self.picked_sources),
 		};
 		let covered = selection.as_ref().map(|_| self.picked_sources.len());
 		let written = self.session.write_selected(

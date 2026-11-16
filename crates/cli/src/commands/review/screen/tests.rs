@@ -1388,3 +1388,5 @@ fn keys_and_buttons_keep_to_what_is_selected() {
 		"  ?  keys   q  quit   u  undo   v  document   Enter  its name   o  others"
 	);
 }
+
+mod answers;
