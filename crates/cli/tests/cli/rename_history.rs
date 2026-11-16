@@ -476,6 +476,70 @@ fn rename_history_keeps_the_clocks_of_citing_documents() {
 	}
 }
 
+/// A document that cites a renamed document keeps the clock that the
+/// source's change started, and its deadline, once the renamed document is
+/// retired. Only the facts that came from tracking it as a live document
+/// cease; its file stays in place and citing it remains valid.
+#[test]
+fn rename_history_keeps_the_clocks_of_citing_documents_after_retirement() {
+	let repo = TestRepo::init();
+	repo.write("code.rs", "fn first() {}\n");
+	repo.write("a.md", "# Source A v1\n");
+	repo.write("b.md", "# Dependant B\n");
+	for args in [
+		&[
+			"track",
+			"a.md",
+			"--source",
+			"code.rs",
+			"--lockfile",
+			".",
+			"--yes",
+		][..],
+		&["attest", "a.md", "--yes"],
+		&["track", "b.md", "--source", "a.md", "--grace", "7", "--yes"],
+		&["attest", "b.md", "--yes"],
+	] {
+		repo.run(args).expect_code(0);
+	}
+	repo.commit_at("2026-10-01T12:00:00Z");
+	repo.write("code.rs", "fn second() {}\n");
+	repo.write("a.md", "# Source A v2\n");
+	repo.commit_at("2026-10-02T12:00:00Z");
+	repo.git(&["mv", "a.md", "renamed.md"]);
+	repo
+		.run(&["rename", "a.md", "renamed.md", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-04T12:00:00Z");
+	let check = || {
+		repo
+			.run(&["check", "--format", "json", "--at", "2026-10-06T12:00:00Z"])
+			.json()
+	};
+	let renamed = check();
+	let before = document(&renamed, "b.md");
+	assert_eq!(
+		before["sources"][0]["clock"]["since"],
+		"2026-10-02T12:00:00Z"
+	);
+	assert_eq!(before["deadline"]["due"], "2026-10-09");
+	assert_eq!(
+		before["facts"],
+		json!(["stale", "upstream-stale", "upstream-due"])
+	);
+
+	repo.run(&["retire", "renamed.md", "--yes"]).expect_code(0);
+	repo.commit_at("2026-10-05T12:00:00Z");
+	assert!(repo.exists("renamed.md"));
+	let retired = check();
+	let after = document(&retired, "b.md");
+	assert_eq!(after["sources"][0]["path"], "renamed.md");
+	assert_eq!(after["sources"][0]["clock"], before["sources"][0]["clock"]);
+	assert_eq!(after["deadline"], before["deadline"]);
+	assert_eq!(after["facts"], json!(["stale"]));
+	assert_eq!(retired["diagnostics"], json!([]));
+}
+
 /// A document that cites a document of another project keeps its clock,
 /// deadline, facts and exit code when that document is renamed within its
 /// project, before and after the rename is committed, even where the new

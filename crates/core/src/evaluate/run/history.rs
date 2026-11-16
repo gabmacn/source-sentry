@@ -599,8 +599,12 @@ fn identity_evidence<H: History>(
 ///
 /// `lineages` has one entry per query: the query that reads the source
 /// document's declaration, whose renames lead to its earlier paths, or
-/// `None` for a source that was never renamed or is no tracked document.
-/// Only the identity of such a query is read, never its condition. The walk
+/// `None` for a source that is a live document never renamed, or no
+/// document at all. The query of a retired document carries no renames,
+/// since its tombstone keeps none: the walk learns them from the first
+/// declaration of it that it meets, as [`starts`] does for a retired
+/// document. Only the identity of such a query is read, never its
+/// condition. The walk
 /// reads each renamed source at its own path back to the commit that
 /// introduced its latest rename, and then at the earlier path, by the same
 /// boundary rule as [`starts`], so a rename never resets the clock of a
@@ -628,7 +632,6 @@ pub(super) fn drifts<H: History>(
 			lineages
 				.get(index)
 				.and_then(Option::as_ref)
-				.filter(|lineage| !lineage.renamed.is_empty())
 				.map(|lineage| Followed::new(lineage, query, &reader))
 				.transpose()
 		})

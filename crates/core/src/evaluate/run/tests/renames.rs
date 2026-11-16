@@ -166,6 +166,114 @@ fn a_source_renamed_twice_keeps_the_citing_documents_clock() {
 	assert_eq!(facts_after, facts_before);
 }
 
+/// `lock` with its tombstones replaced by one for each of `retired`.
+fn with_tombstones(lock: &str, retired: &[&str]) -> String {
+	let mut lock: Value = serde_json::from_str(lock).unwrap();
+	for key in retired {
+		lock["retired"][key] = json!([{"retired": review()}]);
+	}
+	serde_json::to_string_pretty(&lock).unwrap()
+}
+
+/// The docs lockfile in which `docs/d.md` cites `cited` with a week's grace,
+/// and `source`, a document that is no longer tracked, has a tombstone.
+fn retired_lock(source: &str, cited: &Value) -> String {
+	with_tombstones(
+		&lockfile(&json!({
+			"d.md": {"schedule": {"grace": 7}, "sources": [cited]},
+		})),
+		&[source],
+	)
+}
+
+/// A document that cites a renamed source keeps the clock its source's
+/// change started, with the same deadline and facts, once that source is
+/// retired and no longer tracked, its file left in place.
+#[test]
+fn a_renamed_then_retired_source_keeps_the_citing_documents_clock() {
+	let (mut repo, change) = cited_and_changed(&[]);
+	let lock = docs_lock(
+		"r.md",
+		&[renamed("/docs/s.md", 4)],
+		&attested("/docs/r.md", "v1"),
+	);
+	repo.commit(4, &rename_changes("docs/s.md", "docs/r.md", &lock));
+	let renamed = repo.evaluate(day(6), None);
+	let (timing_before, deadline_before, facts_before) =
+		clock_of(&renamed, "docs/r.md");
+	assert_eq!(started(&timing_before), (&change, day(2)));
+	assert_eq!(facts_before, [Fact::Stale]);
+	assert!(deadline_before.is_some());
+
+	let lock = retired_lock("r.md", &attested("/docs/r.md", "v1"));
+	repo.commit(5, &[(DOCS_LOCK, Some(&lock))]);
+	let retired = repo.evaluate(day(6), None);
+	let (timing_after, deadline_after, facts_after) =
+		clock_of(&retired, "docs/r.md");
+	assert_eq!(started(&timing_after), (&change, day(2)));
+	assert_eq!(deadline_after, deadline_before);
+	assert_eq!(facts_after, facts_before);
+}
+
+/// A retired source that was never renamed keeps the citing document's
+/// clock, as it did before its retirement.
+#[test]
+fn a_retired_source_never_renamed_keeps_the_citing_documents_clock() {
+	let (mut repo, change) = cited_and_changed(&[]);
+	let before = repo.evaluate(day(6), None);
+	let (_, deadline_before, facts_before) = clock_of(&before, "docs/s.md");
+
+	let lock = retired_lock("s.md", &attested("/docs/s.md", "v1"));
+	repo.commit(5, &[(DOCS_LOCK, Some(&lock))]);
+	let after = repo.evaluate(day(6), None);
+	let (timing_after, deadline_after, facts_after) =
+		clock_of(&after, "docs/s.md");
+	assert_eq!(started(&timing_after), (&change, day(2)));
+	assert_eq!(deadline_after, deadline_before);
+	assert_eq!(facts_after, facts_before);
+}
+
+/// A document whose cited source is unchanged, but stale through its own
+/// source, is upstream-stale; once that source document is retired, it is
+/// no longer tracked, so the citing document is fresh.
+#[test]
+fn a_retired_source_document_no_longer_makes_its_citers_upstream_stale() {
+	let lock = |retired: bool| {
+		let mut documents = json!({
+			"d.md": {"schedule": {"grace": 7}, "sources": [attested("/docs/s.md", "v1")]},
+		});
+		if retired {
+			with_tombstones(&lockfile(&documents), &["s.md"])
+		} else {
+			documents["s.md"] = json!({
+				"reviewed": review(),
+				"sources": [attested("/docs/code.rs", "c1")],
+			});
+			lockfile(&documents)
+		}
+	};
+	let tracked = lock(false);
+	let mut repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		("docs/code.rs", "c1"),
+		("docs/s.md", "v1"),
+		("docs/d.md", "# D\n"),
+		(DOCS_LOCK, tracked.as_str()),
+	]);
+	repo.commit(2, &[("docs/code.rs", Some("c2"))]);
+	let before = repo.evaluate(day(6), None);
+	let facts_before = facts(document(&before, "docs/d.md"));
+	assert!(
+		facts_before.contains(&Fact::UpstreamStale),
+		"{facts_before:?}"
+	);
+
+	repo.commit(5, &[(DOCS_LOCK, Some(&lock(true)))]);
+	let after = repo.evaluate(day(6), None);
+	assert_eq!(facts(document(&after, "docs/d.md")), [Fact::Fresh]);
+	assert_eq!(timing(&after, "docs/d.md", "docs/s.md"), &Timing::Idle);
+}
+
 /// A renamed document that is an attested member of a pattern source keeps
 /// the member's clock.
 #[test]
@@ -336,6 +444,38 @@ fn a_source_renamed_in_another_project_keeps_the_citing_documents_clock() {
 		assert_eq!(deadline_after, deadline_before);
 		assert_eq!(facts_after, facts_before);
 	}
+}
+
+/// A document that cites a document of another project keeps its clock,
+/// deadline and facts when that document is renamed within its project
+/// and then retired there.
+#[test]
+fn a_source_renamed_then_retired_in_another_project_keeps_the_clock() {
+	let (mut repo, change) = cited_in_another_project(&[]);
+	let (up, docs) = rename_in_up("/s.md");
+	repo.commit(
+		4,
+		&[
+			("up/s.md", None),
+			("up/r.md", Some("v2")),
+			(UP_LOCK, Some(&up)),
+			(DOCS_LOCK, Some(&docs)),
+		],
+	);
+	let renamed = repo.evaluate(day(6), None);
+	let (timing_before, deadline_before, facts_before) =
+		clock_of(&renamed, "up/r.md");
+	assert_eq!(started(&timing_before), (&change, day(2)));
+	assert!(deadline_before.is_some());
+
+	let up = with_tombstones(&lockfile(&json!({})), &["r.md"]);
+	repo.commit(5, &[(UP_LOCK, Some(&up))]);
+	let retired = repo.evaluate(day(6), None);
+	let (timing_after, deadline_after, facts_after) =
+		clock_of(&retired, "up/r.md");
+	assert_eq!(started(&timing_after), (&change, day(2)));
+	assert_eq!(deadline_after, deadline_before);
+	assert_eq!(facts_after, facts_before);
 }
 
 /// A rename in another project, recorded with a repository-rooted `from`,

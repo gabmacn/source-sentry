@@ -37,7 +37,7 @@ pub(super) enum Slot {
 pub(super) struct Requests {
 	drift: Vec<SourceQuery>,
 	/// For each drift question, the query that reads its source's
-	/// declaration when the source is a renamed document.
+	/// declaration when the source is a renamed or a retired document.
 	lineages: Vec<Option<Query>>,
 	/// Each drift question's position, by path and attested oid. The current
 	/// state follows from the path, which the snapshot either has or lacks,
@@ -49,8 +49,8 @@ pub(super) struct Requests {
 impl Requests {
 	/// Asks when the source at `path`, attested at `attested` and now at
 	/// `current`, or absent when `current` is `None`, drifted. `lineage`
-	/// reads the source's declaration when it is a renamed document, whose
-	/// earlier paths the search then follows.
+	/// reads the source's declaration when it is a renamed or a retired
+	/// document, whose earlier paths the search then follows.
 	pub(super) fn drift(
 		&mut self,
 		path: &RepoPath,

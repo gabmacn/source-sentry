@@ -301,14 +301,15 @@ impl<'i> Planner<'i, '_, '_> {
 	}
 
 	/// The query that reads the declaration of the document at `path`, when
-	/// it is a renamed document, so that a drift search follows it to its
-	/// earlier paths. The document is looked up in the evaluated inventory,
-	/// then in the project that owns it among [`Elsewhere`]'s.
+	/// it is a renamed or a retired document, so that a drift search follows
+	/// it to its earlier paths. The document is looked up in the evaluated
+	/// inventory, then in the project that owns it among [`Elsewhere`]'s.
 	fn lineage(&mut self, path: &RepoPath) -> Option<Query> {
 		let document = DocumentId::Local(path.clone());
 		match self.inventory.claims_of(&document).next() {
 			Some(claim) => lineage(claim, self.inventory, self.scopes),
-			None => self.elsewhere.lineage(&document),
+			None => retired_lineage(&document, self.inventory)
+				.or_else(|| self.elsewhere.lineage(&document)),
 		}
 	}
 }
@@ -324,8 +325,9 @@ pub(super) struct Elsewhere<'a> {
 
 impl Elsewhere<'_> {
 	/// The query that reads the declaration of `document` in the project
-	/// that owns it, as [`lineage`] builds it there. A document of a project
-	/// that is not among these, or that project does not track, has none.
+	/// that owns it, as [`lineage`] or [`retired_lineage`] builds it there. A
+	/// document of a project that is not among these, or that this project
+	/// neither tracks nor has retired, has none.
 	fn lineage(&self, document: &DocumentId) -> Option<Query> {
 		let DocumentId::Local(path) = document else {
 			return None;
@@ -334,8 +336,10 @@ impl Elsewhere<'_> {
 			.projects
 			.iter()
 			.find(|(configs, _)| configs.owns(path))?;
-		let claim = inventory.claims_of(document).next()?;
-		lineage(claim, inventory, &mut Scopes::new(configs, None))
+		match inventory.claims_of(document).next() {
+			Some(claim) => lineage(claim, inventory, &mut Scopes::new(configs, None)),
+			None => retired_lineage(document, inventory),
+		}
 	}
 }
 
@@ -358,6 +362,45 @@ fn lineage(
 		renamed: claim.declaration.renamed.clone(),
 		document: claim.document.clone(),
 		sites: sites(claim, inventory, scopes),
+		condition: Condition::Declared,
+	})
+}
+
+/// The query that reads the declaration that `document`, a document that
+/// `inventory` has retired and no longer tracks, had before its
+/// retirement, so that a drift search follows it to its earlier paths if
+/// it was renamed. A tombstone keeps no rename marker, so the query carries
+/// none: the search learns them from the last committed declaration, read
+/// in the lockfile that holds the tombstone and in the document's former
+/// sites. A document without a tombstone in `inventory` has none, and so
+/// costs nothing.
+fn retired_lineage(
+	document: &DocumentId,
+	inventory: &Inventory,
+) -> Option<Query> {
+	let mut sites = Vec::new();
+	for tombstone in &inventory.tombstones {
+		if &tombstone.document == document
+			&& !sites
+				.iter()
+				.any(|site: &Site| site.path == tombstone.lockfile)
+		{
+			sites.push(local_lockfile_site(
+				crate::config::project_of(&inventory.projects, &tombstone.lockfile),
+				tombstone.lockfile.clone(),
+			));
+		}
+	}
+	if sites.is_empty() || !matches!(document, DocumentId::Local(_)) {
+		return None;
+	}
+	add_former_sites(document, inventory, &mut sites);
+	Some(Query {
+		project: inventory.project.clone(),
+		projects: inventory.projects.clone(),
+		renamed: Vec::new(),
+		document: document.clone(),
+		sites,
 		condition: Condition::Declared,
 	})
 }
