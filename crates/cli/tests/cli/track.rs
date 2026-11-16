@@ -538,7 +538,7 @@ fn untrack_removes_a_source() {
 	let run =
 		repo.run(&["untrack", "docs/guide.md", "--source", "src/b.rs", "--yes"]);
 	run.expect_code(0);
-	assert!(run.stdout.contains("1 source remain"), "{}", run.stdout);
+	assert!(run.stdout.contains("1 source remains"), "{}", run.stdout);
 	let lockfile: Value =
 		serde_json::from_str(&repo.read("docs/source-sentry.lock")).unwrap();
 	let sources = lockfile["documents"]["guide.md"]["sources"]
