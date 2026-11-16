@@ -568,7 +568,7 @@ review.
 ```
 ^\.source-sentry/.*$                        @example-org/policy-owners
 (^|.*/)source-sentry\.(yaml|lock)$          @example-org/policy-owners
-^\.forgejo/workflows/source-sentry\.yaml$   @example-org/policy-owners
+^\.forgejo/workflows/source-sentry\.yml$    @example-org/policy-owners
 ^\.forgejo/CODEOWNERS$                      @example-org/policy-owners
 ^docs/privacy\.md$                          @example-org/legal
 ```
