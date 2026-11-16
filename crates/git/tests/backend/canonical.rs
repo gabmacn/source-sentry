@@ -467,6 +467,40 @@ fn a_regular_file_replacing_a_link_is_hashed_by_core_symlinks() {
 	}
 }
 
+/// When the attribute files nest macros deeper than they are read, nothing
+/// shows whether a driver named like an attribute state applies: the file is
+/// refused, and the driver never runs.
+#[test]
+fn a_driver_hidden_beyond_the_macro_depth_limit_is_refused() {
+	let repo = TestRepo::init();
+	let mut lines: Vec<String> = (0..64)
+		.map(|level| format!("[attr]m{level} m{}", level + 1))
+		.collect();
+	lines.push("[attr]m64 filter=set".to_owned());
+	lines.push("src.dat m0\n".to_owned());
+	repo.write(".gitattributes", lines.join("\n"));
+	repo.write("src.dat", "payload\n");
+	repo.commit_all("add a deep macro chain");
+	repo.git(&[
+		"config",
+		"filter.set.clean",
+		"echo ran >> filter-marker; cat",
+	]);
+	assert_eq!(
+		repo.git(&["check-attr", "filter", "--", "src.dat"]),
+		"src.dat: filter: set"
+	);
+
+	assert_eq!(
+		canonical(&repo, "src.dat"),
+		Canonical::UnsupportedFilter {
+			filter: "set".to_owned(),
+			attribute_origin: "origin unknown".to_owned(),
+		}
+	);
+	assert!(!repo.path().join("filter-marker").exists());
+}
+
 #[test]
 fn drivers_named_like_attribute_states_are_refused_when_configured() {
 	for word in ["set", "unset", "unspecified"] {

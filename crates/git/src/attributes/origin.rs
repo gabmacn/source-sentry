@@ -53,9 +53,43 @@ pub(crate) fn locate_filter(
 	path: &RepoPath,
 	driver: &str,
 ) -> Option<String> {
+	match resolve_filter(context, path) {
+		// Git and this reading disagree if the line sets anything else;
+		// naming it would then mislead.
+		FilterLine::Line { origin, state } if state.value() == Some(driver) => {
+			Some(origin)
+		}
+		_ => None,
+	}
+}
+
+/// What the attribute files say about a path's `filter` attribute.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FilterLine {
+	/// The line that decides it, written as `<file>:<line>`, and the state
+	/// that line gives.
+	Line {
+		/// The line, as `<file>:<line>`.
+		origin: String,
+		/// The state it gives the attribute.
+		state: State,
+	},
+	/// No line mentions `filter` for the path.
+	NoLine,
+	/// Macro expansion reached its depth limit before the deciding line was
+	/// found, so the reading cannot tell.
+	Inconclusive,
+}
+
+/// Finds the line that decides `path`'s `filter` attribute.
+pub(crate) fn resolve_filter(
+	context: &OriginContext<'_>,
+	path: &RepoPath,
+) -> FilterLine {
 	let sources = load_sources(context, path);
 	let macros = collect_macros(&sources);
 	let mut filled = HashSet::new();
+	let mut truncated = false;
 	for source in &sources {
 		for line in source.lines.iter().rev() {
 			let Entry::Pattern { pattern, states } = &line.entry else {
@@ -64,15 +98,21 @@ pub(crate) fn locate_filter(
 			if !pattern_matches(pattern, &source.base, path, context.ignore_case) {
 				continue;
 			}
-			if let Some(state) = fill(states, &macros, &mut filled, 0) {
-				// Git and this reading disagree if the line sets anything
-				// else; naming it would then mislead.
-				return (state.value() == Some(driver))
-					.then(|| format!("{}:{}", source.label, line.number));
+			let found = fill(states, &macros, &mut filled, 0, &mut truncated);
+			// A macro left unexpanded may have set `filter` before anything
+			// found after it.
+			if truncated {
+				return FilterLine::Inconclusive;
+			}
+			if let Some(state) = found {
+				return FilterLine::Line {
+					origin: format!("{}:{}", source.label, line.number),
+					state,
+				};
 			}
 		}
 	}
-	None
+	FilterLine::NoLine
 }
 
 /// One attribute file.
@@ -360,12 +400,13 @@ fn collect_macros(sources: &[Source]) -> HashMap<String, Vec<(String, State)>> {
 /// `fill_one`: assigns a line's states, last first, to attributes that no
 /// higher-precedence line has assigned, expanding macros that are set.
 /// Returns the state the line gives `filter`, if it is the line that decides
-/// it.
+/// it. Sets `truncated`, and stops, at a macro beyond [`MAX_MACRO_DEPTH`].
 fn fill(
 	states: &[(String, State)],
 	macros: &HashMap<String, Vec<(String, State)>>,
 	filled: &mut HashSet<String>,
 	depth: usize,
+	truncated: &mut bool,
 ) -> Option<State> {
 	for (name, state) in states.iter().rev() {
 		if !filled.insert(name.clone()) {
@@ -375,11 +416,16 @@ fn fill(
 			return Some(state.clone());
 		}
 		if *state == State::Set
-			&& depth < MAX_MACRO_DEPTH
 			&& let Some(definition) = macros.get(name)
-			&& let Some(found) = fill(definition, macros, filled, depth + 1)
 		{
-			return Some(found);
+			if depth >= MAX_MACRO_DEPTH {
+				*truncated = true;
+				return None;
+			}
+			let found = fill(definition, macros, filled, depth + 1, truncated);
+			if found.is_some() || *truncated {
+				return found;
+			}
 		}
 	}
 	None
@@ -512,6 +558,44 @@ mod tests {
 			"[attr]custom filter=macro\n*.dat -custom\n",
 		)];
 		assert_eq!(locate(&unset, "x.dat", "macro"), None);
+	}
+
+	#[test]
+	fn macros_nested_beyond_the_limit_are_inconclusive() {
+		let chain = |levels: usize| {
+			let mut lines: Vec<String> = (0..levels)
+				.map(|level| format!("[attr]m{level} m{}", level + 1))
+				.collect();
+			lines.push(format!("[attr]m{levels} filter=deep"));
+			lines.push("*.dat m0\n".to_owned());
+			lines.join("\n")
+		};
+		let resolve = |text: &str| {
+			let work = tempfile::tempdir().unwrap();
+			let common = work.path().join(".git");
+			fs::write(work.path().join(".gitattributes"), text).unwrap();
+			let no_index = |_: &RepoPath| None;
+			let context = OriginContext {
+				work_dir: work.path(),
+				common_dir: &common,
+				ignore_case: false,
+				global: None,
+				system: None,
+				index_blob: &no_index,
+			};
+			resolve_filter(&context, &path("x.dat"))
+		};
+		let within = chain(MAX_MACRO_DEPTH - 1);
+		let lines = within.lines().count();
+		assert_eq!(
+			resolve(&within),
+			FilterLine::Line {
+				origin: format!(".gitattributes:{lines}"),
+				state: State::Value("deep".to_owned()),
+			}
+		);
+		assert_eq!(resolve(&chain(MAX_MACRO_DEPTH)), FilterLine::Inconclusive);
+		assert_eq!(resolve("*.dat -text\n"), FilterLine::NoLine);
 	}
 
 	#[test]

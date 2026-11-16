@@ -6,11 +6,15 @@
 //! [`locate_filter`] re-reads the attribute files to find it for the
 //! unsupported-filter diagnostic. If its reading ever disagrees with git's, it
 //! reports the origin as unknown rather than naming a wrong line.
+//! [`resolve_filter`] gives the deciding line with its state, or says that
+//! the reading could not tell.
 
 mod origin;
 mod wildmatch;
 
-pub(crate) use origin::{OriginContext, locate_filter};
+pub(crate) use origin::{
+	FilterLine, OriginContext, locate_filter, resolve_filter,
+};
 
 use source_sentry_core::ports::{BackendError, BackendErrorKind, RepoPath};
 

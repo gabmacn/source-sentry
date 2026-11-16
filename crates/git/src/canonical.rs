@@ -32,7 +32,10 @@ use source_sentry_core::ports::{
 };
 
 use crate::{
-	attributes::{self, Conversion, OriginContext, State, locate_filter},
+	attributes::{
+		self, Conversion, FilterLine, OriginContext, State, locate_filter,
+		resolve_filter,
+	},
 	command::{LFS_DRIVER_DISABLED, exit_failure},
 	eol::{self, AutoCrlf, Route},
 	error::{self, failure},
@@ -312,7 +315,9 @@ impl<'a> Canonicalizer<'a> {
 	/// so (`filter=set`), and runs that driver when git config defines a
 	/// `clean` or `process` command for it. Such a driver is refused like any
 	/// other when an attribute line sets `filter=<word>` for the path; without
-	/// that line, or without the command, git runs no filter. `configured`
+	/// that line, or without the command, git runs no filter. When the
+	/// attribute files cannot show which applies, the file is refused with
+	/// an unknown origin, so that a configured driver never runs. `configured`
 	/// caches the configured names.
 	fn reserved_driver(
 		&self,
@@ -333,15 +338,32 @@ impl<'a> Canonicalizer<'a> {
 		if !configured.contains(word) {
 			return Ok(None);
 		}
-		// Only a line that sets `filter=<word>` makes the word a driver's
-		// name; otherwise it is the state, and git runs no filter.
-		let origin = self.origin(path, word);
-		Ok(
-			(origin != UNKNOWN_ORIGIN).then(|| Canonical::UnsupportedFilter {
+		let refused = |origin: String| {
+			Ok(Some(Canonical::UnsupportedFilter {
 				filter: word.to_owned(),
 				attribute_origin: origin,
-			}),
-		)
+			}))
+		};
+		// Only a line that sets `filter=<word>` makes the word a driver's
+		// name; a line that gives the state git printed, or no line where git
+		// printed `unspecified`, means git runs no filter. Anything else, a
+		// reading that cannot tell or that disagrees with git, may hide the
+		// driver, so the file is refused.
+		match self.filter_line(path) {
+			FilterLine::Line { origin, state } => {
+				if state.value() == Some(word) {
+					refused(origin)
+				} else if state == *filter {
+					Ok(None)
+				} else {
+					refused(UNKNOWN_ORIGIN.to_owned())
+				}
+			}
+			FilterLine::NoLine if *filter == State::Unspecified => Ok(None),
+			FilterLine::NoLine | FilterLine::Inconclusive => {
+				refused(UNKNOWN_ORIGIN.to_owned())
+			}
+		}
 	}
 
 	/// The names among `set`, `unset` and `unspecified` for which git config
@@ -382,9 +404,26 @@ impl<'a> Canonicalizer<'a> {
 	/// The attribute line that set `path`'s filter to `driver`, as
 	/// `<file>:<line>`.
 	fn origin(&self, path: &RepoPath, driver: &str) -> String {
-		let Ok(work_dir) = self.repository.require_work_dir() else {
-			return UNKNOWN_ORIGIN.to_owned();
-		};
+		self
+			.with_origin_context(|context| locate_filter(context, path, driver))
+			.flatten()
+			.unwrap_or_else(|| UNKNOWN_ORIGIN.to_owned())
+	}
+
+	/// The attribute line that decides `path`'s filter, with its state.
+	fn filter_line(&self, path: &RepoPath) -> FilterLine {
+		self
+			.with_origin_context(|context| resolve_filter(context, path))
+			.unwrap_or(FilterLine::Inconclusive)
+	}
+
+	/// Runs `read` over the attribute files of the working tree, or returns
+	/// `None` without one.
+	fn with_origin_context<T>(
+		&self,
+		read: impl FnOnce(&OriginContext<'_>) -> T,
+	) -> Option<T> {
+		let work_dir = self.repository.require_work_dir().ok()?;
 		let index_blob = |file: &RepoPath| {
 			let record =
 				self.index.get(file).filter(|record| !record.is_gitlink())?;
@@ -398,8 +437,7 @@ impl<'a> Canonicalizer<'a> {
 			system: self.repository.git_var("GIT_ATTR_SYSTEM"),
 			index_blob: &index_blob,
 		};
-		locate_filter(&context, path, driver)
-			.unwrap_or_else(|| UNKNOWN_ORIGIN.to_owned())
+		Some(read(&context))
 	}
 }
 
