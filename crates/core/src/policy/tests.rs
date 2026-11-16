@@ -341,6 +341,10 @@ fn every_problem_is_reported_with_its_context() {
 	let message = error.to_string();
 	assert!(message.starts_with("context `production` is invalid: rule 2 "));
 	assert!(message.contains("rule 3 has an empty `facts` list"));
+	assert!(message.contains(
+		"rule 2 names the class `legal`, which `define.classes` in the \
+		 project's config does not declare"
+	));
 }
 
 // Judging documents.

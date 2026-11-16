@@ -20,8 +20,8 @@ use crate::model::{ClassName, Context, DocumentId, RepoPath, Rule};
 use crate::policy::{PolicyError, select_context, validate_context};
 use crate::{CONFIG_NAME, DIR_NAME};
 
-/// The repository config's path, which diagnostics point at when a setting
-/// has no config file of its own.
+/// The repository config's path, where [`config_location`] and a built-in
+/// schedule locate a value that has no config file of its own.
 pub(super) fn repository_config() -> RepoPath {
 	#[expect(
 		clippy::expect_used,
@@ -33,7 +33,7 @@ pub(super) fn repository_config() -> RepoPath {
 }
 
 /// The path of the config at the root of `configs`' project, which
-/// diagnostics about the project's contexts point at.
+/// diagnostics about the project's contexts and settings point at.
 fn project_config(configs: &ConfigSet) -> RepoPath {
 	#[expect(
 		clippy::expect_used,
@@ -46,13 +46,36 @@ fn project_config(configs: &ConfigSet) -> RepoPath {
 		.expect("a project's config path is valid")
 }
 
-/// Where a config origin points, at `field`.
+/// Where a config origin points, at `field`, for an origin that always has
+/// a file of its own, such as a series'. A value without one would be
+/// located at the repository config; [`project_location`] locates it at the
+/// evaluated project's config instead.
 pub(super) fn config_location(origin: &Origin, field: &str) -> Location {
-	Location::field(origin.file.clone().unwrap_or_else(repository_config), field)
-		.at(
-			origin.position.map(|position| position.line),
-			origin.position.map(|position| position.column),
-		)
+	located(origin, field, repository_config)
+}
+
+/// Where a config origin of `configs`' project points, at `field`. A value
+/// with no file of its own, such as the built-in time zone, is located at
+/// the project's own config, never at an enclosing repository's.
+pub(super) fn project_location(
+	configs: &ConfigSet,
+	origin: &Origin,
+	field: &str,
+) -> Location {
+	located(origin, field, || project_config(configs))
+}
+
+/// Where `origin` points, at `field`, or at the config `fallback` names when
+/// the value has no file of its own.
+fn located(
+	origin: &Origin,
+	field: &str,
+	fallback: impl FnOnce() -> RepoPath,
+) -> Location {
+	Location::field(origin.file.clone().unwrap_or_else(fallback), field).at(
+		origin.position.map(|position| position.line),
+		origin.position.map(|position| position.column),
+	)
 }
 
 /// Selects the context, and validates every declared one, and every one
@@ -66,7 +89,13 @@ pub(super) fn context(
 	let declared_classes: BTreeSet<ClassName> =
 		configs.classes().keys().cloned().collect();
 	for (name, definition) in configs.contexts() {
-		validate_definition(name, definition, &declared_classes, diagnostics);
+		validate_definition(
+			configs,
+			name,
+			definition,
+			&declared_classes,
+			diagnostics,
+		);
 	}
 	for unimported in configs.unimported_definitions() {
 		let declared: BTreeSet<ClassName> = declared_classes
@@ -75,7 +104,7 @@ pub(super) fn context(
 			.cloned()
 			.collect();
 		for (name, definition) in &unimported.contexts {
-			validate_definition(name, definition, &declared, diagnostics);
+			validate_definition(configs, name, definition, &declared, diagnostics);
 		}
 	}
 	let declared: BTreeMap<String, Context> = configs
@@ -103,7 +132,7 @@ pub(super) fn context(
 				PolicyError::UnsupportedDefaultsVersion { .. }
 				| PolicyError::BrokenDefaults { .. }
 				| PolicyError::InvalidContext { .. } => {
-					config_location(&version.origin, "version")
+					project_location(configs, &version.origin, "version")
 				}
 			};
 			diagnostics.push(policy_diagnostic(&error, location));
@@ -112,9 +141,11 @@ pub(super) fn context(
 	}
 }
 
-/// Validates one defined context against the `declared` classes, and reports
-/// what is wrong with it at its first broken rule.
+/// Validates one defined context of `configs`' project against the
+/// `declared` classes, and reports what is wrong with it at its first broken
+/// rule.
 fn validate_definition(
+	configs: &ConfigSet,
 	name: &str,
 	definition: &ContextDefinition,
 	declared: &BTreeSet<ClassName>,
@@ -133,12 +164,16 @@ fn validate_definition(
 		_ => None,
 	};
 	let location = match rule {
-		Some((origin, index)) => {
-			config_location(origin, &format!("define.contexts.{name}.rules[{index}]"))
-		}
-		None => {
-			config_location(&definition.origin, &format!("define.contexts.{name}"))
-		}
+		Some((origin, index)) => project_location(
+			configs,
+			origin,
+			&format!("define.contexts.{name}.rules[{index}]"),
+		),
+		None => project_location(
+			configs,
+			&definition.origin,
+			&format!("define.contexts.{name}"),
+		),
 	};
 	diagnostics.push(policy_diagnostic(&error, location));
 }
@@ -168,7 +203,7 @@ pub(super) fn time_zone(
 		Err(error) => {
 			diagnostics.push(Diagnostic::new(
 				DiagnosticKind::InvalidTimeZone,
-				config_location(&configured.origin, "time-zone"),
+				project_location(configs, &configured.origin, "time-zone"),
 				format!(
 					"{error}. Until it is corrected, no deadline or cadence window can \
 					 be computed"

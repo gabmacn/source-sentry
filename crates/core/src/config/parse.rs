@@ -65,14 +65,14 @@ impl ConfigKind {
 	/// Where a key that this kind may not set belongs instead.
 	fn belongs_elsewhere(self, key: &str) -> String {
 		match (key, self) {
-			("version", _) => "Only the repository config, \
+			("version", _) => "Only the project's config, \
 			                   .source-sentry/source-sentry.yaml, sets `version`"
 				.to_owned(),
-			("time-zone", _) => "Set `time-zone` in the repository config, \
+			("time-zone", _) => "Set `time-zone` in the project's config, \
 			                     .source-sentry/source-sentry.yaml"
 				.to_owned(),
 			("define", _) => "Declare classes and contexts under `define` in the \
-			                  repository config, .source-sentry/source-sentry.yaml; \
+			                  project's config, .source-sentry/source-sentry.yaml; \
 			                  other configs may assign classes and add rules"
 				.to_owned(),
 			(_, Self::Paired) => "A paired config allows only `imports`, \

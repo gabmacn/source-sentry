@@ -7,7 +7,8 @@ use super::{
 	evaluate, facts, gates, kinds, lockfile, outcome, timing,
 };
 use crate::claims::{DiagnosticKind, Severity, discover};
-use crate::config::ConfigSet;
+use crate::config::{ConfigSet, Origin};
+use crate::evaluate::run::scopes::project_location;
 use crate::evaluate::run::{RuleOrigin, SubjectKind, Timing, check};
 use crate::evaluate::settings::SettingOrigin;
 use crate::model::{Fact, Outcome};
@@ -171,6 +172,30 @@ fn an_unknown_context_points_at_its_projects_config() {
 		let location = &evaluation.diagnostics[0].location;
 		assert_eq!(location.file, path(config), "{start:?}");
 		assert_eq!(location.field.as_deref(), Some("define.contexts"));
+	}
+}
+
+/// A setting with no file of its own, such as the built-in time zone, is
+/// located at the config of the project being checked: a nested project's
+/// own config, not the repository's.
+#[test]
+fn a_built_in_setting_is_located_at_its_projects_config() {
+	let repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		("child/.source-sentry/source-sentry.yaml", "version: 1\n"),
+	]);
+	let snapshot = repo.checkout();
+	for (start, config) in [
+		("child", "child/.source-sentry/source-sentry.yaml"),
+		("", REPOSITORY),
+	] {
+		let configs = ConfigSet::load_project(&snapshot, &path(start)).unwrap();
+		let zone = configs.time_zone();
+		assert_eq!(zone.origin, Origin::built_in(), "{start:?}");
+		let location = project_location(&configs, &zone.origin, "time-zone");
+		assert_eq!(location.file, path(config), "{start:?}");
+		assert_eq!(location.field.as_deref(), Some("time-zone"));
+		assert_eq!((location.line, location.column), (None, None));
 	}
 }
 

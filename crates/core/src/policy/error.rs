@@ -42,7 +42,7 @@ pub enum PolicyError {
 	/// The requested context is not declared. It never
 	/// falls back to the default context, so a typo cannot loosen the rules.
 	#[error(
-		"context `{name}` is not declared in the repository config; choose one \
+		"context `{name}` is not declared in the project's config; choose one \
 		 of {}",
 		backticked(.available)
 	)]
@@ -107,9 +107,9 @@ pub enum RuleProblem {
 	/// target.
 	#[error("targets `fresh`, which always passes; remove it from `facts`")]
 	TargetsFresh,
-	/// The rule names a class that the repository config does not declare.
+	/// The rule names a class that the project's config does not declare.
 	#[error(
-		"names the class `{0}`, which `define.classes` in the repository config \
+		"names the class `{0}`, which `define.classes` in the project's config \
 		 does not declare"
 	)]
 	UndeclaredClass(ClassName),

@@ -283,6 +283,36 @@ fn an_unknown_context_points_at_the_nested_projects_config() {
 	);
 }
 
+/// Messages about a nested project's contexts and settings name the
+/// project's config, where its contexts and project-wide settings are
+/// written.
+#[test]
+fn messages_in_a_nested_project_name_the_projects_config() {
+	let repo = nested();
+	let unknown =
+		repo.run(&["-C", "app", "check", "--at", AT, "--context", "nonexistent"]);
+	unknown.expect_code(3);
+	assert!(
+		unknown.stdout.contains(
+			"context `nonexistent` is not declared in the project's config; \
+			 choose one of `default`"
+		),
+		"{}",
+		unknown.stdout
+	);
+	repo.write("app/docs/source-sentry.yaml", "time-zone: 'UTC'\n");
+	let misplaced = repo.run(&["-C", "app", "check", "--at", AT]);
+	misplaced.expect_code(3);
+	assert!(
+		misplaced.stderr.contains(
+			"Set `time-zone` in the project's config, \
+			 .source-sentry/source-sentry.yaml"
+		),
+		"{}",
+		misplaced.stderr
+	);
+}
+
 /// Cross-project renames preserve reviews while rewriting both rooted source kinds.
 #[test]
 fn rename_across_projects_previews_sources_and_settings() {

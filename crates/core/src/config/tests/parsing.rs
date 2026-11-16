@@ -99,6 +99,33 @@ fn a_directory_config_rejects_repository_keys() {
 	);
 }
 
+/// The correction for a project-wide key written elsewhere names the
+/// project's config, which is the one that may set it.
+#[test]
+fn a_project_key_written_elsewhere_points_at_the_projects_config() {
+	for (contents, correction) in [
+		(
+			"version: 1\n",
+			"Only the project's config, .source-sentry/source-sentry.yaml, sets \
+			 `version`",
+		),
+		(
+			"time-zone: 'UTC'\n",
+			"Set `time-zone` in the project's config, \
+			 .source-sentry/source-sentry.yaml",
+		),
+		(
+			"define:\n  classes:\n    extra: {}\n",
+			"Declare classes and contexts under `define` in the project's config, \
+			 .source-sentry/source-sentry.yaml; other configs may assign classes \
+			 and add rules",
+		),
+	] {
+		let error = directory_error(contents);
+		assert_eq!(error.correction.as_deref(), Some(correction), "{contents}");
+	}
+}
+
 #[test]
 fn a_preset_rejects_root_inherit_version_and_time_zone() {
 	for (key, value) in [
