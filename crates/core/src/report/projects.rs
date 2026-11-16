@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::project_of;
-use crate::model::{RepoPath, rebase_path};
+use crate::model::{RemoteIdentity, RepoPath, rebase_path};
 
 /// Serializes a report with project-relative paths and explicit project identities.
 /// Source declarations retain their written spellings; external paths use `../`.
@@ -28,11 +28,24 @@ pub fn to_project_json<T: Serialize>(
 
 /// Re-expresses a canonical repository path relative to a project.
 fn relative(value: &str, project: &RepoPath) -> String {
-	if value.parse::<crate::model::RemoteIdentity>().is_ok() {
-		return value.to_owned();
-	}
 	rebase_path(value, &RepoPath::ROOT, project)
 		.unwrap_or_else(|_| value.to_owned())
+}
+
+/// Re-expresses a `document` field, which holds either a local path or a
+/// remote identity. A document subject says which through its `mode`. The
+/// diff report has no mode beside its document, so there only the spelling
+/// can tell an identity from a path.
+fn document(value: &str, mode: Option<&str>, project: &RepoPath) -> String {
+	let remote = match mode {
+		Some(mode) => mode == "remote",
+		None => value.parse::<RemoteIdentity>().is_ok(),
+	};
+	if remote {
+		value.to_owned()
+	} else {
+		relative(value, project)
+	}
 }
 
 /// A rebased pattern, written from the project root with a leading `/`, or,
@@ -66,9 +79,17 @@ fn rebase(
 				None
 			};
 			let project = own.as_ref().unwrap_or(project);
+			let mode = fields
+				.get("mode")
+				.and_then(Value::as_str)
+				.map(str::to_owned);
 			for (key, value) in fields {
 				if key == "project" {
 					*value = Value::String(super::directory(project));
+				} else if key == "document"
+					&& let Value::String(text) = value
+				{
+					*text = document(text, mode.as_deref(), project);
 				} else {
 					rebase(value, key, project, roots);
 				}
@@ -80,9 +101,8 @@ fn rebase(
 			}
 		}
 		Value::String(text) => match key {
-			"file" | "path" | "document" | "declared-in" | "root" | "anchor"
-			| "inherit-from" | "stale-upstreams" | "due-upstreams"
-			| "import-chain" => {
+			"file" | "path" | "declared-in" | "root" | "anchor" | "inherit-from"
+			| "stale-upstreams" | "due-upstreams" | "import-chain" => {
 				*text = relative(text, project);
 			}
 			"scope" if text.starts_with("directory:") => {

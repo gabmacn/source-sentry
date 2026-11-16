@@ -66,6 +66,51 @@ fn nested_report_patterns_leave_their_project_through_parents() {
 	);
 }
 
+/// A local path is rebased even when it is spelled like a remote identity,
+/// while a remote document's identity is left as it is.
+#[test]
+fn nested_report_rebases_local_paths_spelled_like_identities() {
+	let json = nested_report(&[
+		(
+			"app/source-sentry.lock",
+			br#"{"schema":1,"documents":{"a.md":{"sources":[{"path":":/abstract:guide"}]}},"retired":{}}"#,
+		),
+		(
+			"app/.source-sentry/remotes/team.lock",
+			br#"{"schema":1,"documents":{"abstract:guide":{}},"retired":{}}"#,
+		),
+		("app/a.md", b"# Guide\n"),
+		("abstract:guide", b"# Outside\n"),
+	]);
+	assert_eq!(
+		nested_subject(&json, "a.md")["sources"][0]["path"],
+		"../abstract:guide"
+	);
+	let remote = nested_subject(&json, "abstract:guide");
+	assert_eq!(remote["mode"], "remote");
+	assert_eq!(remote["declared-in"], ".source-sentry/remotes/team.lock");
+}
+
+/// Without a mode beside it, as in the diff report, a document spelled
+/// like a remote identity is taken for one.
+#[test]
+fn a_document_without_a_mode_is_read_by_its_spelling() {
+	let roots = BTreeSet::from([RepoPath::ROOT, path("app")]);
+	let json: Value = serde_json::from_str(
+		&super::to_project_json(
+			&json!([{"document": "abstract:guide"}, {"document": "app/a.md"}]),
+			&path("app"),
+			&roots,
+		)
+		.unwrap(),
+	)
+	.unwrap();
+	assert_eq!(
+		json,
+		json!([{"document": "abstract:guide"}, {"document": "a.md"}])
+	);
+}
+
 /// The subject of `document` in a report.
 fn nested_subject<'a>(json: &'a Value, document: &str) -> &'a Value {
 	json["subjects"]
