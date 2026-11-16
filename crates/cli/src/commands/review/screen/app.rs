@@ -349,8 +349,12 @@ pub(super) struct App<'a> {
 	pub(super) pane: Pane,
 	/// Which changed file is selected.
 	pub(super) file: usize,
-	/// How far the changes and the document are scrolled, in rows.
+	/// How far the changes and the document are scrolled, in rows as drawn,
+	/// once their lines are wrapped.
 	pub(super) scroll: (usize, usize),
+	/// The screen's width as last drawn, where the changes and the document
+	/// wrap their lines, and so how far they scroll.
+	pub(super) columns: std::cell::Cell<u16>,
 	/// An answer waiting for Enter: `true` for a reread.
 	pub(super) armed: Option<bool>,
 	/// The box over the screen, if one is open.
@@ -408,6 +412,7 @@ impl<'a> App<'a> {
 			pane: Pane::Changes,
 			file: 0,
 			scroll: (0, 0),
+			columns: std::cell::Cell::new(super::draw::MINIMUM.0),
 			armed: None,
 			overlay: None,
 			page: 10,
@@ -1795,24 +1800,24 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Scrolls the changes or the document by `step` rows, within its rows.
+	/// Scrolls the changes or the document by `step` rows, within the rows
+	/// they take as wrapped where they were last drawn. A position that a
+	/// resize left past the last row starts from that row.
 	fn scroll_rows(&mut self, pane: Pane, down: bool, step: usize) {
-		let Some(shown) = &self.shown else {
+		if self.shown.is_none() {
 			return;
+		}
+		let last =
+			super::draw::pane_rows(self, pane, self.columns.get()).saturating_sub(1);
+		let scroll = match pane {
+			Pane::Changes => &mut self.scroll.0,
+			Pane::Document => &mut self.scroll.1,
 		};
-		let (scroll, rows) = match pane {
-			Pane::Changes => (
-				&mut self.scroll.0,
-				shown.files.get(self.file).map_or(0, |file| file.rows.len()),
-			),
-			Pane::Document => {
-				(&mut self.scroll.1, shown.text.as_ref().map_or(0, Vec::len))
-			}
-		};
+		let from = (*scroll).min(last);
 		*scroll = if down {
-			(*scroll + step).min(rows.saturating_sub(1))
+			from.saturating_add(step).min(last)
 		} else {
-			scroll.saturating_sub(step)
+			from.saturating_sub(step)
 		};
 	}
 

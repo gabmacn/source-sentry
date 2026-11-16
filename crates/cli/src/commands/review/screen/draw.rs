@@ -388,6 +388,8 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) -> Vec<(Rect, Target)> {
 		);
 		return pen.hits;
 	}
+	// Scrolling counts the panes' rows as they wrap at this width.
+	app.columns.set(area.width);
 	let body = Rect::new(0, HEADER, area.width, area.height - HEADER - QUESTION);
 	header(app, &mut pen, area.width);
 	pen.rule(0, HEADER - 1, area.width, "─", faint());
@@ -399,7 +401,7 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) -> Vec<(Rect, Target)> {
 	pen.text(SIDEBAR, body.bottom(), "┴", faint(), 1);
 	sidebar(app, &mut pen, Rect::new(0, body.y, SIDEBAR, body.height));
 	let right =
-		Rect::new(SIDEBAR + 2, body.y, area.width - SIDEBAR - 3, body.height);
+		Rect::new(SIDEBAR + 2, body.y, pane_width(area.width), body.height);
 	match &app.shown {
 		Some(shown) => pane(app, shown, &mut pen, right),
 		None => {
@@ -788,33 +790,114 @@ fn pane(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 	}
 	let below =
 		Rect::new(area.x, top, area.width, area.bottom().saturating_sub(top));
-	if area.width + SIDEBAR + 3 >= WIDE {
-		let half = (below.width - 3) / 2;
-		let divider = below.x + half + 1;
+	let (left, right, divider) = sides(below);
+	if let Some(divider) = divider {
 		for y in below.y..below.bottom() {
 			pen.text(divider, y, "│", faint(), 1);
 		}
-		changes(
-			app,
-			shown,
-			pen,
-			Rect::new(below.x, below.y, half, below.height),
-		);
-		document(
-			app,
-			shown,
-			pen,
-			Rect::new(
-				divider + 2,
-				below.y,
-				below.right() - divider - 2,
-				below.height,
-			),
-		);
+		changes(app, shown, pen, left);
+		document(app, shown, pen, right);
 	} else if app.pane == Pane::Changes {
-		changes(app, shown, pen, below);
+		changes(app, shown, pen, left);
 	} else {
-		document(app, shown, pen, below);
+		document(app, shown, pen, right);
+	}
+}
+
+/// The pane's width on a screen `columns` wide: what the sidebar, its
+/// divider and the margins leave.
+fn pane_width(columns: u16) -> u16 {
+	columns.saturating_sub(SIDEBAR + 3)
+}
+
+/// Where the changes and the document go in `below`, the pane under its
+/// heading: side by side on a wide screen, with the column of the divider
+/// between them, and otherwise each in the whole of it.
+fn sides(below: Rect) -> (Rect, Rect, Option<u16>) {
+	if below.width.saturating_add(SIDEBAR + 3) < WIDE {
+		return (below, below, None);
+	}
+	let half = below.width.saturating_sub(3) / 2;
+	let divider = below.x + half + 1;
+	let right = Rect::new(
+		divider + 2,
+		below.y,
+		below.right().saturating_sub(divider + 2),
+		below.height,
+	);
+	(
+		Rect::new(below.x, below.y, half, below.height),
+		right,
+		Some(divider),
+	)
+}
+
+/// The cells a side of the pane keeps for a change's number, its sign and
+/// the scrollbar, beside the change's text.
+const CHANGE_MARGIN: u16 = 9;
+/// The cells a side of the pane keeps for a line's number and the
+/// scrollbar, beside the document's text.
+const TEXT_MARGIN: u16 = 7;
+
+/// `lines` wrapped to `columns` cells, row by row: each row with the index of
+/// its line and whether it is the line's first.
+fn wrapped<S: AsRef<str>>(
+	lines: impl IntoIterator<Item = S>,
+	columns: u16,
+) -> Vec<(usize, bool, String)> {
+	lines
+		.into_iter()
+		.enumerate()
+		.flat_map(|(index, line)| {
+			wrap(line.as_ref(), columns)
+				.into_iter()
+				.enumerate()
+				.map(move |(part, row)| (index, part == 0, row))
+		})
+		.collect()
+}
+
+/// What a row of the changes says: where a group of changes starts, a note,
+/// or a line's text.
+fn said(row: &Row) -> std::borrow::Cow<'_, str> {
+	match row {
+		Row::Hunk(line) => format!("from line {line}").into(),
+		Row::NoNewline => "\\ No newline at end of file".into(),
+		Row::Note(note) => (*note).into(),
+		Row::Line { text, .. } => text.as_str().into(),
+	}
+}
+
+/// The selected file's changes as drawn on a side of the pane `width` cells
+/// wide, row by row.
+fn change_rows(app: &App, width: u16) -> Vec<(usize, bool, String)> {
+	wrapped(
+		app.rows().iter().map(said),
+		width.saturating_sub(CHANGE_MARGIN),
+	)
+}
+
+/// The document's text as drawn on a side of the pane `width` cells wide,
+/// row by row.
+fn text_rows(lines: &[String], width: u16) -> Vec<(usize, bool, String)> {
+	wrapped(lines, width.saturating_sub(TEXT_MARGIN))
+}
+
+/// How many rows the changes or the document take on a screen `columns`
+/// wide, once their lines are wrapped: the rows that scrolling reaches. The
+/// drawing wraps them in the same sides of the pane.
+pub(super) fn pane_rows(app: &App, pane: Pane, columns: u16) -> usize {
+	let Some(shown) = &app.shown else {
+		return 0;
+	};
+	let (changes, document, _) =
+		sides(Rect::new(SIDEBAR + 2, 0, pane_width(columns), 0));
+	match pane {
+		Pane::Changes => change_rows(app, changes.width).len(),
+		Pane::Document => shown
+			.text
+			.as_ref()
+			.map_or(0, |lines| text_rows(lines, document.width).len()),
 	}
 }
 
@@ -861,8 +944,11 @@ fn changes(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 		area.width,
 		area.bottom().saturating_sub(y + 1),
 	);
-	rows(app, pen, below);
-	scrollbar(pen, area, app.scroll.0, app.rows().len());
+	let drawn = change_rows(app, area.width);
+	// A resize can leave the position past the last row; it shows that row.
+	let at = app.scroll.0.min(drawn.len().saturating_sub(1));
+	rows(app, drawn.get(at..).unwrap_or_default(), pen, below);
+	scrollbar(pen, area, at, drawn.len());
 }
 
 /// The changed files with their counts and object names: at most five at
@@ -950,24 +1036,16 @@ pub(super) fn joint(owners: &[usize], index: usize) -> Option<&'static str> {
 	}
 }
 
-/// The selected file's rows from where they are scrolled to: a line where
-/// each group of changes starts, then numbered lines on a tinted ground
-/// when added or removed.
-fn rows(app: &App, pen: &mut Pen, area: Rect) {
-	let code = area.width.saturating_sub(9);
-	let mut y = area.y;
-	for row in app.rows().iter().skip(app.scroll.0) {
-		let (number, sign, value) = match row {
-			Row::Hunk(line) => (String::new(), ' ', format!("from line {line}")),
-			Row::NoNewline => (
-				String::new(),
-				' ',
-				"\\ No newline at end of file".to_owned(),
-			),
-			Row::Note(note) => (String::new(), ' ', (*note).to_owned()),
-			Row::Line { number, sign, text } => {
-				(number.to_string(), *sign, text.clone())
-			}
+/// The selected file's rows from where they are scrolled to, `drawn` as
+/// wrapped: a line where each group of changes starts, then numbered lines
+/// on a tinted ground when added or removed.
+fn rows(app: &App, drawn: &[(usize, bool, String)], pen: &mut Pen, area: Rect) {
+	let code = area.width.saturating_sub(CHANGE_MARGIN);
+	let changes = app.rows();
+	for (y, (index, first, line)) in (area.y..area.bottom()).zip(drawn) {
+		let (number, sign) = match changes.get(*index) {
+			Some(Row::Line { number, sign, .. }) => (number.to_string(), *sign),
+			_ => (String::new(), ' '),
 		};
 		let (ink, ground) = match sign {
 			'+' => (ADDED.0, Some(ADDED.1)),
@@ -975,34 +1053,28 @@ fn rows(app: &App, pen: &mut Pen, area: Rect) {
 			_ if number.is_empty() => (DIM, None),
 			_ => (CREAM, None),
 		};
-		for (part, line) in wrap(&value, code).iter().enumerate() {
-			if y >= area.bottom() {
-				return;
-			}
-			if let Some(ground) = ground {
-				pen.fill(
-					Rect::new(area.x, y, area.width.saturating_sub(1), 1),
-					Style::new().bg(ground),
-				);
-			}
-			if part == 0 {
-				pen.right(
-					area.x + 4,
-					y,
-					&number,
-					Style::new().fg(if sign == ' ' { DIM } else { ink }),
-				);
-				pen.text(
-					area.x + 5,
-					y,
-					&sign.to_string(),
-					Style::new().fg(ink).add_modifier(Modifier::BOLD),
-					1,
-				);
-			}
-			pen.text(area.x + 7, y, line, Style::new().fg(ink), code);
-			y += 1;
+		if let Some(ground) = ground {
+			pen.fill(
+				Rect::new(area.x, y, area.width.saturating_sub(1), 1),
+				Style::new().bg(ground),
+			);
 		}
+		if *first {
+			pen.right(
+				area.x + 4,
+				y,
+				&number,
+				Style::new().fg(if sign == ' ' { DIM } else { ink }),
+			);
+			pen.text(
+				area.x + 5,
+				y,
+				&sign.to_string(),
+				Style::new().fg(ink).add_modifier(Modifier::BOLD),
+				1,
+			);
+		}
+		pen.text(area.x + 7, y, line, Style::new().fg(ink), code);
 	}
 }
 
@@ -1040,36 +1112,38 @@ fn document(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 		dim(),
 	);
 	pen.rule(area.x, area.y + 1, area.width, "─", faint());
-	let mut y = area.y + 2;
-	let columns = area.width.saturating_sub(7);
+	let columns = area.width.saturating_sub(TEXT_MARGIN);
+	// A heading is strong, and a fenced block dim with its fences.
 	let mut fenced = false;
-	'lines: for (index, line) in lines.iter().enumerate() {
-		let fence = line.trim_start().starts_with("```");
-		let style = if line.starts_with('#') {
-			strong()
-		} else if fence || fenced {
-			dim()
-		} else {
-			text()
-		};
-		if fence {
-			fenced = !fenced;
+	let styles: Vec<Style> = lines
+		.iter()
+		.map(|line| {
+			let fence = line.trim_start().starts_with("```");
+			let style = if line.starts_with('#') {
+				strong()
+			} else if fence || fenced {
+				dim()
+			} else {
+				text()
+			};
+			fenced ^= fence;
+			style
+		})
+		.collect();
+	let drawn = text_rows(lines, area.width);
+	// A resize can leave the position past the last row; it shows that row.
+	let at = app.scroll.1.min(drawn.len().saturating_sub(1));
+	let shown_rows = drawn.get(at..).unwrap_or_default();
+	for (y, (index, first, piece)) in
+		(area.y.saturating_add(2)..area.bottom()).zip(shown_rows)
+	{
+		if *first {
+			pen.right(area.x + 4, y, &(index + 1).to_string(), dim());
 		}
-		if index < app.scroll.1 {
-			continue;
-		}
-		for (part, piece) in wrap(line, columns).iter().enumerate() {
-			if y >= area.bottom() {
-				break 'lines;
-			}
-			if part == 0 {
-				pen.right(area.x + 4, y, &(index + 1).to_string(), dim());
-			}
-			pen.text(area.x + 6, y, piece, style, columns);
-			y += 1;
-		}
+		let style = styles.get(*index).copied().unwrap_or_else(text);
+		pen.text(area.x + 6, y, piece, style, columns);
 	}
-	scrollbar(pen, area, app.scroll.1, lines.len());
+	scrollbar(pen, area, at, drawn.len());
 }
 
 /// A thumb at the pane's right edge when its rows do not all fit.
