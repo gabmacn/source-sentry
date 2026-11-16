@@ -53,6 +53,34 @@ fn successor(repo: &TestRepo, lockfile: &str, key: &str) -> Value {
 	lockfile["documents"][key].clone()
 }
 
+/// A successor registered beside its predecessor in a directory whose name
+/// holds glob metacharacters inherits its relative pattern as written.
+#[test]
+fn track_inherits_a_pattern_in_a_glob_named_directory() {
+	for directory in ["[draft]", "{draft}"] {
+		let repo = TestRepo::init();
+		repo.write(".source-sentry/source-sentry.yaml", "version: 1\nseries:\n  drafts:\n    pattern: 'docs/(?:\\[draft\\]|\\{draft\\})/v(?P<version>\\d+)\\.md'\n    version-kind: integer\n    lifecycle: living\n");
+		let previous = format!("docs/{directory}/v1.md");
+		let next = format!("docs/{directory}/v2.md");
+		repo.write(
+			&previous,
+			"---\nsource-sentry:\n  sources:\n    - pattern: '*.rs'\n---\n# Draft\n",
+		);
+		repo.write(&format!("docs/{directory}/a.rs"), "fn a() {}\n");
+		repo
+			.run(&["attest", &previous, "--reread", "--yes"])
+			.expect_code(0);
+		repo.commit_at("2026-10-01T10:00:00Z");
+		repo.write(&next, "# Successor\n");
+		repo.git(&["add", &next]);
+		repo
+			.run(&["track", &next, "--on-file", "--yes"])
+			.expect_code(0);
+		let registered = repo.read(&next);
+		assert!(registered.contains("- pattern: '*.rs'"), "{registered}");
+	}
+}
+
 /// A sealed predecessor supplies settings and rebased sources, with additions.
 #[test]
 fn track_inherits_sealed_predecessor_and_shows_the_copy_before_options() {

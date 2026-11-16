@@ -610,9 +610,12 @@ source-sentry migrate [--dry-run] [--yes]
   `track docs/cli.md --source crates/cli/src/cli.rs` writes
   `../crates/cli/src/cli.rs`. A `/`-rooted input is stored as given.
   A pattern is rebased by the literal components before its first glob
-  component. Invalid glob syntax, `..` after a glob component, and directory
-  names containing glob metacharacters are refused with a usage error
-  explaining why they cannot be rebased safely. A remote document's sources
+  component. Invalid glob syntax, `..` after a glob component, and a stored
+  pattern that would have to name a directory whose name contains glob
+  metacharacters, which would read as glob syntax, are refused with a usage
+  error explaining why they cannot be rebased safely. Directories that the
+  stored pattern does not name, such as the document's own directory, may
+  contain these characters. A remote document's sources
   are stored with `/` or `:/` because it has no directory.
 - **`--lockfile <directory>`** names a directory from the current directory,
   or by an absolute filesystem path; the flag alone chooses the nearest

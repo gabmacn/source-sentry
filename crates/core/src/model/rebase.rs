@@ -45,12 +45,16 @@ pub fn rebase_path(
 ///
 /// A `/`-rooted spelling is returned unchanged. The suffix beginning with
 /// the first component containing `*`, `?`, `[`, `]`, `{` or `}` is kept.
+/// The document's own directory is taken literally whatever its name, so
+/// `from` and `to` may contain those characters as long as the new spelling
+/// does not have to name such a directory: a pattern kept in the same
+/// directory, or one that only climbs out of `to` with `..`, is safe.
 ///
 /// # Errors
 ///
-/// Rejects invalid paths or glob syntax, `..` after a glob component, and
-/// directories containing glob metacharacters, which cannot be inserted
-/// into a pattern as literal components safely.
+/// Rejects invalid paths or glob syntax, `..` after a glob component, and a
+/// new spelling that would name a directory of `from` containing glob
+/// metacharacters, which would be read as glob syntax.
 pub fn rebase_pattern(
 	declared: &str,
 	from: &RepoPath,
@@ -61,13 +65,8 @@ pub fn rebase_pattern(
 	}
 	// Validate characters before interpreting the glob components.
 	from.join(declared)?;
-	for directory in [from, to] {
-		if has_glob(directory.as_str()) {
-			return Err(RebaseError::PatternDirectory(directory.clone()));
-		}
-	}
 	let Some(first) = declared.find(['*', '?', '[', ']', '{', '}']) else {
-		return rebase_path(declared, from, to);
+		return literal(rebase_path(declared, from, to)?, from);
 	};
 	let split = declared[..first].rfind('/').map_or(0, |index| index + 1);
 	let (prefix, suffix) = declared.split_at(split);
@@ -92,12 +91,24 @@ pub fn rebase_pattern(
 		.backslash_escape(false)
 		.build()
 		.map_err(|error| RebaseError::Glob(error.kind().to_string()))?;
-	let prefix = relative(&from.join(prefix)?, to);
+	let prefix = literal(relative(&from.join(prefix)?, to), from)?;
 	Ok(if prefix == "." {
 		protect_relative(suffix)
 	} else {
 		format!("{prefix}/{suffix}")
 	})
+}
+
+/// `spelled`, the literal part of a re-expressed pattern, unless it names a
+/// directory of `from` whose glob metacharacters it would turn into glob
+/// syntax. The declared text before the first glob component has none, so
+/// any it spells come from `from`.
+fn literal(spelled: String, from: &RepoPath) -> Result<String, RebaseError> {
+	if has_glob(&spelled) {
+		Err(RebaseError::PatternDirectory(from.clone()))
+	} else {
+		Ok(spelled)
+	}
 }
 
 /// Whether text contains a glob metacharacter.

@@ -101,6 +101,52 @@ fn refuses_unresolvable_sources() {
 	));
 }
 
+/// A directory whose name holds glob metacharacters is taken literally as
+/// the document's own directory: a pattern kept in it, or one that only
+/// climbs out of the new directory, is re-expressed with the same target.
+#[test]
+fn glob_named_directories_need_not_be_spelled() {
+	for (from, to, declared, expected) in [
+		("docs/[draft]", "docs/[draft]", "*.rs", "*.rs"),
+		("docs/{draft}", "docs/{draft}", "*.rs", "*.rs"),
+		("docs/[draft]", "docs/[draft]", "sub/*.rs", "sub/*.rs"),
+		("docs/{draft}", "docs/{draft}", "../src/*.rs", "../src/*.rs"),
+		("docs/[draft]", "docs/[draft]", "a.rs", "a.rs"),
+		("docs", "docs/[draft]", "*.rs", "../*.rs"),
+		("docs/[draft]", "other", "../src/*.rs", "../docs/src/*.rs"),
+		("docs/{draft}", "docs/[draft]", "../*.rs", "../*.rs"),
+	] {
+		let rebased = rebase_pattern(declared, &path(from), &path(to))
+			.unwrap_or_else(|error| panic!("{declared} from {from}: {error}"));
+		assert_eq!(rebased, expected, "{declared} from {from} to {to}");
+		let original =
+			SourceGlob::compile(Some(&path(&format!("{from}/page.md"))), declared)
+				.unwrap();
+		let moved =
+			SourceGlob::compile(Some(&path(&format!("{to}/page.md"))), &rebased)
+				.unwrap();
+		assert_eq!(original.rooted(), moved.rooted());
+	}
+}
+
+/// A new spelling that would have to name a directory whose name holds
+/// glob metacharacters is refused, since it would be read as glob syntax.
+#[test]
+fn spelling_a_glob_named_directory_is_refused() {
+	for (from, to, declared) in [
+		("docs/[draft]", "docs", "*.rs"),
+		("docs/{draft}", "other", "*.rs"),
+		("docs/[draft]", "docs", "a.rs"),
+		("docs/[draft]/deep", "docs", "../*.rs"),
+	] {
+		assert_eq!(
+			rebase_pattern(declared, &path(from), &path(to)),
+			Err(RebaseError::PatternDirectory(path(from))),
+			"{declared} from {from} to {to}"
+		);
+	}
+}
+
 /// Paths retain their target across sibling, parent and root directories.
 #[test]
 fn paths_keep_their_target() {

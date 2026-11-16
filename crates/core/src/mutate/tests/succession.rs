@@ -424,6 +424,41 @@ fn init_inherits_with_paths_and_all() {
 	}
 }
 
+/// A successor in the same directory as its predecessor inherits a relative
+/// pattern as written, whatever the directory's name.
+#[test]
+fn a_successor_in_a_glob_named_directory_inherits_patterns_as_written() {
+	for directory in ["[old]", "{old}"] {
+		let previous = format!("audits/{directory}/v1.md");
+		let next = format!("audits/{directory}/v2.md");
+		let beside = format!("audits/{directory}/a.rs");
+		let lock = lockfile(
+			&[(previous.as_str(), r#"{"sources": [{"pattern": "*.rs"}]}"#)],
+			&[],
+		);
+		let tree = Tree::new(&[
+			(REPOSITORY, &config("living")),
+			("source-sentry.lock", &lock),
+			(&previous, PLAIN),
+			(&next, PLAIN),
+			(&beside, SOURCE),
+		]);
+		let planned = track(
+			&tree.snapshot,
+			&tree.configs,
+			&tree.inventory,
+			&request(&next),
+		)
+		.unwrap_or_else(|error| panic!("{directory}: {error}"));
+		let sources = &planned.summary.registered.declaration.sources;
+		assert_eq!(
+			sources.iter().map(SourceDecl::declared).collect::<Vec<_>>(),
+			["*.rs"]
+		);
+		tree.apply(&planned.plan).assert_clean();
+	}
+}
+
 /// A literal directory that would become glob syntax refuses the whole plan.
 #[test]
 fn unresolvable_inherited_source_refuses_registration() {

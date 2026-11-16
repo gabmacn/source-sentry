@@ -180,6 +180,40 @@ fn rename_rebases_carried_frontmatter_before_validating_its_new_directory() {
 	assert!(!repo.exists("source-sentry.lock"));
 }
 
+/// Renaming a document within a directory whose name holds glob
+/// metacharacters keeps its relative pattern, which still selects only the
+/// file beside it.
+#[test]
+fn rename_within_a_glob_named_directory_keeps_relative_patterns() {
+	for directory in ["[draft]", "{draft}"] {
+		let repo = TestRepo::init();
+		let old = format!("docs/{directory}/v1.md");
+		let new = format!("docs/{directory}/v2.md");
+		repo.write(
+			&old,
+			"---\nsource-sentry:\n  sources:\n    - pattern: '*.rs'\n---\n# Draft\n",
+		);
+		repo.write(&format!("docs/{directory}/a.rs"), "fn a() {}\n");
+		repo.write("docs/d/a.rs", "fn d() {}\n");
+		repo.write("docs/draft/a.rs", "fn draft() {}\n");
+		repo
+			.run(&["attest", &old, "--reread", "--yes"])
+			.expect_code(0);
+		repo.commit_at("2026-10-01T10:00:00Z");
+		repo.git(&["mv", &old, &new]);
+		repo.run(&["rename", &old, &new, "--yes"]).expect_code(0);
+		let after = repo.read(&new);
+		assert!(after.contains("- pattern: '*.rs'"), "{after}");
+		assert!(after.contains("path: 'a.rs'"), "{after}");
+		repo.commit_at("2026-10-02T10:00:00Z");
+		let report = repo.run(&["check", "--at", AT, "--format", "json"]).json();
+		assert_eq!(
+			document(&report, &new)["facts"],
+			serde_json::json!(["fresh"])
+		);
+	}
+}
+
 /// Path references and matching reviewed members follow the renamed file;
 /// a pattern that ceases to match remains available for review.
 #[test]

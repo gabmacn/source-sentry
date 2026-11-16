@@ -5,7 +5,7 @@ use super::{
 	path, remote, seal_of, series_config,
 };
 use crate::adapters::frontmatter;
-use crate::claims::DiagnosticKind;
+use crate::claims::{DiagnosticKind, SourceGlob};
 use crate::model::SourceDecl;
 use crate::mutate::{
 	MutateError, Planned, RenameRequest, RenameSourceKind, RenameSummary, rename,
@@ -839,21 +839,84 @@ fn invalid_rename_preconditions_are_refused() {
 	));
 }
 
-/// Relative patterns that cannot be safely re-expressed refuse the plan.
+/// A destination directory whose name holds glob metacharacters is taken
+/// literally, so patterns that only climb out of it are re-expressed; a
+/// pattern that would have to name such a directory refuses the plan.
 #[test]
-fn a_destination_directory_with_glob_metacharacters_refuses_patterns() {
-	let tree = moved(
-		r#"{"sources": [{"pattern": "/src/*.rs"}]}"#,
-		&[("archive/[draft]/guide.md", PLAIN)],
+fn a_glob_named_directory_is_never_spelled_in_a_pattern() {
+	for (declared, expected) in [
+		("/src/*.rs", "/src/*.rs"),
+		("../src/*.rs", "../../src/*.rs"),
+	] {
+		let tree = moved(
+			&format!(r#"{{"sources": [{{"pattern": "{declared}"}}]}}"#),
+			&[("archive/[draft]/guide.md", PLAIN)],
+		);
+		let planned =
+			plan(&tree, "docs/guide.md", "archive/[draft]/guide.md").unwrap();
+		let after = tree.apply(&planned.plan);
+		after.assert_clean();
+		let declaration =
+			&after.claim(&local("archive/[draft]/guide.md")).declaration;
+		assert_eq!(declaration.sources[0].declared(), expected);
+	}
+	let lock = lockfile(
+		&[("[draft]/guide.md", r#"{"sources": [{"pattern": "*.rs"}]}"#)],
+		&[],
 	);
-	// Rooted patterns do not need a new literal prefix.
-	plan(&tree, "docs/guide.md", "archive/[draft]/guide.md").unwrap();
-	let tree = moved(
-		r#"{"sources": [{"pattern": "../src/*.rs"}]}"#,
-		&[("archive/[draft]/guide.md", PLAIN)],
+	let tree = Tree::new(&[
+		("docs/source-sentry.lock", &lock),
+		("docs/[draft]/a.rs", SOURCE),
+		("docs/guide.md", PLAIN),
+	]);
+	let error =
+		plan(&tree, "docs/[draft]/guide.md", "docs/guide.md").unwrap_err();
+	assert!(
+		matches!(error, MutateError::CannotRenameSource { .. }),
+		"{error}"
 	);
-	assert!(matches!(
-		plan(&tree, "docs/guide.md", "archive/[draft]/guide.md"),
-		Err(MutateError::CannotRenameSource { .. })
-	));
+	assert!(
+		error.to_string().contains(
+			"cannot re-express source `*.rs`: the directory `docs/[draft]` \
+			 contains glob metacharacters"
+		),
+		"{error}"
+	);
+}
+
+/// A relative pattern stays as written when its document is renamed within
+/// a directory whose name holds glob metacharacters, and selects the same
+/// file there rather than files the name would match as glob syntax.
+#[test]
+fn a_rename_within_a_glob_named_directory_keeps_relative_patterns() {
+	for (directory, decoy) in
+		[("[draft]", "docs/d/a.rs"), ("{draft}", "docs/draft/a.rs")]
+	{
+		let old = format!("docs/{directory}/v1.md");
+		let new = format!("docs/{directory}/v2.md");
+		let beside = format!("docs/{directory}/a.rs");
+		let lock = lockfile(
+			&[(old.as_str(), r#"{"sources": [{"pattern": "*.rs"}]}"#)],
+			&[],
+		);
+		let tree = Tree::new(&[
+			("source-sentry.lock", &lock),
+			(&beside, SOURCE),
+			(decoy, SOURCE),
+			(&new, PLAIN),
+		]);
+		let planned = plan(&tree, &old, &new)
+			.unwrap_or_else(|error| panic!("{directory}: {error}"));
+		let after = tree.apply(&planned.plan);
+		after.assert_clean();
+		let declaration = &after.claim(&local(&new)).declaration;
+		assert_eq!(declaration.sources[0].declared(), "*.rs");
+		let tracked = after.snapshot.paths().unwrap().into_iter().collect();
+		assert_eq!(
+			SourceGlob::compile(Some(&path(&new)), "*.rs")
+				.unwrap()
+				.expand(&tracked),
+			std::iter::once(path(&beside)).collect()
+		);
+	}
 }
