@@ -122,8 +122,9 @@ impl FakeHistory {
 		self.commits.last().map(|commit| commit.id.clone())
 	}
 
-	/// Makes `id` the oldest available commit, as a shallow clone would: its
-	/// parent, and everything before it, can no longer be walked.
+	/// Makes `id` the oldest commit a walk reaches, as a shallow clone would:
+	/// its parent, and everything before it, can no longer be walked. A
+	/// commit below the boundary can still be read by its ID.
 	///
 	/// # Panics
 	///
@@ -204,10 +205,9 @@ impl History for FakeHistory {
 		commit: &CommitId,
 		paths: &[RepoPath],
 	) -> Result<Vec<Option<ObjectId>>, BackendError> {
+		// A commit below the shallow boundary is read like any other, as git
+		// reads one whose object is present.
 		let index = self.index_of(commit).ok_or_else(|| Self::missing(commit))?;
-		if self.shallow_at.is_some_and(|floor| index < floor) {
-			return Err(Self::missing(commit));
-		}
 		let tree = &self.commits[index].tree;
 		Ok(paths.iter().map(|path| tree.get(path).cloned()).collect())
 	}
@@ -242,6 +242,8 @@ impl History for FakeHistory {
 pub struct FakeSnapshot {
 	revision: Revision,
 	files: BTreeMap<RepoPath, Vec<u8>>,
+	/// Files whose blob the history lacks, with the blob's ID.
+	missing: BTreeMap<RepoPath, ObjectId>,
 	canonical: BTreeMap<RepoPath, Canonical>,
 }
 
@@ -252,18 +254,27 @@ impl FakeSnapshot {
 		Self {
 			revision: Revision::WorkingTree { head },
 			files: BTreeMap::new(),
+			missing: BTreeMap::new(),
 			canonical: BTreeMap::new(),
 		}
 	}
 
-	/// The working tree of a clean checkout of `history`'s head.
+	/// The working tree of a clean checkout of `history`'s head. A file whose
+	/// blob the history lacks keeps its oid, but reading it fails with
+	/// [`BackendErrorKind::MissingObject`], as in a real snapshot.
 	#[must_use]
 	pub fn checkout(history: &FakeHistory) -> Self {
 		let mut snapshot = Self::working_tree(history.head());
 		if let Some(head) = history.head() {
 			for (file, oid) in history.tree(&head) {
-				let content = history.blobs.get(oid).cloned().unwrap_or_default();
-				snapshot.files.insert(file.clone(), content);
+				match history.blobs.get(oid) {
+					Some(content) => {
+						snapshot.files.insert(file.clone(), content.clone());
+					}
+					None => {
+						snapshot.missing.insert(file.clone(), oid.clone());
+					}
+				}
 			}
 		}
 		snapshot
@@ -272,14 +283,18 @@ impl FakeSnapshot {
 	/// Adds or replaces a file.
 	#[must_use]
 	pub fn with_file(mut self, file: &str, content: &[u8]) -> Self {
-		self.files.insert(path(file), content.to_vec());
+		let file = path(file);
+		self.missing.remove(&file);
+		self.files.insert(file, content.to_vec());
 		self
 	}
 
 	/// Removes a file.
 	#[must_use]
 	pub fn without_file(mut self, file: &str) -> Self {
-		self.files.remove(&path(file));
+		let file = path(file);
+		self.missing.remove(&file);
+		self.files.remove(&file);
 		self
 	}
 
@@ -298,15 +313,29 @@ impl Snapshot for FakeSnapshot {
 	}
 
 	fn paths(&self) -> Result<Vec<RepoPath>, BackendError> {
-		Ok(self.files.keys().cloned().collect())
+		let mut paths: Vec<RepoPath> = self
+			.files
+			.keys()
+			.chain(self.missing.keys())
+			.cloned()
+			.collect();
+		paths.sort();
+		Ok(paths)
 	}
 
 	fn read(&self, file: &RepoPath) -> Result<Vec<u8>, BackendError> {
-		self.files.get(file).cloned().ok_or_else(|| {
-			BackendError::new(
+		if let Some(content) = self.files.get(file) {
+			return Ok(content.clone());
+		}
+		Err(match self.missing.get(file) {
+			Some(oid) => BackendError::new(
+				BackendErrorKind::MissingObject,
+				format!("blob {oid} of {file} is not in the fake history"),
+			),
+			None => BackendError::new(
 				BackendErrorKind::Io,
 				format!("{file} is not in the fake snapshot"),
-			)
+			),
 		})
 	}
 
@@ -320,10 +349,75 @@ impl Snapshot for FakeSnapshot {
 				if let Some(canonical) = self.canonical.get(file) {
 					return Ok(canonical.clone());
 				}
+				if let Some(oid) = self.missing.get(file) {
+					return Ok(Canonical::Oid(oid.clone()));
+				}
 				self
 					.read(file)
 					.map(|content| Canonical::Oid(fake_oid(&content)))
 			})
 			.collect()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use chrono::TimeZone as _;
+
+	use super::*;
+
+	fn time() -> DateTime<Utc> {
+		Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
+	}
+
+	/// Walks stop at the shallow boundary, but a commit below it is read by
+	/// its ID, as git reads one whose object is present.
+	#[test]
+	fn a_commit_below_the_shallow_boundary_is_read() {
+		let mut history = FakeHistory::new();
+		let old = history.commit(time(), &[("file.txt", Some(b"old\n"))]);
+		let head = history.commit(time(), &[("file.txt", Some(b"new\n"))]);
+		history.make_shallow_at(&head);
+
+		let walked: Vec<Commit> = history
+			.first_parent_walk(&head)
+			.map(Result::unwrap)
+			.collect();
+		assert_eq!(walked.len(), 1);
+		assert_eq!(walked[0].first_parent, FirstParent::Shallow);
+		assert_eq!(
+			history.blobs_at(&old, &[path("file.txt")]).unwrap(),
+			[Some(fake_oid(b"old\n"))]
+		);
+	}
+
+	/// A checked-out file whose blob the history lacks keeps its oid, and
+	/// reading it fails, as in a real snapshot.
+	#[test]
+	fn a_checked_out_file_without_its_blob_cannot_be_read() {
+		let mut history = FakeHistory::new();
+		history.commit(
+			time(),
+			&[
+				("file.txt", Some(b"nonempty\n")),
+				("other.txt", Some(b"other\n")),
+			],
+		);
+		history.forget_blob(&fake_oid(b"nonempty\n"));
+		let snapshot = FakeSnapshot::checkout(&history);
+
+		assert_eq!(
+			snapshot.paths().unwrap(),
+			[path("file.txt"), path("other.txt")]
+		);
+		assert_eq!(
+			snapshot.read(&path("file.txt")).unwrap_err().kind,
+			BackendErrorKind::MissingObject
+		);
+		assert_eq!(
+			snapshot.canonical_oids(&[path("file.txt")]).unwrap(),
+			[Canonical::Oid(fake_oid(b"nonempty\n"))]
+		);
+		assert_eq!(snapshot.read(&path("other.txt")).unwrap(), b"other\n");
 	}
 }
