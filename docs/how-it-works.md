@@ -751,7 +751,9 @@ purpose and reviewed as such.
 
 - Submodules, and files behind a clean filter other than Git LFS.
 - Git LFS pointers that use extensions.
-- Paths that are not valid UTF-8.
+- Paths that are not valid UTF-8. A commit that holds such a path cannot be
+  checked, and such a name in an older commit's `.source-sentry/remotes` is
+  not read as a lockfile.
 - Checking whether a remote document exists.
 - Pre-release ordering of versions in a series.
 - Signed or notarised binaries.

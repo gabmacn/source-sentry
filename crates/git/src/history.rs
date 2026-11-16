@@ -85,6 +85,11 @@ impl History for GitRepository {
 	/// costs one lookup per commit. The root is each commit's own tree. A
 	/// commit that lacks `directory` contributes nothing; a tree that cannot
 	/// be read on the way to it is an error.
+	///
+	/// A name that is not UTF-8 is passed over without an error. A commit
+	/// that holds such a name cannot be checked at all, in the working tree
+	/// or with `--rev`, so a lockfile with such a name was never one Source
+	/// Sentry could read.
 	fn files_ever_in(
 		&self,
 		start: &CommitId,

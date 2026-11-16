@@ -157,6 +157,11 @@ pub trait History {
 	/// first-parent chain from `start`, sorted, including files deleted
 	/// since. The walk ends quietly at a shallow boundary.
 	///
+	/// A file whose name is not UTF-8 is left out, without an error: a commit
+	/// that holds such a name cannot be checked at all, in the working tree
+	/// or with `--rev`, so a lockfile with such a name was never one Source
+	/// Sentry could read.
+	///
 	/// # Errors
 	///
 	/// Fails when a commit or tree cannot be read.

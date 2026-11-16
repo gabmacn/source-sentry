@@ -2,8 +2,9 @@
 
 use std::{
 	fs,
+	io::Write as _,
 	path::{Path, PathBuf},
-	process::Command,
+	process::{Command, Output, Stdio},
 };
 
 use source_sentry_core::ports::{CommitId, HashAlgorithm, ObjectId, RepoPath};
@@ -84,6 +85,24 @@ impl TestRepo {
 		run_git(self.root.path(), &self.path, args, env)
 	}
 
+	/// Runs `git` with `input` on its standard input and returns its trimmed
+	/// output.
+	pub fn git_with_input(&self, args: &[&str], input: &[u8]) -> String {
+		let mut child = git_command(self.root.path(), &self.path, args, &[])
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.expect("run git");
+		child
+			.stdin
+			.take()
+			.expect("standard input")
+			.write_all(input)
+			.expect("write standard input");
+		finish(args, &child.wait_with_output().expect("wait for git"))
+	}
+
 	/// Writes a file, creating its directories.
 	pub fn write(&self, path: &str, contents: impl AsRef<[u8]>) {
 		let full = self.path.join(path);
@@ -160,6 +179,19 @@ fn run_git(
 	args: &[&str],
 	env: &[(&str, &str)],
 ) -> String {
+	let output = git_command(root, directory, args, env)
+		.output()
+		.expect("run git");
+	finish(args, &output)
+}
+
+/// A `git` command in `directory` with the configuration isolated to `root`.
+fn git_command(
+	root: &Path,
+	directory: &Path,
+	args: &[&str],
+	env: &[(&str, &str)],
+) -> Command {
 	let mut command = Command::new("git");
 	command
 		.args(args)
@@ -172,13 +204,17 @@ fn run_git(
 	for (key, value) in env {
 		command.env(key, value);
 	}
-	let output = command.output().expect("run git");
+	command
+}
+
+/// Checks that `git` succeeded and returns its trimmed output.
+fn finish(args: &[&str], output: &Output) -> String {
 	assert!(
 		output.status.success(),
 		"git {args:?} failed: {}",
 		String::from_utf8_lossy(&output.stderr)
 	);
-	String::from_utf8(output.stdout)
+	std::str::from_utf8(&output.stdout)
 		.expect("UTF-8 output")
 		.trim()
 		.to_owned()

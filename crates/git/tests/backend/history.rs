@@ -251,6 +251,47 @@ fn a_directory_never_committed_has_no_files() {
 	);
 }
 
+/// A name that is not UTF-8 in an older commit is passed over without an
+/// error: a commit that holds one cannot be checked at all, so such a file
+/// was never one that could be read. The tree is built from raw objects, so
+/// that no such name is ever created on disk.
+#[test]
+fn a_name_that_is_not_utf8_in_an_older_commit_is_passed_over() {
+	let repo = TestRepo::init();
+	repo.write(".source-sentry/remotes/current.lock", "{}\n");
+	repo.git(&["add", "--all"]);
+	let blob = repo.git_with_input(&["hash-object", "-w", "--stdin"], b"{}\n");
+	let mut listing = Vec::new();
+	for name in [b"bad-\xff.lock".as_slice(), b"old.lock"] {
+		listing.extend_from_slice(format!("100644 blob {blob}\t").as_bytes());
+		listing.extend_from_slice(name);
+		listing.push(0);
+	}
+	let remotes = repo.git_with_input(&["mktree", "-z"], &listing);
+	let tool = repo.git_with_input(
+		&["mktree"],
+		format!("040000 tree {remotes}\tremotes\n").as_bytes(),
+	);
+	let tree = repo.git_with_input(
+		&["mktree"],
+		format!("040000 tree {tool}\t.source-sentry\n").as_bytes(),
+	);
+	let older = repo.git(&["commit-tree", &tree, "-m", "older"]);
+	let current = repo.git(&["write-tree"]);
+	let head = repo.git(&["commit-tree", &current, "-p", &older, "-m", "head"]);
+
+	assert_eq!(
+		repo
+			.open()
+			.files_ever_in(&commit_id(&head), &path(".source-sentry/remotes"))
+			.unwrap(),
+		[
+			path(".source-sentry/remotes/current.lock"),
+			path(".source-sentry/remotes/old.lock"),
+		]
+	);
+}
+
 /// A tree on the way to the directory that the object database lacks is an
 /// error, never an absent directory.
 #[test]
