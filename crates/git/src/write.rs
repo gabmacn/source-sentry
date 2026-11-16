@@ -136,7 +136,8 @@ pub enum ApplyError {
 	/// contents, or be missing, and a created one may remain marked
 	/// intent-to-add. A deleted file in `unrestored` is missing, and its
 	/// contents remain beside it in a hidden file named
-	/// `.<name>.<process>.<n>.source-sentry.bak`. When marking failed, `path`
+	/// `.<name>.<process>.<n>.source-sentry.bak`, where a long `<name>` is cut
+	/// to its first 64 bytes. When marking failed, `path`
 	/// is the first created file, and `source` wraps the [`BackendError`].
 	#[error("cannot change {path}, and cannot restore {}", list(unrestored))]
 	RollbackFailed {
@@ -630,7 +631,10 @@ struct Staged {
 impl Staged {
 	/// Writes `contents` to a new file beside `target`, named
 	/// `.<name>.<process>.<n>.source-sentry.<suffix>`, with `permissions` on
-	/// Unix, and flushes it to disk.
+	/// Unix, and flushes it to disk. `<name>` is the target's name, cut to
+	/// [`STAGED_NAME_BYTES`] so that the temporary name stays well within the
+	/// file system's limit on one name however long the target's is; `<n>`
+	/// tells apart names that are still the same.
 	fn create(
 		target: &Path,
 		contents: &[u8],
@@ -643,8 +647,8 @@ impl Staged {
 		let name = target
 			.file_name()
 			.ok_or_else(|| io::Error::other("the target has no file name"))?
-			.to_string_lossy()
-			.into_owned();
+			.to_string_lossy();
+		let name = shortened(&name, STAGED_NAME_BYTES);
 		let mut attempt = 0_u32;
 		let (path, mut file) = loop {
 			let candidate = directory.join(format!(
@@ -688,6 +692,17 @@ impl Drop for Staged {
 			let _ = fs::remove_file(&self.path);
 		}
 	}
+}
+
+/// The most bytes of a target's name that a temporary name beside it repeats.
+/// The rest of the temporary name takes at most 35 bytes, so the whole stays
+/// far below the 255 bytes, or UTF-16 units, that common file systems allow
+/// in one name.
+const STAGED_NAME_BYTES: usize = 64;
+
+/// `name` cut to at most `limit` bytes, on a character boundary.
+fn shortened(name: &str, limit: usize) -> &str {
+	name.get(..name.floor_char_boundary(limit)).unwrap_or(name)
 }
 
 /// Writes all of `contents` and flushes them to disk.
@@ -977,6 +992,24 @@ mod tests {
 
 		assert_eq!(names(directory.path()), ["a.md", "new.md"]);
 		assert_eq!(fs::read(directory.path().join("a.md")).unwrap(), b"new a");
+	}
+
+	#[test]
+	fn temporary_names_repeat_at_most_a_bounded_part_of_the_target_name() {
+		assert_eq!(shortened("short.md", 64), "short.md");
+		let long = "é".repeat(100);
+		let cut = shortened(&long, 64);
+		assert_eq!(cut, "é".repeat(32));
+		assert_eq!(
+			shortened(&format!("a{long}"), 64),
+			format!("a{}", "é".repeat(31))
+		);
+
+		let directory = tempfile::tempdir().unwrap();
+		let target = directory.path().join(format!("{}.md", "x".repeat(247)));
+		let staged = Staged::create(&target, b"new", None, "tmp").unwrap();
+		let name = staged.path.file_name().unwrap().len();
+		assert!(name <= 1 + STAGED_NAME_BYTES + 35, "{name}");
 	}
 
 	#[test]

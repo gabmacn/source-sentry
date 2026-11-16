@@ -425,6 +425,44 @@ fn deletes_and_writes_are_applied_together() {
 	assert_eq!(temporary_files(&repo), Vec::<String>::new());
 }
 
+/// Files whose names are close to the file system's limit on one name are
+/// written, created and deleted: the temporary files beside them have
+/// shorter names.
+#[test]
+fn files_with_names_near_the_length_limit_are_changed() {
+	let long = |letter: &str| format!("docs/{}.md", letter.repeat(247));
+	let (rewritten, deleted, created) = (long("a"), long("b"), long("c"));
+	let repo = TestRepo::init();
+	// Git for Windows needs this for paths beyond the old 260-character
+	// limit; elsewhere it has no effect.
+	repo.git(&["config", "core.longpaths", "true"]);
+	repo.write(&rewritten, "old\n");
+	repo.write(&deleted, "gone\n");
+	repo.commit_all("add long names");
+
+	let plan = WritePlan {
+		writes: vec![
+			PlannedWrite {
+				path: path(&rewritten),
+				expected: Some(current_oid(&repo, &rewritten)),
+				contents: b"new\n".to_vec(),
+			},
+			PlannedWrite {
+				path: path(&created),
+				expected: None,
+				contents: b"created\n".to_vec(),
+			},
+		],
+		deletes: vec![delete_of(&repo, &deleted)],
+	};
+	repo.open().apply(&plan).unwrap();
+
+	assert_eq!(repo.read(&rewritten), b"new\n");
+	assert_eq!(repo.read(&created), b"created\n");
+	assert!(!repo.path().join(&deleted).exists());
+	assert_eq!(temporary_files(&repo), Vec::<String>::new());
+}
+
 #[test]
 fn a_stale_delete_changes_nothing() {
 	let repo = TestRepo::init();
