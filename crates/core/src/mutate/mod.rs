@@ -80,7 +80,7 @@ pub use rename::{
 	RenameRequest, RenameSeries, RenameSourceKind, RenameSummary, RenamedSource,
 	rename,
 };
-pub use repo::Placement;
+pub use repo::{Placement, checked_reviewer};
 pub use retire::{RetireRequest, RetireSummary, retire};
 pub use seal::{SealRequest, SealSummary, seal};
 pub use select::Selection;

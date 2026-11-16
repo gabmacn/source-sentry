@@ -132,7 +132,7 @@ pub(super) fn is_own_file(path: &RepoPath) -> bool {
 /// Fails with [`MutateError::InvalidReviewer`] when the name is blank,
 /// contains a control character, or contains `@`, which would make it an
 /// email address or part of one.
-pub(super) fn checked_reviewer(
+pub fn checked_reviewer(
 	reviewer: Option<&str>,
 ) -> Result<Option<String>, MutateError> {
 	let Some(name) = reviewer else {

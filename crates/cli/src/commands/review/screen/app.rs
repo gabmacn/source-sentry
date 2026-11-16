@@ -1771,8 +1771,17 @@ impl<'a> App<'a> {
 
 	/// Uses `name` for the reviews recorded from now on, and remembers it
 	/// for the repository in git's configuration. An empty name forgets the
-	/// remembered one and returns to git's own.
+	/// remembered one and returns to git's own. A name that a review could
+	/// not be recorded under is refused before anything is remembered or
+	/// adopted, with the reason a review would give.
 	fn set_reviewer(&mut self, name: &str) -> Result<(), Failure> {
+		if !name.is_empty()
+			&& let Err(error) =
+				source_sentry_core::mutate::checked_reviewer(Some(name))
+		{
+			self.notice = Some(Failure::mutate(self.workspace(), &error).message);
+			return Ok(());
+		}
 		let repository = &self.workspace().repository;
 		let remembered =
 			repository.remember_reviewer((!name.is_empty()).then_some(name));

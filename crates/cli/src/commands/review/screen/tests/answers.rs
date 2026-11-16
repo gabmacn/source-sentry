@@ -378,3 +378,29 @@ fn a_session_with_nothing_to_review_closes_after_a_final_evaluation() {
 		"{closing}"
 	);
 }
+
+/// A name that no review could be recorded under, such as an email
+/// address, is refused in the header: git's configuration and the session
+/// keep the name they had, and the notice gives the reason.
+#[test]
+fn a_reviewer_name_is_checked_before_it_is_remembered() {
+	let repo = Repo::new(json!({"docs/a.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let before = app.session.reviewer.clone();
+	press(&mut app, &[Key::Up, Key::Enter]);
+	press(&mut app, &[Key::Backspace; 64]);
+	for character in "person@example.com".chars() {
+		press(&mut app, &[Key::Char(character)]);
+	}
+	press(&mut app, &[Key::Enter]);
+
+	let configuration = repo.git(&["config", "--local", "--list"]);
+	assert!(
+		!configuration.contains("person@example.com"),
+		"{configuration}"
+	);
+	assert_eq!(app.session.reviewer, before);
+	let notice = app.notice.clone().unwrap_or_default();
+	assert!(notice.contains("never email addresses"), "{notice}");
+}
