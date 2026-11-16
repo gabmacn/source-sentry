@@ -395,12 +395,13 @@ impl GitRepository {
 	/// Checks, just before a step is taken, that its target is still as
 	/// verification found it. The directories above it are inspected again,
 	/// and one that has become a symbolic link or a file fails the step with
-	/// verification's error. Then a file whose bytes are unchanged, or a new
-	/// file's path that is still free, passes at once. Anything else is
-	/// verified again exactly as the verification phase verifies it, and
-	/// fails with that phase's error. A rewritten file that still meets the
-	/// expectation passes, and its current contents become what a rollback
-	/// restores.
+	/// verification's error. Then a file whose bytes, and on Unix
+	/// permissions, are unchanged, or a new file's path that is still free,
+	/// passes at once. Anything else is verified again exactly as the
+	/// verification phase verifies it, and fails with that phase's error. A
+	/// rewritten file that still meets the expectation passes, and its
+	/// current contents and permissions become what a rollback restores; the
+	/// staged replacement takes those permissions too.
 	fn recheck(
 		&self,
 		work_dir: &Path,
@@ -412,12 +413,15 @@ impl GitRepository {
 			Step::Write {
 				path,
 				target,
+				staged,
 				original,
 				..
 			} => {
 				inspect_parents(work_dir, path)?;
 				let contents = original.as_ref().map(|kept| kept.contents.as_slice());
-				if unchanged(target, contents) {
+				if unchanged(target, contents)
+					&& same_permissions(target, original.as_ref())
+				{
 					return Ok(());
 				}
 				let write = plan
@@ -431,6 +435,16 @@ impl GitRepository {
 				}];
 				self.verify(index, &targets, &[])?;
 				let [WriteTarget { inspected, .. }] = targets;
+				if let Some(current) = &inspected.original {
+					staged
+						.set_permissions(&current.permissions)
+						.map_err(|source| {
+							ApplyError::from(error::io(
+								format!("cannot write {path}"),
+								source,
+							))
+						})?;
+				}
 				*original = inspected.original;
 			}
 			Step::Delete {
@@ -818,15 +832,21 @@ impl Staged {
 		let staged = Self { path, armed: true };
 		write_and_sync(&mut file, contents)?;
 		drop(file);
-		// Only Unix permissions, such as an executable bit, are copied. A
-		// read-only copy on Windows could not be cleaned up.
-		#[cfg(unix)]
 		if let Some(permissions) = permissions {
-			fs::set_permissions(&staged.path, permissions.clone())?;
+			staged.set_permissions(permissions)?;
 		}
-		#[cfg(not(unix))]
-		let _ = permissions;
 		Ok(staged)
+	}
+
+	/// Gives the file `permissions` on Unix. Only Unix permissions, such as an
+	/// executable bit, are copied: a read-only copy on Windows could not be
+	/// cleaned up.
+	fn set_permissions(&self, permissions: &fs::Permissions) -> io::Result<()> {
+		if cfg!(unix) {
+			fs::set_permissions(&self.path, permissions.clone())
+		} else {
+			Ok(())
+		}
 	}
 }
 
@@ -907,6 +927,23 @@ fn unchanged(target: &Path, contents: Option<&[u8]>) -> bool {
 		(Err(source), None) => is_absence(&source),
 		_ => false,
 	}
+}
+
+/// Whether the file at `target` still has the Unix permissions of
+/// `original`, which its replacement was staged with. Elsewhere, and for a
+/// new file, there are none to compare.
+fn same_permissions(target: &Path, original: Option<&Original>) -> bool {
+	#[cfg(unix)]
+	if let Some(original) = original {
+		use std::os::unix::fs::PermissionsExt as _;
+		return fs::symlink_metadata(target).is_ok_and(|metadata| {
+			metadata.permissions().mode() & 0o7777
+				== original.permissions.mode() & 0o7777
+		});
+	}
+	#[cfg(not(unix))]
+	let _ = (target, original);
+	true
 }
 
 /// A change that failed, before the error that reports it is chosen.
@@ -1236,19 +1273,28 @@ mod tests {
 			deletes: Vec::new(),
 		};
 		let directory = work.to_path_buf();
-		AFTER_FIRST_STEP.with(|slot| {
-			*slot.borrow_mut() = Some(Box::new(move || {
-				meanwhile(&target);
-				let staged = names(&directory)
-					.into_iter()
-					.find(|name| {
-						name.starts_with(".b.md.") && name.ends_with(".source-sentry.tmp")
-					})
-					.unwrap();
-				fs::remove_file(directory.join(staged)).unwrap();
-			}));
-		});
-		let result = GitRepository::open(work).unwrap().apply(&plan);
+		apply_after_first_step(work, &plan, move || {
+			meanwhile(&target);
+			let staged = names(&directory)
+				.into_iter()
+				.find(|name| {
+					name.starts_with(".b.md.") && name.ends_with(".source-sentry.tmp")
+				})
+				.unwrap();
+			fs::remove_file(directory.join(staged)).unwrap();
+		})
+	}
+
+	/// Applies `plan` to the repository at `work`, running `meanwhile` once
+	/// its first step has been taken.
+	fn apply_after_first_step(
+		work: &Path,
+		plan: &WritePlan,
+		meanwhile: impl FnOnce() + 'static,
+	) -> Result<(), ApplyError> {
+		AFTER_FIRST_STEP
+			.with(|slot| *slot.borrow_mut() = Some(Box::new(meanwhile)));
+		let result = GitRepository::open(work).unwrap().apply(plan);
 		AFTER_FIRST_STEP.with(|slot| slot.borrow_mut().take());
 		result
 	}
@@ -1489,6 +1535,37 @@ mod tests {
 		}
 		assert_eq!(fs::read(moved.join("a.md")).unwrap(), b"a\n");
 		assert_eq!(names(&moved), ["a.md"]);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn a_permission_change_after_staging_is_kept() {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let (_root, work) = repository(&[("a.md", b"a\n"), ("b.md", b"b\n")]);
+		let plan = WritePlan {
+			writes: vec![
+				rewrite(&work, "b.md", b"new b\n"),
+				rewrite(&work, "a.md", b"new a\n"),
+			],
+			deletes: Vec::new(),
+		};
+		let target = work.join("a.md");
+		let mode =
+			|path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+		let executable = mode(&target) | 0o111;
+		assert_ne!(mode(&target), executable);
+		// Both replacements are staged by now, `a.md`'s with the mode read
+		// before the change.
+		let changed = target.clone();
+		apply_after_first_step(&work, &plan, move || {
+			fs::set_permissions(&changed, fs::Permissions::from_mode(executable))
+				.unwrap();
+		})
+		.unwrap();
+
+		assert_eq!(fs::read(&target).unwrap(), b"new a\n");
+		assert_eq!(mode(&target), executable);
 	}
 
 	/// A save that changes the bytes but not the canonical oid still meets
