@@ -442,3 +442,107 @@ series:
 		assert!(run.stdout.contains("app"), "{}", run.stdout);
 	}
 }
+
+/// A lockfile entry reviewed on 1 November 2026.
+const REVIEWED: &str =
+	"{\"reviewed\":{\"at\":\"2026-11-01T12:00:00Z\",\"by\":\"Reviewer\"}}";
+
+/// A lockfile holding `documents`, each reviewed.
+fn reviewed_lockfile(documents: &[&str]) -> String {
+	let entries: Vec<String> = documents
+		.iter()
+		.map(|document| format!("\"{document}\":{REVIEWED}"))
+		.collect();
+	format!(
+		"{{\"schema\":1,\"documents\":{{{}}},\"retired\":{{}}}}",
+		entries.join(",")
+	)
+}
+
+/// The lines of `text` that report `outside-authority`.
+fn outside_authority_lines(text: &str) -> Vec<&str> {
+	text
+		.lines()
+		.filter(|line| line.contains("outside-authority"))
+		.collect()
+}
+
+/// A document declared both in its own project and in the project above
+/// fails two authority checks that give the same advice: the advice is
+/// printed once, and the summary and the JSON report still count both.
+#[test]
+fn the_same_advice_for_one_declaration_is_printed_once() {
+	let repo = nested();
+	repo.write("app/source-sentry.lock", &reviewed_lockfile(&["guide.md"]));
+	repo.write("source-sentry.lock", &reviewed_lockfile(&["app/guide.md"]));
+	repo.git(&["add", "."]);
+	repo.commit_at("2026-11-01T12:00:00Z");
+	let advice = "configuration-error  outside-authority  \
+	              ../source-sentry.lock:1  `guide.md` is declared outside its \
+	              project. Run `source-sentry -C app track guide.md --from \
+	              lockfile:.. --to lockfile:.` to move the declaration into its \
+	              project";
+
+	let run = repo.run(&["-C", "app", "check", "--at", AT]);
+	run.expect_code(3);
+	let lines = outside_authority_lines(&run.stdout);
+	assert_eq!(lines.len(), 1, "{}", run.stdout);
+	assert_eq!(lines[0].trim(), advice, "{}", run.stdout);
+	assert!(
+		run.stdout.contains("· 2 configuration errors ·"),
+		"{}",
+		run.stdout
+	);
+
+	let quiet = repo.run(&["-C", "app", "--quiet", "check", "--at", AT]);
+	quiet.expect_code(3);
+	assert_eq!(
+		outside_authority_lines(&quiet.stderr),
+		[advice],
+		"{}",
+		quiet.stderr
+	);
+
+	let explain = repo.run(&["-C", "app", "explain", "guide.md", "--at", AT]);
+	explain.expect_code(3);
+	assert_eq!(
+		outside_authority_lines(&explain.stdout).len(),
+		1,
+		"{}",
+		explain.stdout
+	);
+
+	let json = repo
+		.run(&["-C", "app", "check", "--at", AT, "--format", "json"])
+		.expect_code(3)
+		.json();
+	let messages: Vec<&Value> = json["diagnostics"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.filter(|diagnostic| diagnostic["code"] == "outside-authority")
+		.map(|diagnostic| &diagnostic["message"])
+		.collect();
+	assert_eq!(messages.len(), 2, "{json}");
+	assert_eq!(messages[0], messages[1], "{json}");
+	assert_eq!(json["summary"]["errors"]["configuration"], 2, "{json}");
+}
+
+/// Authority failures that give different advice each keep their line.
+#[test]
+fn different_advice_is_printed_for_each_declaration() {
+	let repo = nested();
+	repo.write("app/notes.md", "# Notes\n");
+	repo.write(
+		"source-sentry.lock",
+		&reviewed_lockfile(&["app/guide.md", "app/notes.md"]),
+	);
+	repo.git(&["add", "."]);
+	repo.commit_at("2026-11-01T12:00:00Z");
+	let run = repo.run(&["-C", "app", "check", "--at", AT]);
+	run.expect_code(3);
+	let lines = outside_authority_lines(&run.stdout);
+	assert_eq!(lines.len(), 2, "{}", run.stdout);
+	assert!(lines[0].contains("track guide.md"), "{}", run.stdout);
+	assert!(lines[1].contains("track notes.md"), "{}", run.stdout);
+}

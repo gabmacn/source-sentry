@@ -52,10 +52,12 @@ pub(super) fn run(
 			output::data(&json);
 		}
 		Format::Human if printer.is_quiet() => {
-			for diagnostic in &evaluation.diagnostics {
-				if diagnostic.severity().is_fatal() {
-					output::write_err(&diagnostic_line(workspace, diagnostic));
-				}
+			let fatal = evaluation
+				.diagnostics
+				.iter()
+				.filter(|diagnostic| diagnostic.severity().is_fatal());
+			for line in diagnostic_lines(workspace, fatal) {
+				output::write_err(&line);
 			}
 		}
 		Format::Human => {
@@ -253,9 +255,8 @@ pub(super) fn render(
 		if let Some(hint) = describe::inheritance_hint(workspace, subject) {
 			let _ = writeln!(text, "      {hint}");
 		}
-		for diagnostic in own {
-			let _ =
-				writeln!(text, "      {}", diagnostic_line(workspace, diagnostic));
+		for line in diagnostic_lines(workspace, own.iter().copied()) {
+			let _ = writeln!(text, "      {line}");
 		}
 	}
 
@@ -268,8 +269,8 @@ pub(super) fn render(
 		.collect();
 	if !rest.is_empty() {
 		text.push('\n');
-		for diagnostic in rest {
-			let _ = writeln!(text, "{}", diagnostic_line(workspace, diagnostic));
+		for line in diagnostic_lines(workspace, rest) {
+			let _ = writeln!(text, "{line}");
 		}
 	}
 
@@ -323,8 +324,26 @@ fn outside_note(
 	text
 }
 
+/// The lines of `diagnostics`, each printed once: diagnostics that point at
+/// the same place with the same message, such as two authority failures
+/// that lead to the same advice, share one line. The summary still counts
+/// each of them.
+pub(super) fn diagnostic_lines<'a>(
+	workspace: &Workspace,
+	diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
+) -> Vec<String> {
+	let mut lines: Vec<String> = Vec::new();
+	for diagnostic in diagnostics {
+		let line = diagnostic_line(workspace, diagnostic);
+		if !lines.contains(&line) {
+			lines.push(line);
+		}
+	}
+	lines
+}
+
 /// One diagnostic: its severity, its code, where it points and its message.
-pub(super) fn diagnostic_line(
+fn diagnostic_line(
 	workspace: &Workspace,
 	diagnostic: &source_sentry_core::claims::Diagnostic,
 ) -> String {

@@ -54,12 +54,8 @@ pub(super) fn run(
 			let mut text = explain(workspace, &evaluation, subject);
 			if !own.is_empty() {
 				heading(&mut text, "Diagnostics");
-				for diagnostic in own {
-					let _ = writeln!(
-						text,
-						"  {}",
-						super::check::diagnostic_line(workspace, diagnostic)
-					);
+				for line in super::check::diagnostic_lines(workspace, own) {
+					let _ = writeln!(text, "  {line}");
 				}
 			}
 			text
