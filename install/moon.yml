@@ -5,7 +5,7 @@
 # Sentry with its proto plugin in the workspace's .prototools; README.md
 # beside this file shows both. Then:
 #
-#   moon run source-sentry:check    # every document, failing on a warning
+#   moon run source-sentry:check    # the root project, failing on a warning
 #   moon run source-sentry:review   # review pending documents, on a terminal
 #
 # Both first run `install`, which installs the pinned version through proto
@@ -25,9 +25,10 @@ tasks:
       runFromWorkspaceRoot: true
       cache: false
 
-  # The whole repository's documentation. It fails on a warning, like the
-  # report gate of the CI recipes; use `-- --fail-on fail` for the continue
-  # gate.
+  # The documents of the project at the workspace root; a nested project is
+  # checked separately, with `source-sentry -C <project> check`. It fails on
+  # a warning, like the report gate of the CI recipes; use
+  # `-- --fail-on fail` for the continue gate.
   check:
     command: 'proto run source-sentry -- check --fail-on warn'
     toolchains: ['system']

@@ -126,7 +126,7 @@ proto plugin, so that a team installs nothing by hand:
 3. Run its tasks:
 
    ```sh
-   moon run source-sentry:check    # every document, failing on a warning
+   moon run source-sentry:check    # the root project, failing on a warning
    moon run source-sentry:review   # review pending documents, on a terminal
    ```
 
@@ -136,6 +136,11 @@ it runs. They run from the workspace root, and are never cached, because a
 check depends on the repository's history, which moon's inputs cannot
 describe. `review` is interactive and does not run in CI; for CI, the
 [CI recipes](../recipes/README.md) set up both gates.
+
+The `check` task checks the documents of the project at the workspace
+root. A nested project is checked separately, with
+`source-sentry -C <project> check`, as the
+[command-line reference](../docs/cli.md#checking) describes.
 
 ## Shell completions
 
