@@ -91,10 +91,7 @@ impl PathPattern {
 					)),
 			);
 		}
-		// As in .gitignore, trailing spaces are ignored unless escaped.
-		if !rest.ends_with("\\ ") {
-			rest = rest.trim_end_matches(' ');
-		}
+		rest = trim_trailing_spaces(rest);
 		let anchored = rest.starts_with('/');
 		if anchored {
 			rest = &rest[1..];
@@ -180,6 +177,28 @@ impl PathPattern {
 			.match_indices('/')
 			.any(|(end, _)| self.matcher.is_match(&relative[..end]))
 	}
+}
+
+/// `pattern` without its trailing spaces, as in .gitignore: a space preceded
+/// by a backslash is escaped and kept, with every space before it, and only
+/// the unescaped spaces after the last escaped character are dropped. A
+/// backslash escapes the character after it, so in `a\\ ` the backslashes
+/// escape each other and the space is dropped.
+fn trim_trailing_spaces(pattern: &str) -> &str {
+	let mut end = 0;
+	let mut characters = pattern.char_indices();
+	while let Some((index, character)) = characters.next() {
+		match character {
+			' ' => {}
+			'\\' => {
+				end = characters
+					.next()
+					.map_or(pattern.len(), |(next, escaped)| next + escaped.len_utf8());
+			}
+			_ => end = index + character.len_utf8(),
+		}
+	}
+	&pattern[..end]
 }
 
 /// `glob` with every brace outside a character class escaped, so that the
@@ -310,4 +329,55 @@ impl fmt::Display for SeriesPattern {
 /// regular expressions.
 pub(super) fn quote(value: &str) -> String {
 	format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::testing::path;
+
+	/// Whether `pattern`, as an ignore pattern, matches each of `names`.
+	fn matches(pattern: &str, names: &[&str]) -> Vec<bool> {
+		let pattern = PathPattern::compile(pattern, true)
+			.unwrap_or_else(|error| panic!("`{pattern}` compiles: {error:?}"));
+		names
+			.iter()
+			.map(|name| pattern.matches(&path(name)))
+			.collect()
+	}
+
+	#[test]
+	fn only_unescaped_trailing_spaces_are_dropped() {
+		for (pattern, trimmed) in [
+			(r"draft\  ", r"draft\ "),
+			(r"a\ ", r"a\ "),
+			(r"a\\ ", r"a\\"),
+			("a  ", "a"),
+			(r"a \  ", r"a \ "),
+			(r"a\", r"a\"),
+			("   ", ""),
+		] {
+			assert_eq!(trim_trailing_spaces(pattern), trimmed, "{pattern:?}");
+		}
+	}
+
+	#[test]
+	fn an_escaped_space_before_unescaped_ones_is_kept() {
+		assert_eq!(
+			matches(
+				r"draft\  ",
+				&["draft ", "draft", "draft  ", "draft /file.md"]
+			),
+			[true, false, false, true]
+		);
+		assert_eq!(matches(r"a\ ", &["a ", "a"]), [true, false]);
+		assert_eq!(matches("a  ", &["a", "a ", "a  "]), [true, false, false]);
+	}
+
+	#[test]
+	fn a_pattern_of_spaces_only_is_empty() {
+		let error = PathPattern::compile("   ", true)
+			.expect_err("a pattern of spaces is rejected");
+		assert_eq!(error.reason, "the pattern is empty");
+	}
 }
