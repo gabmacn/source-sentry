@@ -511,8 +511,10 @@ against stand-in archives of the same layout: correct pins on both
 architectures, a wrong checksum, the placeholders, an unsupported
 architecture, a missing release and a binary that does not run. The download
 URL follows Forgejo's route for release files,
-`<repository>/releases/download/<tag>/<file>`; it has not been tried against
-`git.gabmacn.com`, which has no release yet.
+`<repository>/releases/download/<tag>/<file>`. The download from
+`git.gabmacn.com` itself has since run in the GitHub Actions and Forgejo
+Actions recipes' runs of 2026-11-14, pinned to 0.1.0-rc.3, which
+[Testing the recipes](#testing-the-recipes) records.
 
 ## Protected policy surfaces
 
