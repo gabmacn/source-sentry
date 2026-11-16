@@ -2,7 +2,7 @@
 
 use super::{
 	BASE, REPOSITORY, assert_clean, inventory, kinds, local, lockfile, markdown,
-	only, paths, sealed_with_source, tombstone, with_source,
+	only, paths, project_inventory, sealed_with_source, tombstone, with_source,
 };
 use crate::claims::{
 	DiagnosticKind, Inventory, LockfileKind, Mode, Presence, ResolvedSource,
@@ -146,6 +146,66 @@ fn only_direct_children_of_the_remotes_folder_are_owner_lockfiles() {
 	assert_clean(&inventory);
 	assert_eq!(inventory.claims, []);
 	assert_eq!(inventory.lockfiles, []);
+}
+
+/// Only the project root's `.source-sentry/remotes/` holds owner lockfiles;
+/// one deeper in the project, where no project begins, is not read.
+#[test]
+fn owner_lockfiles_below_the_project_root_are_not_read() {
+	let remote = lockfile(&[("abstract:nested", "{}")], &[]);
+	let inventory = inventory(&[
+		("docs/.source-sentry/remotes/team.lock", &remote),
+		(".source-sentry/remotes/legal.lock", &remote),
+	]);
+	assert_clean(&inventory);
+	assert_eq!(
+		owner_lockfile_claims(&inventory),
+		[(
+			"abstract:nested".to_owned(),
+			".source-sentry/remotes/legal.lock".to_owned()
+		)]
+	);
+	assert_eq!(inventory.lockfiles.len(), 1);
+}
+
+/// A nested project's owner lockfiles are read when that project is
+/// discovered, and not when its parent is.
+#[test]
+fn a_nested_projects_owner_lockfiles_belong_to_it() {
+	let outer = lockfile(&[("abstract:outer", "{}")], &[]);
+	let inner = lockfile(&[("abstract:inner", "{}")], &[]);
+	let files = [
+		(".source-sentry/remotes/legal.lock", outer.as_str()),
+		("app/.source-sentry/source-sentry.yaml", "version: 1\n"),
+		("app/.source-sentry/remotes/team.lock", inner.as_str()),
+	];
+	let parent = inventory(&files);
+	assert_clean(&parent);
+	assert_eq!(
+		owner_lockfile_claims(&parent),
+		[(
+			"abstract:outer".to_owned(),
+			".source-sentry/remotes/legal.lock".to_owned()
+		)]
+	);
+	let app = project_inventory(&files, "app");
+	assert_clean(&app);
+	assert_eq!(
+		owner_lockfile_claims(&app),
+		[(
+			"abstract:inner".to_owned(),
+			"app/.source-sentry/remotes/team.lock".to_owned()
+		)]
+	);
+}
+
+/// Each claim's document and the file that declares it.
+fn owner_lockfile_claims(inventory: &Inventory) -> Vec<(String, String)> {
+	inventory
+		.claims
+		.iter()
+		.map(|claim| (claim.document.to_string(), claim.declared_in.to_string()))
+		.collect()
 }
 
 #[test]

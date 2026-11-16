@@ -12,8 +12,8 @@
 //! - **Local lockfiles** are every tracked `source-sentry.lock` outside
 //!   `.source-sentry/`. Only the nearest ancestor lockfile may list a
 //!   document.
-//! - **Remote owner lockfiles** are `.source-sentry/remotes/<owner>.lock`,
-//!   direct children only.
+//! - **Remote owner lockfiles** are `.source-sentry/remotes/<owner>.lock` in
+//!   the project root, direct children only.
 //! - **On-file declarations** are read from every tracked file whose adapter
 //!   is `md-utf8`, eligible or not, because ignores never affect the
 //!   validation of existing claims. Nothing under

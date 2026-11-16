@@ -39,8 +39,14 @@ fn snapshot(files: &[(&str, &str)]) -> FakeSnapshot {
 
 /// Loads the configs of `files`, which must be valid, and discovers.
 fn inventory(files: &[(&str, &str)]) -> Inventory {
+	project_inventory(files, "")
+}
+
+/// Loads the configs of the project containing `start` among `files`, which
+/// must be valid, and discovers that project.
+fn project_inventory(files: &[(&str, &str)], start: &str) -> Inventory {
 	let snapshot = snapshot(files);
-	let configs = match ConfigSet::load(&snapshot) {
+	let configs = match ConfigSet::load_project(&snapshot, &path(start)) {
 		Ok(configs) => configs,
 		Err(error) => panic!("expected valid configs, got:\n{error}"),
 	};

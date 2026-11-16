@@ -25,21 +25,20 @@ pub(super) struct Found {
 	pub(super) tombstones: Vec<Tombstone>,
 }
 
-/// The kind of lockfile at `path`, or `None` when `path` is not one.
+/// The kind of lockfile at `path`, relative to the project being discovered,
+/// or `None` when `path` is not one.
 ///
 /// A local lockfile is any `source-sentry.lock` outside `.source-sentry/`.
-/// A remote owner lockfile is a direct child of `.source-sentry/remotes/`
-/// named `<owner>.lock` with a non-empty owner, as the config module finds
-/// paired configs.
+/// A remote owner lockfile is a direct child of the project root's
+/// `.source-sentry/remotes/` named `<owner>.lock` with a non-empty owner, as
+/// the config module finds paired configs. A `.source-sentry/` directory
+/// deeper in the project belongs to no project, so nothing in it is a
+/// lockfile.
 pub(super) fn lockfile_kind(path: &RepoPath) -> Option<LockfileKind> {
 	if in_tool_directory(path) {
-		let text = path.as_str();
-		let inside = text.strip_prefix(&format!("{DIR_NAME}/")).or_else(|| {
-			text
-				.split_once(&format!("/{DIR_NAME}/"))
-				.map(|(_, inside)| inside)
-		})?;
-		let file = inside.strip_prefix(REMOTES_DIR_NAME)?.strip_prefix('/')?;
+		let file = path
+			.as_str()
+			.strip_prefix(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}/"))?;
 		let owner = file.strip_suffix(".lock")?;
 		return (!owner.is_empty() && !owner.contains('/')).then(|| {
 			LockfileKind::Remote {
