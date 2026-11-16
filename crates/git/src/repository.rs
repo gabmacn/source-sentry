@@ -180,7 +180,9 @@ impl GitRepository {
 	/// rename: `source-sentry.reviewer` from git's configuration when it is
 	/// set, or else git's `user.name`; `None` when both are unset or empty.
 	/// It reads git's own configuration, so every level and include git
-	/// honours applies.
+	/// honours applies. Each key has the value git uses, the one set last;
+	/// when that value is empty, the key counts as unset, even if another
+	/// level sets a name.
 	///
 	/// # Errors
 	///
@@ -207,15 +209,20 @@ impl GitRepository {
 				source,
 			)
 		})?;
-		// Each entry is `<key>\n<value>` and ends with a NUL. A key set at
-		// several levels is listed once for each; git uses the last.
+		// Each entry is `<key>\n<value>`, or `<key>` alone for a key without
+		// a value, and ends with a NUL. A key set at several levels is listed
+		// once for each; git uses the last, and only that value decides
+		// whether a name is set.
 		let named = |key: &str| {
 			listed
 				.split('\0')
-				.filter_map(|entry| entry.split_once('\n'))
-				.filter(|(name, value)| *name == key && !value.trim().is_empty())
-				.map(|(_, value)| value.to_owned())
+				.filter(|entry| !entry.is_empty())
+				.map(|entry| entry.split_once('\n').unwrap_or((entry, "")))
+				.filter(|(name, _)| *name == key)
+				.map(|(_, value)| value)
 				.next_back()
+				.filter(|value| !value.trim().is_empty())
+				.map(str::to_owned)
 		};
 		Ok(named(REVIEWER_KEY).or_else(|| named("user.name")))
 	}

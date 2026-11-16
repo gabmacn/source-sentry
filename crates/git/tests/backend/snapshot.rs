@@ -367,6 +367,88 @@ fn the_default_reviewer_is_git_user_name() {
 	);
 }
 
+/// The variable that hands [`default_reviewer_in_a_child`] its repository.
+const REVIEWER_REPOSITORY: &str = "SOURCE_SENTRY_TEST_REVIEWER_REPOSITORY";
+/// The variable that hands [`default_reviewer_in_a_child`] the name it
+/// expects, written with `{:?}`.
+const REVIEWER_EXPECTED: &str = "SOURCE_SENTRY_TEST_REVIEWER_EXPECTED";
+
+/// Run only by [`an_empty_name_at_a_more_specific_level_counts_as_unset`],
+/// in a child process whose git reads an isolated global configuration.
+#[test]
+#[ignore = "run by its parent test with an isolated global configuration"]
+fn default_reviewer_in_a_child() {
+	let Ok(repository) = std::env::var(REVIEWER_REPOSITORY) else {
+		return;
+	};
+	let expected = std::env::var(REVIEWER_EXPECTED).unwrap();
+	let reviewer = GitRepository::open(repository)
+		.unwrap()
+		.default_reviewer()
+		.unwrap();
+	assert_eq!(format!("{reviewer:?}"), expected);
+}
+
+/// A name takes the value git uses, the one set at the most specific level.
+/// When that value is empty, the key counts as unset even though the global
+/// configuration sets a name: an empty `source-sentry.reviewer` falls back
+/// to `user.name`, and an empty `user.name` leaves no name.
+#[test]
+fn an_empty_name_at_a_more_specific_level_counts_as_unset() {
+	let global_both = "[source-sentry]\n\treviewer = Global Reviewer\n\
+		[user]\n\tname = Global User\n";
+	// The global configuration, the keys set to an empty value in the
+	// repository's own, and the name expected.
+	let cases: [(&str, &[&str], Option<&str>); 4] = [
+		(global_both, &[], Some("Global Reviewer")),
+		(
+			global_both,
+			&["source-sentry.reviewer"],
+			Some("Test Author"),
+		),
+		(
+			"[user]
+	name = Global User
+",
+			&["user.name"],
+			None,
+		),
+		(global_both, &["source-sentry.reviewer", "user.name"], None),
+	];
+	for (global, emptied, expected) in cases {
+		let repo = TestRepo::init();
+		for key in emptied {
+			repo.git(&["config", key, ""]);
+		}
+		let configuration = tempfile::tempdir().unwrap();
+		let global_file = configuration.path().join("global.gitconfig");
+		std::fs::write(&global_file, global).unwrap();
+
+		let output = std::process::Command::new(std::env::current_exe().unwrap())
+			.args([
+				"--exact",
+				"snapshot::default_reviewer_in_a_child",
+				"--ignored",
+				"--test-threads=1",
+			])
+			.env("GIT_CONFIG_GLOBAL", &global_file)
+			.env("GIT_CONFIG_NOSYSTEM", "1")
+			.env(REVIEWER_REPOSITORY, repo.path())
+			.env(
+				REVIEWER_EXPECTED,
+				format!("{:?}", expected.map(str::to_owned)),
+			)
+			.output()
+			.unwrap();
+		let stdout = String::from_utf8_lossy(&output.stdout);
+		assert!(
+			output.status.success() && stdout.contains("1 passed"),
+			"{emptied:?}: {stdout}{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+}
+
 /// Every file under `.git`, with its contents.
 fn git_directory_contents(
 	repo: &TestRepo,

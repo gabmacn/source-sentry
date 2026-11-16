@@ -242,8 +242,9 @@ whether or not anything changed.
 `--reviewer` defaults to `source-sentry.reviewer` in git's configuration when
 it is set, and otherwise to git's `user.name`. Set it with
 `git config source-sentry.reviewer "<name>"`, at any level git offers, or
-from the header of the full-screen review. `--reread` also records that the
-whole document was reread.
+from the header of the full-screen review. Each key takes the value git
+itself uses; an empty one counts as unset, even when another level sets a
+name. `--reread` also records that the whole document was reread.
 
 Attesting a selected pattern records its own `reviewed` and the same review
 on every current member, and removes former members. Selection covers whole
