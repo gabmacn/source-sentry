@@ -60,6 +60,28 @@ fn ancestry_compares_components_not_text() {
 }
 
 #[test]
+fn lockfiles_are_recognised_by_whole_components() {
+	for lockfile in [
+		"source-sentry.lock",
+		"docs/source-sentry.lock",
+		".source-sentry/remotes/a.lock",
+		"sub/.source-sentry/remotes/a.lock",
+	] {
+		assert!(path(lockfile).is_lockfile(), "{lockfile}");
+	}
+	for ordinary in [
+		"archive/not.source-sentry/remotes/data.lock",
+		"x.source-sentry/remotes/a.lock",
+		".source-sentry/my-remotes/a.lock",
+		".source-sentry/remotes/deeper/a.lock",
+		".source-sentry/remotes/a.yaml",
+		"remotes/a.lock",
+	] {
+		assert!(!path(ordinary).is_lockfile(), "{ordinary}");
+	}
+}
+
+#[test]
 fn source_paths_resolve_against_the_document_or_the_root() {
 	let document = path("docs/guides/onboarding.md");
 	assert_eq!(

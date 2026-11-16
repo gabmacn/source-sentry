@@ -95,6 +95,44 @@ fn recorded_pattern_members_also_exclude_lockfiles() {
 	}
 }
 
+/// A `.lock` file in a `remotes` directory is an ordinary source unless
+/// that directory is directly inside `.source-sentry/`.
+#[test]
+fn a_lock_file_outside_the_tool_directory_is_an_ordinary_source() {
+	let inventory = inventory(&[
+		(
+			"docs/a.md",
+			&markdown(concat!(
+				"  sources:
+",
+				"    - path: '/archive/not.source-sentry/remotes/data.lock'
+",
+				"    - pattern: '/archive/not.source-sentry/remotes/*.lock'
+",
+			)),
+		),
+		(
+			"archive/not.source-sentry/remotes/data.lock",
+			"{}
+",
+		),
+	]);
+	assert_clean(&inventory);
+	let claim = inventory.claims_of(&local("docs/a.md")).next().unwrap();
+	assert_eq!(
+		claim
+			.source_paths()
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>(),
+		["archive/not.source-sentry/remotes/data.lock"]
+	);
+	assert_eq!(
+		matches(patterns(&inventory, "docs/a.md")[0]),
+		["archive/not.source-sentry/remotes/data.lock"]
+	);
+}
+
 /// The resolved patterns of the only claim of `document`.
 fn patterns<'a>(
 	inventory: &'a Inventory,
