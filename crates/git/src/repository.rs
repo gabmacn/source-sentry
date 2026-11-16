@@ -394,13 +394,35 @@ impl GitRepository {
 			.is_ok_and(|output| output.trim_ascii() == b"true")
 	}
 
-	/// A path that `git var` reports, or `None` when git has none. Used only
-	/// for diagnostics.
-	pub(crate) fn git_var(&self, name: &str) -> Option<PathBuf> {
-		let output = self.git.output(&["var", name], None).ok()?;
-		let text = String::from_utf8(output).ok()?;
+	/// A path that `git var` reports, or `None` when git has none.
+	///
+	/// # Errors
+	///
+	/// Fails when `git` cannot run, fails otherwise than by having no such
+	/// path, or prints a path that is not UTF-8, so that a path git has is
+	/// never mistaken for none.
+	pub(crate) fn git_var(
+		&self,
+		name: &str,
+	) -> Result<Option<PathBuf>, BackendError> {
+		let args = ["var", name];
+		let finished = self.git.run(&args, None)?;
+		match finished.status.code() {
+			Some(0) => {}
+			// Git exits with 1 when it has no such path, as for the system
+			// attribute file under `GIT_ATTR_NOSYSTEM`.
+			Some(1) => return Ok(None),
+			_ => return Err(exit_failure(&args, &finished)),
+		}
+		let text = String::from_utf8(finished.stdout).map_err(|source| {
+			caused(
+				BackendErrorKind::Git,
+				format!("`git var {name}` printed a path that is not UTF-8"),
+				source,
+			)
+		})?;
 		let text = text.trim_end_matches(['\r', '\n']);
-		(!text.is_empty()).then(|| PathBuf::from(text))
+		Ok((!text.is_empty()).then(|| PathBuf::from(text)))
 	}
 }
 

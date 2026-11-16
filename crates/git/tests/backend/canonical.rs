@@ -1,6 +1,6 @@
 //! Canonical oids of the working tree.
 
-use std::fmt::Write as _;
+use std::{fmt::Write as _, fs, path::Path};
 
 use sha2::{Digest as _, Sha256};
 use source_sentry_core::ports::{
@@ -605,6 +605,133 @@ fn a_driver_hidden_beyond_the_macro_depth_limit_is_refused() {
 			filter: "set".to_owned(),
 			attribute_origin: "origin unknown".to_owned(),
 		}
+	);
+	assert!(!repo.path().join("filter-marker").exists());
+}
+
+/// Makes `link` a symbolic link to the file `target`, or returns `false`
+/// when this system or account cannot create one.
+fn file_link(target: &Path, link: &Path) -> bool {
+	#[cfg(unix)]
+	let made = std::os::unix::fs::symlink(target, link);
+	#[cfg(windows)]
+	let made = std::os::windows::fs::symlink_file(target, link);
+	made.is_ok()
+}
+
+/// A repository holding `src.dat`, with a configured clean driver named
+/// `unspecified` that leaves `filter-marker` behind when it runs.
+fn repo_with_unspecified_driver() -> TestRepo {
+	let repo = TestRepo::init();
+	repo.write("src.dat", "payload\n");
+	repo.commit_all("add a file");
+	repo.git(&[
+		"config",
+		"filter.unspecified.clean",
+		"echo ran >> filter-marker; cat",
+	]);
+	repo
+}
+
+/// Git follows a symbolic link to the global attribute file and to
+/// `$GIT_DIR/info/attributes`, so a driver named `unspecified` assigned
+/// there is refused, as from a regular file, and never runs.
+#[test]
+fn attribute_files_reached_through_a_link_are_read() {
+	for case in ["regular global", "linked global", "linked info"] {
+		let repo = repo_with_unspecified_driver();
+		let outside = tempfile::tempdir().unwrap();
+		let real = outside.path().join("attributes");
+		fs::write(&real, "src.dat filter=unspecified\n").unwrap();
+		let link = outside.path().join("attributes-link");
+		let attributes_file = match case {
+			"regular global" => Some(&real),
+			"linked global" => file_link(&real, &link).then_some(&link),
+			_ => {
+				let info = repo.path().join(".git/info/attributes");
+				fs::create_dir_all(info.parent().unwrap()).unwrap();
+				file_link(&real, &info).then_some(&real)
+			}
+		};
+		let Some(attributes_file) = attributes_file else {
+			eprintln!("{case}: skipped, symbolic links cannot be created here");
+			continue;
+		};
+		if case != "linked info" {
+			repo.git(&[
+				"config",
+				"core.attributesFile",
+				attributes_file.to_str().unwrap(),
+			]);
+		}
+		assert_eq!(
+			repo.git(&["check-attr", "filter", "--", "src.dat"]),
+			"src.dat: filter: unspecified",
+			"{case}"
+		);
+
+		let Canonical::UnsupportedFilter {
+			filter,
+			attribute_origin,
+		} = canonical(&repo, "src.dat")
+		else {
+			panic!("{case}: not refused");
+		};
+		assert_eq!(filter, "unspecified", "{case}");
+		let file = match case {
+			"regular global" => "attributes:1",
+			"linked global" => "attributes-link:1",
+			_ => "info/attributes:1",
+		};
+		assert!(
+			attribute_origin.ends_with(file),
+			"{case}: {attribute_origin}"
+		);
+		assert!(!repo.path().join("filter-marker").exists(), "{case}");
+	}
+}
+
+/// An attribute file that exists but cannot be read may assign the driver:
+/// the file is refused with an unknown origin, and the driver never runs.
+#[test]
+fn an_unreadable_attribute_file_leaves_a_driver_unruled_out() {
+	let repo = repo_with_unspecified_driver();
+	fs::create_dir_all(repo.path().join(".git/info/attributes")).unwrap();
+	assert_eq!(
+		repo.git(&["check-attr", "filter", "--", "src.dat"]),
+		"src.dat: filter: unspecified"
+	);
+
+	assert_eq!(
+		canonical(&repo, "src.dat"),
+		Canonical::UnsupportedFilter {
+			filter: "unspecified".to_owned(),
+			attribute_origin: "origin unknown".to_owned(),
+		}
+	);
+	assert!(!repo.path().join("filter-marker").exists());
+}
+
+/// Git refuses a `.gitattributes` link in the working tree, so the line it
+/// points to assigns nothing, and the file is hashed without a filter.
+#[test]
+fn a_gitattributes_link_in_the_working_tree_is_not_read() {
+	let repo = repo_with_unspecified_driver();
+	let outside = tempfile::tempdir().unwrap();
+	let real = outside.path().join("attributes");
+	fs::write(&real, "src.dat filter=unspecified\n").unwrap();
+	if !file_link(&real, &repo.path().join(".gitattributes")) {
+		eprintln!("skipped: symbolic links cannot be created here");
+		return;
+	}
+	assert_eq!(
+		repo.git(&["check-attr", "filter", "--", "src.dat"]),
+		"src.dat: filter: unspecified"
+	);
+
+	assert_eq!(
+		canonical(&repo, "src.dat"),
+		Canonical::Oid(repo.hash(b"payload\n"))
 	);
 	assert!(!repo.path().join("filter-marker").exists());
 }

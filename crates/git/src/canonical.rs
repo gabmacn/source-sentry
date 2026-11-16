@@ -464,12 +464,15 @@ impl<'a> Canonicalizer<'a> {
 	}
 
 	/// Runs `read` over the attribute files of the working tree, or returns
-	/// `None` without one.
+	/// `None` without one, or when git cannot say where its global or system
+	/// attribute file is.
 	fn with_origin_context<T>(
 		&self,
 		read: impl FnOnce(&OriginContext<'_>) -> T,
 	) -> Option<T> {
 		let work_dir = self.repository.require_work_dir().ok()?;
+		let global = self.repository.git_var("GIT_ATTR_GLOBAL").ok()?;
+		let system = self.repository.git_var("GIT_ATTR_SYSTEM").ok()?;
 		let index_blob = |file: &RepoPath| {
 			let record =
 				self.index.get(file).filter(|record| !record.is_gitlink())?;
@@ -479,8 +482,8 @@ impl<'a> Canonicalizer<'a> {
 			work_dir,
 			common_dir: self.repository.common_dir(),
 			ignore_case: self.repository.config_flag("core.ignorecase"),
-			global: self.repository.git_var("GIT_ATTR_GLOBAL"),
-			system: self.repository.git_var("GIT_ATTR_SYSTEM"),
+			global,
+			system,
 			index_blob: &index_blob,
 		};
 		Some(read(&context))

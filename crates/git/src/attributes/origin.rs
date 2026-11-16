@@ -5,7 +5,9 @@
 //! This follows git's `attr.c`: the attribute files form a stack, from
 //! `$GIT_DIR/info/attributes` down through each `.gitattributes` from the
 //! path's directory to the root, then the global and system files. Within a
-//! file the last matching line wins, and macros expand only when set.
+//! file the last matching line wins, and macros expand only when set. As in
+//! git, a symbolic link is followed for the info, global and system files,
+//! and refused for a `.gitattributes` file in the working tree.
 
 use std::{
 	collections::{HashMap, HashSet},
@@ -76,8 +78,9 @@ pub(crate) enum FilterLine {
 	},
 	/// No line mentions `filter` for the path.
 	NoLine,
-	/// Macro expansion reached its depth limit before the deciding line was
-	/// found, so the reading cannot tell.
+	/// The reading cannot tell: macro expansion reached its depth limit
+	/// before the deciding line was found, or an attribute file exists but
+	/// cannot be read.
 	Inconclusive,
 }
 
@@ -86,7 +89,11 @@ pub(crate) fn resolve_filter(
 	context: &OriginContext<'_>,
 	path: &RepoPath,
 ) -> FilterLine {
-	let sources = load_sources(context, path);
+	// A file that cannot be read may hold the deciding line, or a macro
+	// that a line read elsewhere expands.
+	let Ok(sources) = load_sources(context, path) else {
+		return FilterLine::Inconclusive;
+	};
 	let macros = collect_macros(&sources);
 	let mut filled = HashSet::new();
 	let mut truncated = false;
@@ -147,11 +154,17 @@ enum Entry {
 	},
 }
 
+/// An attribute file that exists but cannot be read.
+struct Unreadable;
+
 /// Reads the attribute stack for `path`, highest precedence first.
-fn load_sources(context: &OriginContext<'_>, path: &RepoPath) -> Vec<Source> {
+fn load_sources(
+	context: &OriginContext<'_>,
+	path: &RepoPath,
+) -> Result<Vec<Source>, Unreadable> {
 	let mut sources = Vec::new();
 	let info = context.common_dir.join("info").join("attributes");
-	if let Some(bytes) = read_regular(&info) {
+	if let Some(bytes) = read_followed(&info)? {
 		sources.push(Source::parse(
 			display(context.work_dir, &info),
 			RepoPath::ROOT,
@@ -162,7 +175,7 @@ fn load_sources(context: &OriginContext<'_>, path: &RepoPath) -> Vec<Source> {
 	let mut directory = path.parent();
 	while let Some(current) = directory {
 		if let Ok(file) = current.join(".gitattributes") {
-			let bytes = read_regular(&native(context.work_dir, &file))
+			let bytes = read_in_tree(&native(context.work_dir, &file))?
 				.or_else(|| (context.index_blob)(&file));
 			if let Some(bytes) = bytes {
 				let macros_allowed = current.is_root();
@@ -177,7 +190,7 @@ fn load_sources(context: &OriginContext<'_>, path: &RepoPath) -> Vec<Source> {
 		directory = current.parent();
 	}
 	for file in [&context.global, &context.system].into_iter().flatten() {
-		if let Some(bytes) = read_regular(file) {
+		if let Some(bytes) = read_followed(file)? {
 			sources.push(Source::parse(
 				file.display().to_string(),
 				RepoPath::ROOT,
@@ -186,17 +199,40 @@ fn load_sources(context: &OriginContext<'_>, path: &RepoPath) -> Vec<Source> {
 			));
 		}
 	}
-	sources
+	Ok(sources)
 }
 
-/// The contents of a regular file, or `None` when it is missing, unreadable,
-/// or a symbolic link, which git does not follow for attribute files.
-fn read_regular(path: &Path) -> Option<Vec<u8>> {
-	let metadata = fs::symlink_metadata(path).ok()?;
-	if !metadata.is_file() {
-		return None;
+/// The contents of `$GIT_DIR/info/attributes`, the global or the system
+/// attribute file, following a symbolic link as git does, or `None` when
+/// the file is absent.
+fn read_followed(path: &Path) -> Result<Option<Vec<u8>>, Unreadable> {
+	match fs::read(path) {
+		Ok(bytes) => Ok(Some(bytes)),
+		Err(error) if is_absence(&error) => Ok(None),
+		Err(_) => Err(Unreadable),
 	}
-	fs::read(path).ok()
+}
+
+/// The contents of a `.gitattributes` file in the working tree, or `None`
+/// when the file is absent or is a symbolic link, which git refuses there
+/// and replaces with the index's copy.
+fn read_in_tree(path: &Path) -> Result<Option<Vec<u8>>, Unreadable> {
+	match fs::symlink_metadata(path) {
+		Ok(metadata) if metadata.is_symlink() => Ok(None),
+		Ok(metadata) if metadata.is_file() => read_followed(path),
+		Err(error) if is_absence(&error) => Ok(None),
+		Ok(_) | Err(_) => Err(Unreadable),
+	}
+}
+
+/// Whether `error` says that the file does not exist, which git reads as
+/// an empty attribute file. After any other failure the contents are
+/// unknown.
+fn is_absence(error: &std::io::Error) -> bool {
+	matches!(
+		error.kind(),
+		std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+	)
 }
 
 /// A path below the working tree, written relative to it with `/`; any other
@@ -596,6 +632,27 @@ mod tests {
 		);
 		assert_eq!(resolve(&chain(MAX_MACRO_DEPTH)), FilterLine::Inconclusive);
 		assert_eq!(resolve("*.dat -text\n"), FilterLine::NoLine);
+	}
+
+	#[test]
+	fn an_attribute_file_that_cannot_be_read_is_inconclusive() {
+		let work = tempfile::tempdir().unwrap();
+		let common = work.path().join(".git");
+		fs::create_dir_all(work.path().join("sub/.gitattributes")).unwrap();
+		let no_index = |_: &RepoPath| None;
+		let context = OriginContext {
+			work_dir: work.path(),
+			common_dir: &common,
+			ignore_case: false,
+			global: Some(work.path().join("absent-global")),
+			system: None,
+			index_blob: &no_index,
+		};
+		assert_eq!(resolve_filter(&context, &path("x.dat")), FilterLine::NoLine);
+		assert_eq!(
+			resolve_filter(&context, &path("sub/x.dat")),
+			FilterLine::Inconclusive
+		);
 	}
 
 	#[test]
