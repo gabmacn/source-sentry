@@ -318,6 +318,28 @@ fn the_commits_that_changed_a_path_are_listed_newest_first() {
 	assert_eq!((cut.commits.len(), cut.more), (2, true));
 }
 
+/// An author name may hold any character but NUL, including the control
+/// characters a log format might use as separators; it stays apart from the
+/// subject.
+#[test]
+fn an_author_name_with_control_characters_keeps_its_fields() {
+	let repo = TestRepo::init();
+	repo.write("src.txt", "source\n");
+	repo.git(&["add", "--all"]);
+	let author = "Alice\u{1f}Injected\u{1e}Name";
+	repo.git_with_env(
+		&["commit", "--quiet", "--message", "Real subject"],
+		&[("GIT_AUTHOR_NAME", author)],
+	);
+	assert_eq!(repo.git(&["log", "-1", "--format=%an"]), author);
+
+	let listed = repo.open().path_commits(&path("src.txt"), None, 5).unwrap();
+	assert_eq!(listed.commits.len(), 1);
+	assert_eq!(listed.commits[0].author, author);
+	assert_eq!(listed.commits[0].subject, "Real subject");
+	assert_eq!(listed.commits[0].id, repo.head().0.hex());
+}
+
 /// A path is taken literally: a name with pattern characters lists its own
 /// commits, not those of the files a pattern would match.
 #[test]

@@ -62,25 +62,28 @@ impl GitRepository {
 			"log",
 			"-z",
 			"--date=short",
-			"--format=%H%x1f%cd%x1f%an%x1f%s",
+			// Fields are separated, and with `-z` records ended, by NUL, the one
+			// byte that a commit's metadata cannot hold.
+			"--format=%H%x00%cd%x00%an%x00%s",
 			count.as_str(),
 			"HEAD",
 		];
 		args.extend(parent.as_deref());
 		args.extend(["--", path.as_str()]);
 		let output = self.git().output(&args, None)?;
-		let mut commits: Vec<PathCommit> = output
-			.split(|&byte| byte == 0)
-			.filter(|record| !record.is_empty())
-			.filter_map(|record| {
-				let record = String::from_utf8_lossy(record);
-				let mut fields = record.trim_matches('\n').splitn(4, '\u{1f}');
-				Some(PathCommit {
-					id: fields.next()?.to_owned(),
-					date: fields.next()?.to_owned(),
-					author: fields.next()?.to_owned(),
-					subject: fields.next()?.to_owned(),
-				})
+		let fields: Vec<&[u8]> = output
+			.strip_suffix(&[0])
+			.map(|fields| fields.split(|&byte| byte == 0).collect())
+			.unwrap_or_default();
+		let text = |field: &[u8]| String::from_utf8_lossy(field).into_owned();
+		let (records, _) = fields.as_chunks::<4>();
+		let mut commits: Vec<PathCommit> = records
+			.iter()
+			.map(|[id, date, author, subject]| PathCommit {
+				id: text(id).trim_matches('\n').to_owned(),
+				date: text(date),
+				author: text(author),
+				subject: text(subject),
 			})
 			.collect();
 		let more = commits.len() > limit;
