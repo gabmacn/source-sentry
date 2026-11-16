@@ -89,9 +89,9 @@ that version's section, so a release cannot be made without one.
   errors met while hashing the cited document's sources, which were
   dropped before, and a fault in an unrelated document of that project no
   longer stops the check.
-- A document that cites a renamed document in its own project now keeps its
-  drift clock, deadline and facts across the rename, instead of losing the
-  date or moving it later.
+- A document that cites a renamed document, in its own project or another,
+  now keeps its drift clock, deadline and facts across the rename, instead
+  of losing the date or moving it later.
 - Config patterns such as `documents.ignore` now read braces literally, as
   `.gitignore` does. `{a,b}` alternation is for source patterns only.
 - Attesting one source of a living series entry no longer completes the
