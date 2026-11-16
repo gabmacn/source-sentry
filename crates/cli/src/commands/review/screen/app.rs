@@ -330,6 +330,14 @@ pub(super) enum Overlay {
 	Picked(Vec<(Id, DocumentDiff)>, usize, bool),
 }
 
+impl Overlay {
+	/// Whether the box scrolls inside itself when its content does not fit:
+	/// a whole path or name.
+	pub(super) fn scrolls(&self) -> bool {
+		matches!(self, Self::Path(_) | Self::Name(_))
+	}
+}
+
 /// The document on display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Shown {
@@ -452,6 +460,12 @@ pub(super) struct App<'a> {
 	pub(super) armed: Option<bool>,
 	/// The box over the screen, if one is open.
 	pub(super) overlay: Option<Overlay>,
+	/// How far the open box's content is scrolled, in rows, when the box is
+	/// one that scrolls inside itself. A box opens at its top.
+	pub(super) box_scroll: usize,
+	/// How far the open box's content scrolls at most, and how many of its
+	/// rows are in sight, as last drawn.
+	pub(super) box_extent: std::cell::Cell<(usize, usize)>,
 	/// A message that lasts until the next key.
 	pub(super) notice: Option<String>,
 	/// How many rows a page of the pane holds, as last drawn.
@@ -511,6 +525,8 @@ impl<'a> App<'a> {
 			columns: std::cell::Cell::new(super::draw::MINIMUM.0),
 			armed: None,
 			overlay: None,
+			box_scroll: 0,
+			box_extent: std::cell::Cell::new((0, 0)),
 			page: 10,
 			hits: Vec::new(),
 			pointer: None,
@@ -1463,19 +1479,28 @@ impl<'a> App<'a> {
 
 	/// Opens the box with the whole name of the document on display.
 	fn show_name(&mut self) {
-		self.overlay = self
+		let overlay = self
 			.shown
 			.as_ref()
 			.map(|shown| Overlay::Name(shown.name.clone()));
+		self.open_box(overlay);
 	}
 
 	/// Opens the box with the selected source's whole path.
 	fn show_path(&mut self) {
-		self.overlay = self
+		let overlay = self
 			.shown
 			.as_ref()
 			.and_then(|shown| shown.files.get(self.file))
 			.map(|file| Overlay::Path(file.path.clone()));
+		self.open_box(overlay);
+	}
+
+	/// Opens `overlay`, with its content scrolled to its top.
+	fn open_box(&mut self, overlay: Option<Overlay>) {
+		self.box_scroll = 0;
+		self.box_extent.set((0, 0));
+		self.overlay = overlay;
 	}
 
 	/// Handles one key.
@@ -1618,7 +1643,7 @@ impl<'a> App<'a> {
 				}
 			}
 			Key::Enter => {
-				self.overlay = Some(match field {
+				self.open_box(Some(match field {
 					Field::Reviewer => {
 						Overlay::Reviewer(self.session.reviewer.clone().unwrap_or_default())
 					}
@@ -1630,7 +1655,7 @@ impl<'a> App<'a> {
 							.unwrap_or(0),
 					),
 					Field::Projects => Overlay::Projects,
-				});
+				}));
 			}
 			Key::Up => {}
 			_ => return false,
@@ -1714,6 +1739,20 @@ impl<'a> App<'a> {
 			) => {
 				let at = moved(at, key, past.rows().saturating_sub(1));
 				self.overlay = Some(Overlay::History(past, at));
+			}
+			// A box that scrolls inside itself keeps these keys to scroll, and
+			// never closes on them.
+			(overlay, key @ (Key::Up | Key::Down | Key::PageUp | Key::PageDown))
+				if overlay.scrolls() =>
+			{
+				let page = self.box_extent.get().1.saturating_sub(1).max(1);
+				match key {
+					Key::Up => self.scroll_box(false, 1),
+					Key::Down => self.scroll_box(true, 1),
+					Key::PageUp => self.scroll_box(false, page),
+					_ => self.scroll_box(true, page),
+				}
+				self.overlay = Some(overlay);
 			}
 			(Overlay::Log(_), Key::Char('u' | 'U')) => self.undo()?,
 			(Overlay::Contexts(at), Key::Up) => {
@@ -1890,7 +1929,8 @@ impl<'a> App<'a> {
 
 	/// Turns the wheel over a part of the screen: the documents move under
 	/// the cursor in the sidebar, and a pane scrolls. Under a box nothing
-	/// does, except that a list inside the box moves.
+	/// does, except that a list inside the box moves, and a box that scrolls
+	/// inside itself scrolls.
 	fn wheel(&mut self, down: bool, area: Area) {
 		if let Some(overlay) = self.overlay.take() {
 			let turned = |at: usize, last: usize| {
@@ -1909,7 +1949,12 @@ impl<'a> App<'a> {
 					let at = turned(at, past.rows().saturating_sub(1));
 					Overlay::History(past, at)
 				}
-				other => other,
+				other => {
+					if other.scrolls() {
+						self.scroll_box(down, WHEEL);
+					}
+					other
+				}
 			});
 			return;
 		}
@@ -1927,6 +1972,18 @@ impl<'a> App<'a> {
 			Area::Changes => self.scroll_rows(Pane::Changes, down, WHEEL),
 			Area::Document => self.scroll_rows(Pane::Document, down, WHEEL),
 		}
+	}
+
+	/// Scrolls the open box's content by `step` rows, within the rows it
+	/// scrolls through as last drawn. At either end it stays.
+	fn scroll_box(&mut self, down: bool, step: usize) {
+		let (last, _) = self.box_extent.get();
+		let from = self.box_scroll.min(last);
+		self.box_scroll = if down {
+			from.saturating_add(step).min(last)
+		} else {
+			from.saturating_sub(step)
+		};
 	}
 
 	/// Scrolls the changes or the document by `step` rows, within the rows
@@ -2066,7 +2123,8 @@ impl<'a> App<'a> {
 				Some((id, compared))
 			})
 			.collect();
-		self.overlay = Some(Overlay::All(self.session.batch(comparisons)));
+		let batch = self.session.batch(comparisons);
+		self.open_box(Some(Overlay::All(batch)));
 	}
 
 	/// Opens the confirmation for recording the picked documents, in the
@@ -2095,7 +2153,7 @@ impl<'a> App<'a> {
 			return;
 		}
 		let unseen = self.session.unseen(&comparisons);
-		self.overlay = Some(Overlay::Picked(comparisons, unseen, reread));
+		self.open_box(Some(Overlay::Picked(comparisons, unseen, reread)));
 	}
 
 	/// Whether a document takes an answer given to several at once, by the

@@ -1173,23 +1173,62 @@ fn document(app: &App, shown: &Shown, pen: &mut Pen, area: Rect) {
 	scrollbar(pen, area, at, drawn.len());
 }
 
-/// A thumb at the pane's right edge when its rows do not all fit.
+/// A thumb at the pane's right edge when its rows do not all fit. The pane
+/// scrolls until its last row is its first in sight.
 fn scrollbar(pen: &mut Pen, area: Rect, at: usize, rows: usize) {
-	let height = usize::from(area.height.saturating_sub(2));
+	let track = Rect::new(
+		area.right().saturating_sub(1),
+		area.y + 2,
+		1,
+		area.height.saturating_sub(2),
+	);
+	thumb(pen, track, (at, rows.saturating_sub(1)), rows);
+}
+
+/// A thumb in the column of `track`, over its rows, when `rows` do not all
+/// fit in them: it stands at `at` among the positions `0..=last` that
+/// scrolling reaches.
+fn thumb(pen: &mut Pen, track: Rect, (at, last): (usize, usize), rows: usize) {
+	let height = usize::from(track.height);
 	if rows <= height || height == 0 {
 		return;
 	}
 	let thumb = (height * height / rows).max(1);
-	let offset = (at * (height - thumb)) / (rows - 1).max(1);
+	let offset = (at * (height - thumb)) / last.max(1);
 	for row in 0..height {
 		let style = if (offset..offset + thumb).contains(&row) {
 			dim()
 		} else {
 			faint()
 		};
-		let y = area.y + 2 + u16::try_from(row).unwrap_or(u16::MAX);
-		pen.text(area.right() - 1, y, "▐", style, 1);
+		let y = track.y + u16::try_from(row).unwrap_or(u16::MAX);
+		pen.text(track.x, y, "▐", style, 1);
 	}
+}
+
+/// Draws the `rows` of a box's content that fit in `area`, from the row the
+/// box is scrolled to, each by `draw` within its own line of `area`. When
+/// they do not all fit, the scrollbar stands in the box's rightmost inner
+/// column: the content leaves two columns before the box's right border,
+/// and the bar takes the one beside the border. Notes how far the box
+/// scrolls, for the keys and the wheel.
+fn scrolled<T>(
+	app: &App,
+	pen: &mut Pen,
+	area: Rect,
+	rows: &[T],
+	mut draw: impl FnMut(&mut Pen, &T, Rect),
+) {
+	let height = usize::from(area.height);
+	let last = rows.len().saturating_sub(height);
+	app.box_extent.set((last, height));
+	// A resize can leave the position past the last; it shows the last.
+	let at = app.box_scroll.min(last);
+	for (y, row) in (area.y..area.bottom()).zip(rows.iter().skip(at)) {
+		draw(pen, row, Rect::new(area.x, y, area.width, 1));
+	}
+	let track = Rect::new(area.right().saturating_add(1), area.y, 1, area.height);
+	thumb(pen, track, (at, last), rows.len());
 }
 
 /// One form of a key's label: its cap, its full label and its short one.
@@ -1479,8 +1518,8 @@ fn frame(
 fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 	match overlay {
 		Overlay::Keys => keys_box(pen, area),
-		Overlay::Path(path) => whole_box(pen, area, "Source", path),
-		Overlay::Name(name) => whole_box(pen, area, "Document", name),
+		Overlay::Path(path) => whole_box(app, pen, area, "Source", path),
+		Overlay::Name(name) => whole_box(app, pen, area, "Document", name),
 		Overlay::Sources(at) => sources_box(app, *at, pen, area),
 		Overlay::Log(said) => log_box(app, said.as_deref(), pen, area),
 		Overlay::History(past, at) => history_box(past, *at, pen, area),
@@ -1603,13 +1642,20 @@ fn batch_box(app: &App, batch: &Batch, pen: &mut Pen, area: Rect) {
 	all_box(app, &listed, "Record all remaining", &ask, &keys, pen, area);
 }
 
-/// A box with a path or a name whole, wrapped where a row had to cut it.
-fn whole_box(pen: &mut Pen, area: Rect, title: &str, whole: &str) {
+/// A box with a path or a name whole, wrapped where a row had to cut it,
+/// and scrolled when its rows do not all fit above its keys.
+fn whole_box(app: &App, pen: &mut Pen, area: Rect, title: &str, whole: &str) {
 	let lines = wrap(whole, 66);
 	let inside = frame(pen, area, 72, count(lines.len()) + 6, title);
-	for (y, line) in (inside.y..).zip(&lines) {
-		pen.text(inside.x, y, line, text(), inside.width);
-	}
+	let list = Rect::new(
+		inside.x,
+		inside.y,
+		inside.width,
+		inside.height.saturating_sub(3),
+	);
+	scrolled(app, pen, list, &lines, |pen, line, row| {
+		pen.text(row.x, row.y, line, text(), row.width);
+	});
 	pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
 }
 

@@ -1390,3 +1390,4 @@ fn keys_and_buttons_keep_to_what_is_selected() {
 }
 
 mod answers;
+mod boxes;
