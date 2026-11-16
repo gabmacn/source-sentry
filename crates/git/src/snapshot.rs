@@ -133,6 +133,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 		let mut probe = Probe::new(work_dir);
 		let mut known = Vec::with_capacity(paths.len());
 		let mut regular = Vec::new();
+		let mut placeholders = None;
 		for path in paths {
 			let record = self.member(path)?;
 			let canonical = if record.is_gitlink() {
@@ -140,14 +141,25 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 			} else if record.skip_worktree {
 				Some(Canonical::Oid(record.oid.clone()))
 			} else {
-				match probe.presence(path)? {
+				let presence = probe.presence(path)?;
+				if record.is_symlink()
+					&& matches!(presence, Presence::File)
+					&& placeholders.is_none()
+				{
+					placeholders = Some(self.repository.symlink_placeholders()?);
+				}
+				match presence {
 					Presence::Symlink(target) => Some(Canonical::Oid(blob_oid(
 						self.repository.algorithm(),
 						&target,
 					)?)),
 					// A placeholder under `core.symlinks=false`: git stores its
-					// bytes as the target, without attributes or filters.
-					Presence::File if record.is_symlink() => {
+					// bytes as the target, without attributes or filters. Where
+					// the checkout holds real links, a regular file in place of
+					// a link is a new regular file, hashed as git would add it.
+					Presence::File
+						if record.is_symlink() && placeholders == Some(true) =>
+					{
 						let target =
 							fs::read(native(work_dir, path)).map_err(|source| {
 								error::io(format!("cannot read {path}"), source)

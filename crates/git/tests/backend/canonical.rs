@@ -433,6 +433,40 @@ fn placeholder_links_ignore_filter_attributes() {
 	}
 }
 
+/// Where the checkout holds real links, a regular file that replaces a
+/// tracked link is a type change: it hashes as git would add it, with its
+/// usual conversions. Under `core.symlinks=false` the same file is a
+/// placeholder whose bytes are the link's target.
+#[test]
+fn a_regular_file_replacing_a_link_is_hashed_by_core_symlinks() {
+	for symlinks in ["true", "false"] {
+		let repo = TestRepo::init();
+		let link_blob = placeholder_link(&repo);
+		repo.write(".gitattributes", "link text\n");
+		repo.commit_all("attributes");
+		repo.git(&["config", "core.symlinks", symlinks]);
+		let contents = b"line one\r\nline two\r\n";
+		repo.write("link", contents);
+		assert_eq!(
+			repo.git(&["ls-files", "--stage", "--", "link"]),
+			format!("120000 {link_blob} 0\tlink"),
+			"{symlinks}"
+		);
+
+		let hashed = canonical(&repo, "link");
+		repo.git(&["add", "--", "link"]);
+		let staged = repo.git(&["ls-files", "--stage", "--", "link"]);
+		if symlinks == "true" {
+			let added = repo.blob_at("", "link");
+			assert!(staged.starts_with("100644 "), "{staged}");
+			assert_eq!(added, repo.hash(b"line one\nline two\n"));
+			assert_eq!(hashed, Canonical::Oid(added));
+		} else {
+			assert_eq!(hashed, Canonical::Oid(repo.hash(contents)), "{staged}");
+		}
+	}
+}
+
 #[test]
 fn drivers_named_like_attribute_states_are_refused_when_configured() {
 	for word in ["set", "unset", "unspecified"] {

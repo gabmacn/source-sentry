@@ -350,12 +350,37 @@ impl GitRepository {
 	///
 	/// Fails when `git` fails, including for a value that is not a boolean.
 	pub(crate) fn config_bool(&self, key: &str) -> Result<bool, BackendError> {
+		self.config_bool_or(key, false)
+	}
+
+	/// Whether the working tree holds symbolic links as plain files that hold
+	/// their target: the effective `core.symlinks` is false. Unset, it is
+	/// false with Git for Windows and true elsewhere, as git itself defaults
+	/// it.
+	///
+	/// # Errors
+	///
+	/// Fails when `git` fails, including for a value that is not a boolean.
+	pub(crate) fn symlink_placeholders(&self) -> Result<bool, BackendError> {
+		Ok(!self.config_bool_or("core.symlinks", !cfg!(windows))?)
+	}
+
+	/// A boolean git setting, `unset` when no configuration file sets it.
+	///
+	/// # Errors
+	///
+	/// Fails when `git` fails, including for a value that is not a boolean.
+	pub(crate) fn config_bool_or(
+		&self,
+		key: &str,
+		unset: bool,
+	) -> Result<bool, BackendError> {
 		let args = ["config", "--type=bool", "--get", key];
 		let finished = self.git.run(&args, None)?;
 		match finished.status.code() {
 			Some(0) => Ok(finished.stdout.trim_ascii() == b"true"),
 			// Git exits with 1 when the key is unset.
-			Some(1) => Ok(false),
+			Some(1) => Ok(unset),
 			_ => Err(exit_failure(&args, &finished)),
 		}
 	}
