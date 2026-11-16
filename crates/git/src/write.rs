@@ -22,7 +22,9 @@
 //!    a new file, pass; anything else is verified again as in phase 1. If a
 //!    check or a rename fails, the steps already taken are undone in
 //!    reverse: backups are renamed back, replaced files are restored from
-//!    the contents read during verification, and new files are removed.
+//!    the contents read during verification, and new files are removed. A
+//!    target that no longer holds what its step left there was changed by
+//!    another program meanwhile, and is left as it is.
 //! 4. **Mark.** The files the plan creates, those the index did not hold
 //!    before, are marked intent-to-add in one `git add --intent-to-add`, so
 //!    the next snapshot sees them. If that fails, any path it
@@ -133,15 +135,19 @@ pub enum ApplyError {
 		#[source]
 		source: io::Error,
 	},
-	/// Applying the plan failed, and so did undoing some of the changes
-	/// already made. A written file in `unrestored` may hold its new
-	/// contents, or be missing, and a created one may remain marked
-	/// intent-to-add. A deleted file in `unrestored` is missing, and its
-	/// contents remain beside it in a hidden file named
+	/// Applying the plan failed, and some of the changes already made were
+	/// not undone: undoing them failed, or another program changed the file
+	/// after the plan did, and it was left as it is.
+	///
+	/// A written file in `unrestored` may hold its new contents, or be
+	/// missing, and a created one may remain marked intent-to-add. A deleted
+	/// file in `unrestored` is missing. A path in `changed` holds what another
+	/// program saved there after the plan changed it. The contents of a
+	/// deleted file in either list remain beside it in a hidden file named
 	/// `.<name>.<process>.<n>.source-sentry.bak`, where a long `<name>` is cut
 	/// to its first 64 bytes. When marking failed, `path`
 	/// is the first created file, and `source` wraps the [`BackendError`].
-	#[error("cannot change {path}, and cannot restore {}", list(unrestored))]
+	#[error("{}", rollback_failure(path, unrestored, changed))]
 	RollbackFailed {
 		/// The target whose change failed.
 		path: RepoPath,
@@ -150,6 +156,9 @@ pub enum ApplyError {
 		source: io::Error,
 		/// The files that could not be restored.
 		unrestored: Vec<RepoPath>,
+		/// The files that another program changed after the plan had written
+		/// or deleted them, which were left as they are rather than restored.
+		changed: Vec<RepoPath>,
 	},
 }
 
@@ -218,6 +227,38 @@ fn list(paths: &[RepoPath]) -> String {
 		.join(", ")
 }
 
+/// The message of an [`ApplyError::RollbackFailed`]: the change that failed,
+/// the paths that could not be restored, and those left as another program
+/// changed them.
+fn rollback_failure(
+	path: &RepoPath,
+	unrestored: &[RepoPath],
+	changed: &[RepoPath],
+) -> String {
+	let mut parts = vec![format!("cannot change {path}")];
+	if !unrestored.is_empty() {
+		parts.push(format!("cannot restore {}", list(unrestored)));
+	}
+	if !changed.is_empty() {
+		let (state, pronoun) = if changed.len() == 1 {
+			("it is", "it")
+		} else {
+			("they are", "them")
+		};
+		parts.push(format!(
+			"left {} as {state}, because another program changed {pronoun} \
+			 meanwhile",
+			list(changed)
+		));
+	}
+	match parts.split_last() {
+		Some((last, rest)) if !rest.is_empty() => {
+			format!("{}, and {last}", rest.join(", "))
+		}
+		_ => parts.concat(),
+	}
+}
+
 impl GitRepository {
 	/// Applies `plan` to the working tree, all or nothing.
 	///
@@ -248,7 +289,9 @@ impl GitRepository {
 	/// or the marking fails and every change already made is undone. Fails
 	/// with
 	/// [`ApplyError::RollbackFailed`] in the one case where files may be left
-	/// changed: a change failed, and undoing an earlier one failed too.
+	/// changed: a change failed, and an earlier one was not undone, because
+	/// undoing it failed or because another program changed that file after
+	/// the plan did. Such a file is left as that program saved it.
 	pub fn apply(&self, plan: &WritePlan) -> Result<(), ApplyError> {
 		if plan.writes.is_empty() && plan.deletes.is_empty() {
 			return Ok(());
@@ -323,10 +366,10 @@ impl GitRepository {
 		};
 		let path = steps[failed].path().clone();
 		let deleting = matches!(steps[failed], Step::Delete { .. });
-		let unrestored = roll_back(&mut steps[..failed]);
+		let left = roll_back(&mut steps[..failed]);
 		drop(steps);
 		remove_directories(&created_directories);
-		if !unrestored.is_empty() {
+		if !left.is_empty() {
 			let source = match interruption {
 				Interruption::Failed(source) => source,
 				Interruption::Changed(error) => io::Error::other(error),
@@ -334,7 +377,8 @@ impl GitRepository {
 			return Err(ApplyError::RollbackFailed {
 				path,
 				source,
-				unrestored,
+				unrestored: left.unrestored,
+				changed: left.changed,
 			});
 		}
 		Err(match interruption {
@@ -457,14 +501,15 @@ impl GitRepository {
 		if !recorded.is_empty() && intent::unmark(self.git(), &recorded).is_err() {
 			unrestored.extend(recorded);
 		}
-		for path in roll_back(&mut steps) {
+		let left = roll_back(&mut steps);
+		for path in left.unrestored {
 			if !unrestored.contains(&path) {
 				unrestored.push(path);
 			}
 		}
 		drop(steps);
 		remove_directories(created_directories);
-		if unrestored.is_empty() {
+		if unrestored.is_empty() && left.changed.is_empty() {
 			return Err(ApplyError::IntentToAddFailed {
 				paths: created.to_vec(),
 				source: error,
@@ -474,6 +519,7 @@ impl GitRepository {
 			path: created.first().cloned().unwrap_or_default(),
 			source: io::Error::other(error),
 			unrestored,
+			changed: left.changed,
 		})
 	}
 
@@ -811,6 +857,8 @@ enum Step {
 		path: RepoPath,
 		target: PathBuf,
 		staged: Staged,
+		/// The new contents, which the target holds once the step is taken.
+		contents: Vec<u8>,
 		original: Option<Original>,
 	},
 }
@@ -930,6 +978,7 @@ fn stage(
 			path: path.clone(),
 			target: target.inspected.native,
 			staged,
+			contents: target.write.contents.clone(),
 			original: target.inspected.original,
 		});
 	}
@@ -957,21 +1006,54 @@ fn commit(
 				staged.armed = false;
 			}
 		}
+		#[cfg(test)]
+		if index == 0 {
+			tests::after_first_step();
+		}
 	}
 	Ok(())
 }
 
-/// Undoes the steps in `done`, newest first, and returns the paths that could
-/// not be restored. A backup is never removed here: once its file is back in
-/// place there is nothing left to remove, and if restoring it failed it holds
-/// the only copy.
-fn roll_back(done: &mut [Step]) -> Vec<RepoPath> {
-	let mut unrestored = Vec::new();
+/// The paths that undoing the steps taken did not restore.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Left {
+	/// The paths whose restoring failed.
+	unrestored: Vec<RepoPath>,
+	/// The paths that another program changed after their step was taken,
+	/// left as they are.
+	changed: Vec<RepoPath>,
+}
+
+impl Left {
+	/// Whether every step was undone.
+	fn is_empty(&self) -> bool {
+		self.unrestored.is_empty() && self.changed.is_empty()
+	}
+}
+
+/// Undoes the steps in `done`, newest first, and returns the paths that were
+/// not restored. A target that no longer holds what its step left there, the
+/// written contents or, for a delete, no file, was changed by another program
+/// meanwhile: it is left as it is, so that this newer change is not lost. A
+/// backup is never removed here: once its file is back in place there is
+/// nothing left to remove, and otherwise it holds the only copy.
+fn roll_back(done: &mut [Step]) -> Left {
+	let mut left = Left::default();
 	for step in done.iter_mut().rev() {
 		let restored = match step {
 			Step::Delete { target, backup, .. } => {
 				backup.armed = false;
+				if !unchanged(target, None) {
+					left.changed.push(step.path().clone());
+					continue;
+				}
 				fs::rename(&backup.path, target)
+			}
+			Step::Write {
+				target, contents, ..
+			} if !unchanged(target, Some(contents)) => {
+				left.changed.push(step.path().clone());
+				continue;
 			}
 			Step::Write {
 				target, original, ..
@@ -991,10 +1073,10 @@ fn roll_back(done: &mut [Step]) -> Vec<RepoPath> {
 			},
 		};
 		if restored.is_err() {
-			unrestored.push(step.path().clone());
+			left.unrestored.push(step.path().clone());
 		}
 	}
-	unrestored
+	left
 }
 
 /// Removes directories this plan created, innermost first, where they are
@@ -1025,6 +1107,21 @@ mod tests {
 	/// Runs the hook set for this point, if any.
 	pub(super) fn after_verification() {
 		let hook = AFTER_VERIFICATION.with(|slot| slot.borrow_mut().take());
+		if let Some(hook) = hook {
+			hook();
+		}
+	}
+
+	thread_local! {
+		/// Runs once, right after the first step of the next commit on this
+		/// thread is taken, so that a test can act between two steps.
+		static AFTER_FIRST_STEP: RefCell<Option<Box<dyn FnOnce()>>> =
+			const { RefCell::new(None) };
+	}
+
+	/// Runs the hook set for this point, if any.
+	pub(super) fn after_first_step() {
+		let hook = AFTER_FIRST_STEP.with(|slot| slot.borrow_mut().take());
 		if let Some(hook) = hook {
 			hook();
 		}
@@ -1105,6 +1202,118 @@ mod tests {
 			path: RepoPath::new(name).unwrap(),
 			expected: Some(oid(work, name)),
 			contents: contents.to_vec(),
+		}
+	}
+
+	/// Applies a plan that writes `first`, then rewrites `b.md`, whose
+	/// rename fails. Between the two steps, `meanwhile` runs with the path of
+	/// `first`, and the staged content of `b.md` is removed.
+	fn apply_failing_second_step(
+		work: &Path,
+		first: PlannedWrite,
+		meanwhile: impl FnOnce(&Path) + 'static,
+	) -> Result<(), ApplyError> {
+		let target = work.join(first.path.to_string());
+		let plan = WritePlan {
+			writes: vec![first, rewrite(work, "b.md", b"planned b\n")],
+			deletes: Vec::new(),
+		};
+		let directory = work.to_path_buf();
+		AFTER_FIRST_STEP.with(|slot| {
+			*slot.borrow_mut() = Some(Box::new(move || {
+				meanwhile(&target);
+				let staged = names(&directory)
+					.into_iter()
+					.find(|name| {
+						name.starts_with(".b.md.") && name.ends_with(".source-sentry.tmp")
+					})
+					.unwrap();
+				fs::remove_file(directory.join(staged)).unwrap();
+			}));
+		});
+		let result = GitRepository::open(work).unwrap().apply(&plan);
+		AFTER_FIRST_STEP.with(|slot| slot.borrow_mut().take());
+		result
+	}
+
+	/// A planned new file `new.md`.
+	fn creation() -> PlannedWrite {
+		PlannedWrite {
+			path: RepoPath::new("new.md").unwrap(),
+			expected: None,
+			contents: b"planned a\n".to_vec(),
+		}
+	}
+
+	#[test]
+	fn a_save_after_a_step_is_kept_when_a_later_step_fails() {
+		for creates in [false, true] {
+			let (_root, work) =
+				repository(&[("a.md", b"original a\n"), ("b.md", b"original b\n")]);
+			let first = if creates {
+				creation()
+			} else {
+				rewrite(&work, "a.md", b"planned a\n")
+			};
+			let name = first.path.clone();
+			let result = apply_failing_second_step(&work, first, |target| {
+				assert_eq!(fs::read(target).unwrap(), b"planned a\n");
+				fs::write(target, b"saved by an editor\n").unwrap();
+			});
+
+			let error = result.unwrap_err();
+			match &error {
+				ApplyError::RollbackFailed {
+					path,
+					unrestored,
+					changed,
+					..
+				} => {
+					assert_eq!(*path, RepoPath::new("b.md").unwrap());
+					assert_eq!(*unrestored, Vec::<RepoPath>::new());
+					assert_eq!(changed.as_slice(), std::slice::from_ref(&name));
+				}
+				other => panic!("expected a path left changed, got {other:?}"),
+			}
+			assert_eq!(
+				error.to_string(),
+				format!(
+					"cannot change b.md, and left {name} as it is, because \
+					 another program changed it meanwhile"
+				)
+			);
+			assert_eq!(
+				fs::read(work.join(name.to_string())).unwrap(),
+				b"saved by an editor\n"
+			);
+			assert_eq!(fs::read(work.join("b.md")).unwrap(), b"original b\n");
+			if creates {
+				assert_eq!(fs::read(work.join("a.md")).unwrap(), b"original a\n");
+			}
+		}
+	}
+
+	#[test]
+	fn a_step_left_as_it_was_is_undone_when_a_later_step_fails() {
+		for creates in [false, true] {
+			let (_root, work) =
+				repository(&[("a.md", b"original a\n"), ("b.md", b"original b\n")]);
+			let first = if creates {
+				creation()
+			} else {
+				rewrite(&work, "a.md", b"planned a\n")
+			};
+			let result = apply_failing_second_step(&work, first, |_| {});
+
+			match result {
+				Err(ApplyError::WriteFailed { path, .. }) => {
+					assert_eq!(path, RepoPath::new("b.md").unwrap());
+				}
+				other => panic!("expected a failed write, got {other:?}"),
+			}
+			assert_eq!(fs::read(work.join("a.md")).unwrap(), b"original a\n");
+			assert_eq!(fs::read(work.join("b.md")).unwrap(), b"original b\n");
+			assert_eq!(names(&work), [".git", "a.md", "b.md"]);
 		}
 	}
 
@@ -1248,6 +1457,7 @@ mod tests {
 		Step::Write {
 			path: RepoPath::new(name).unwrap(),
 			staged: Staged::create(&target, new, None, "tmp").unwrap(),
+			contents: new.to_vec(),
 			target,
 			original,
 		}
@@ -1302,7 +1512,7 @@ mod tests {
 			});
 			let (failed, _) = result.unwrap_err();
 			assert_eq!(failed, failing - 1);
-			assert_eq!(roll_back(&mut steps[..failed]), Vec::<RepoPath>::new());
+			assert_eq!(roll_back(&mut steps[..failed]), Left::default());
 			drop(steps);
 
 			let read = |name: &str| fs::read(directory.path().join(name)).unwrap();
@@ -1350,19 +1560,118 @@ mod tests {
 	}
 
 	#[test]
-	fn a_backup_that_cannot_be_restored_is_kept() {
+	fn steps_whose_targets_changed_since_are_left_as_they_are() {
+		let directory = tempfile::tempdir().unwrap();
+		let mut steps = plan_steps(directory.path());
+		commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
+			fs::rename(from, to)
+		})
+		.unwrap();
+		let write = |name: &str, contents: &[u8]| {
+			fs::write(directory.path().join(name), contents).unwrap();
+		};
+		write("gone.lock", b"saved again");
+		write("a.md", b"saved a");
+		write("new.md", b"saved new");
+
+		assert_eq!(
+			roll_back(&mut steps),
+			Left {
+				unrestored: Vec::new(),
+				changed: ["new.md", "a.md", "gone.lock"]
+					.map(|name| RepoPath::new(name).unwrap())
+					.into(),
+			}
+		);
+		drop(steps);
+		let read = |name: &str| fs::read(directory.path().join(name)).unwrap();
+		assert_eq!(read("gone.lock"), b"saved again");
+		assert_eq!(read("old.lock"), b"old");
+		assert_eq!(read("a.md"), b"saved a");
+		assert_eq!(read("new.md"), b"saved new");
+		// The backup of the deleted file that was saved again is kept.
+		let backups: Vec<String> = names(directory.path())
+			.into_iter()
+			.filter(|name| name.ends_with(".source-sentry.bak"))
+			.collect();
+		assert_eq!(backups.len(), 1);
+		assert_eq!(
+			fs::read(directory.path().join(&backups[0])).unwrap(),
+			b"gone"
+		);
+	}
+
+	#[test]
+	fn rollback_failures_name_both_kinds_of_path() {
+		let path = |name: &str| RepoPath::new(name).unwrap();
+		let message = |unrestored: &[&str], changed: &[&str]| {
+			ApplyError::RollbackFailed {
+				path: path("b.md"),
+				source: io::Error::other("failed"),
+				unrestored: unrestored.iter().map(|name| path(name)).collect(),
+				changed: changed.iter().map(|name| path(name)).collect(),
+			}
+			.to_string()
+		};
+		assert_eq!(
+			message(&["a.md"], &[]),
+			"cannot change b.md, and cannot restore a.md"
+		);
+		assert_eq!(
+			message(&[], &["a.md", "c.md"]),
+			"cannot change b.md, and left a.md, c.md as they are, because \
+			 another program changed them meanwhile"
+		);
+		assert_eq!(
+			message(&["a.md"], &["c.md"]),
+			"cannot change b.md, cannot restore a.md, and left c.md as it is, \
+			 because another program changed it meanwhile"
+		);
+	}
+
+	#[test]
+	fn a_restore_that_fails_is_reported() {
 		let directory = tempfile::tempdir().unwrap();
 		let mut steps = vec![delete_step(directory.path(), "gone.lock", b"gone")];
 		commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
 			fs::rename(from, to)
 		})
 		.unwrap();
-		// Something now occupies the deleted path with a directory, so the
-		// backup cannot be renamed back.
+		// The backup disappears, so the deleted file cannot be renamed back.
+		let Step::Delete { backup, .. } = &steps[0] else {
+			panic!("expected a delete step");
+		};
+		fs::remove_file(&backup.path).unwrap();
+
+		assert_eq!(
+			roll_back(&mut steps),
+			Left {
+				unrestored: vec![RepoPath::new("gone.lock").unwrap()],
+				changed: Vec::new(),
+			}
+		);
+	}
+
+	#[test]
+	fn a_backup_whose_path_is_taken_meanwhile_is_kept() {
+		let directory = tempfile::tempdir().unwrap();
+		let mut steps = vec![delete_step(directory.path(), "gone.lock", b"gone")];
+		commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
+			fs::rename(from, to)
+		})
+		.unwrap();
+		// Something now occupies the deleted path with a directory, which is
+		// left as it is.
 		fs::create_dir(directory.path().join("gone.lock")).unwrap();
 		fs::write(directory.path().join("gone.lock").join("inner"), b"x").unwrap();
 
-		assert_eq!(roll_back(&mut steps), [RepoPath::new("gone.lock").unwrap()]);
+		assert_eq!(
+			roll_back(&mut steps),
+			Left {
+				unrestored: Vec::new(),
+				changed: vec![RepoPath::new("gone.lock").unwrap()],
+			}
+		);
 		drop(steps);
 		let backups: Vec<String> = names(directory.path())
 			.into_iter()
