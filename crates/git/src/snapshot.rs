@@ -1,6 +1,9 @@
 //! The two snapshots: the working tree, and a committed tree.
 
-use std::{collections::BTreeMap, fs};
+use std::{
+	collections::{BTreeMap, HashSet},
+	fs,
+};
 
 use source_sentry_core::ports::{
 	BackendError, BackendErrorKind, Canonical, CommitId, ObjectId, RepoPath,
@@ -133,6 +136,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 		let mut probe = Probe::new(work_dir);
 		let mut known = Vec::with_capacity(paths.len());
 		let mut regular = Vec::new();
+		let mut edited = HashSet::new();
 		let mut placeholders = None;
 		for path in paths {
 			let record = self.member(path)?;
@@ -153,10 +157,14 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 						self.repository.algorithm(),
 						&target,
 					)?)),
-					// A placeholder under `core.symlinks=false`: git stores its
-					// bytes as the target, without attributes or filters. Where
-					// the checkout holds real links, a regular file in place of
-					// a link is a new regular file, hashed as git would add it.
+					// A placeholder under `core.symlinks=false`. While its bytes
+					// are the index blob's, git takes it as clean and never
+					// converts it, so the index oid stands for it. Once edited,
+					// `git add` keeps the link's mode but stores the bytes after
+					// the conversions and filters any file gets, so it is hashed
+					// like a regular file. Where the checkout holds real links,
+					// a regular file in place of a link is a new regular file,
+					// hashed as git would add it.
 					Presence::File
 						if record.is_symlink() && placeholders == Some(true) =>
 					{
@@ -164,10 +172,14 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 							fs::read(native(work_dir, path)).map_err(|source| {
 								error::io(format!("cannot read {path}"), source)
 							})?;
-						Some(Canonical::Oid(blob_oid(
-							self.repository.algorithm(),
-							&target,
-						)?))
+						let raw = blob_oid(self.repository.algorithm(), &target)?;
+						if raw == record.oid {
+							Some(Canonical::Oid(raw))
+						} else {
+							edited.insert(path);
+							regular.push(path);
+							None
+						}
 					}
 					Presence::File => {
 						regular.push(path);
@@ -179,6 +191,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 			known.push(canonical);
 		}
 		let mut hashed = Canonicalizer::new(self.repository, &self.index)
+			.with_placeholders(edited)
 			.regular_files(&regular)?
 			.into_iter();
 		known

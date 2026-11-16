@@ -18,12 +18,22 @@
 //! CRLF line endings that the index already holds. They are reported as
 //! [`Canonical::CrlfInIndex`] instead of being hashed.
 //!
+//! An edited placeholder, the plain file that stands for a symbolic link
+//! under `core.symlinks=false`, takes the same route: `git add` keeps the
+//! link's mode but converts and filters its bytes as it would a regular
+//! file's. `git ls-files --eol` describes only the index blobs of regular
+//! files, so it cannot show whether `git add` would keep CRLF from a link's
+//! blob. Under "auto" conversion, a placeholder whose index blob may hold
+//! CRLF is therefore hashed from its bytes, as `git add` stores it when it
+//! keeps that CRLF and no other conversion applies.
+//!
 //! No index oid is reused: proving that a file is clean under the same
 //! conversion rules as its index entry is not possible without hashing it,
 //! because `assume-unchanged` and attribute changes can hide a difference.
 
 use std::{
 	collections::{BTreeMap, HashSet},
+	fs,
 	path::Path,
 };
 
@@ -53,6 +63,8 @@ const UNKNOWN_ORIGIN: &str = "origin unknown";
 pub(crate) struct Canonicalizer<'a> {
 	repository: &'a GitRepository,
 	index: &'a BTreeMap<RepoPath, IndexRecord>,
+	/// The files that are edited placeholders of symbolic links.
+	placeholders: HashSet<&'a RepoPath>,
 }
 
 impl<'a> Canonicalizer<'a> {
@@ -62,7 +74,21 @@ impl<'a> Canonicalizer<'a> {
 		repository: &'a GitRepository,
 		index: &'a BTreeMap<RepoPath, IndexRecord>,
 	) -> Self {
-		Self { repository, index }
+		Self {
+			repository,
+			index,
+			placeholders: HashSet::new(),
+		}
+	}
+
+	/// Marks `placeholders`, among the files to canonicalize, as edited
+	/// placeholders of symbolic links under `core.symlinks=false`.
+	pub(crate) fn with_placeholders(
+		mut self,
+		placeholders: HashSet<&'a RepoPath>,
+	) -> Self {
+		self.placeholders = placeholders;
+		self
 	}
 
 	/// The canonical oids of `paths`, which must be regular files in the
@@ -105,11 +131,20 @@ impl<'a> Canonicalizer<'a> {
 			results.push(known);
 		}
 
-		let kept = self.kept_index_crlf(paths, &conversions, &pending)?;
+		let (kept, unconverted) =
+			self.kept_index_crlf(paths, &conversions, &pending)?;
 		let mut batch = Vec::with_capacity(pending.len());
 		let mut batch_positions = Vec::with_capacity(pending.len());
 		for position in pending {
-			if kept.contains(paths[position]) {
+			let path = paths[position];
+			if unconverted.contains(path) {
+				let bytes = fs::read(native(work_dir, path))
+					.map_err(|source| error::io(format!("cannot read {path}"), source))?;
+				results[position] = Some(Canonical::Oid(blob_oid(
+					self.repository.algorithm(),
+					&bytes,
+				)?));
+			} else if kept.contains(path) {
 				results[position] = Some(Canonical::CrlfInIndex);
 			} else {
 				batch.push(paths[position]);
@@ -139,15 +174,20 @@ impl<'a> Canonicalizer<'a> {
 	/// convert them. Attributes first narrow the candidates, so
 	/// that `git ls-files --eol`, which reads each file, runs only where the
 	/// answer could be yes.
+	///
+	/// Returned second, the edited placeholders among the candidates whose
+	/// index blob may hold CRLF text: `git ls-files --eol` cannot judge them,
+	/// so they are hashed without conversion.
 	fn kept_index_crlf(
 		&self,
 		paths: &[&RepoPath],
 		conversions: &[Conversion],
 		pending: &[usize],
-	) -> Result<HashSet<RepoPath>, BackendError> {
+	) -> Result<(HashSet<RepoPath>, HashSet<RepoPath>), BackendError> {
 		let git = self.repository.git();
 		let mut autocrlf = None;
 		let mut candidates = Vec::new();
+		let mut unconverted = HashSet::new();
 		let mut encoded = HashSet::new();
 		for &position in pending {
 			let conversion = &conversions[position];
@@ -162,21 +202,27 @@ impl<'a> Canonicalizer<'a> {
 					value != AutoCrlf::False
 				}
 			};
-			if candidate && self.index_blob_has_crlf(paths[position]) {
-				candidates.push(paths[position]);
-				if conversion.working_tree_encoding.value().is_some() {
-					encoded.insert(paths[position]);
-				}
+			if !candidate || !self.index_blob_has_crlf(paths[position]) {
+				continue;
+			}
+			if self.placeholders.contains(paths[position]) {
+				unconverted.insert(paths[position].clone());
+				continue;
+			}
+			candidates.push(paths[position]);
+			if conversion.working_tree_encoding.value().is_some() {
+				encoded.insert(paths[position]);
 			}
 		}
 		if candidates.is_empty() {
-			return Ok(HashSet::new());
+			return Ok((HashSet::new(), unconverted));
 		}
 		let autocrlf = match autocrlf {
 			Some(value) => value,
 			None => eol::read_autocrlf(git)?,
 		};
-		eol::kept_index_crlf(git, &candidates, &encoded, autocrlf)
+		let kept = eol::kept_index_crlf(git, &candidates, &encoded, autocrlf)?;
+		Ok((kept, unconverted))
 	}
 
 	/// Whether git could call `content` text with CRLF (`i/crlf` or `i/mixed`):

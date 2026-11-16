@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use sha2::{Digest as _, Sha256};
 use source_sentry_core::ports::{
-	BackendErrorKind, Canonical, History as _, Snapshot as _,
+	BackendErrorKind, Canonical, History as _, ObjectId, Snapshot as _,
 };
 
 use crate::support::{TestRepo, object_id, path};
@@ -398,9 +398,15 @@ fn encoded_files_are_judged_by_the_index() {
 /// Commits `link` as a symbolic link to `target.txt`, checked out as a
 /// placeholder under `core.symlinks=false`, and returns its blob.
 fn placeholder_link(repo: &TestRepo) -> String {
+	placeholder_link_to(repo, b"target.txt")
+}
+
+/// Commits `link` as a symbolic link whose target is `target`, checked out as
+/// a placeholder under `core.symlinks=false`, and returns its blob.
+fn placeholder_link_to(repo: &TestRepo, target: &[u8]) -> String {
 	repo.git(&["config", "core.symlinks", "false"]);
 	repo.write("target.txt", "content\n");
-	repo.write("link", "target.txt");
+	repo.write("link", target);
 	let link_blob = repo.git(&["hash-object", "-w", "--no-filters", "link"]);
 	repo.git(&["add", "target.txt"]);
 	repo.git(&[
@@ -413,40 +419,146 @@ fn placeholder_link(repo: &TestRepo) -> String {
 	link_blob
 }
 
-#[test]
-fn placeholder_links_ignore_filter_attributes() {
-	for attributes in [
-		"* filter=lfs -text\n",
-		"* filter=crypt\n",
-		"* text eol=crlf\n",
-	] {
-		let repo = TestRepo::init();
-		let link_blob = object_id(&placeholder_link(&repo));
-		repo.write(".gitattributes", attributes);
-		repo.commit_all("attributes");
+/// Stages `file` with `git add` and returns the oid git stores, checking that
+/// the entry is still a symbolic link.
+fn added_link(repo: &TestRepo, file: &str) -> ObjectId {
+	repo.git(&["add", "--", file]);
+	let staged = repo.git(&["ls-files", "--stage", "--", file]);
+	let fields: Vec<&str> = staged.split_whitespace().collect();
+	assert_eq!(fields.first(), Some(&"120000"), "{staged}");
+	object_id(fields[1])
+}
 
-		assert_eq!(
-			canonical(&repo, "link"),
-			Canonical::Oid(link_blob),
-			"{attributes:?}"
-		);
+/// A placeholder whose bytes are still its link's blob is clean to git, which
+/// never converts it: its canonical oid is the index oid, whatever attributes
+/// apply, and no filter refuses it.
+#[test]
+fn unedited_placeholders_keep_the_index_oid_under_any_attributes() {
+	for format in ["sha1", "sha256"] {
+		for attributes in [
+			"",
+			"* filter=lfs -text\n",
+			"* filter=crypt\n",
+			"* text eol=crlf\n",
+		] {
+			let repo = TestRepo::init_with_format(format);
+			let link_blob = object_id(&placeholder_link(&repo));
+			repo.write(".gitattributes", attributes);
+			repo.commit_all("attributes");
+
+			assert_eq!(
+				canonical(&repo, "link"),
+				Canonical::Oid(link_blob.clone()),
+				"{format} {attributes:?}"
+			);
+			assert_eq!(added_link(&repo, "link"), link_blob);
+		}
 	}
 }
 
-/// Where the checkout holds real links, a regular file that replaces a
-/// tracked link is a type change: it hashes as git would add it, with its
-/// usual conversions. Under `core.symlinks=false` the same file is a
-/// placeholder whose bytes are the link's target.
+/// An edited placeholder without attributes is stored by `git add` as its
+/// bytes.
 #[test]
-fn a_regular_file_replacing_a_link_is_hashed_by_core_symlinks() {
-	for symlinks in ["true", "false"] {
+fn an_edited_placeholder_without_attributes_hashes_its_bytes() {
+	let repo = TestRepo::init();
+	placeholder_link(&repo);
+	repo.write("link", "new-target");
+
+	let hashed = canonical(&repo, "link");
+	let added = added_link(&repo, "link");
+	assert_eq!(added, repo.hash(b"new-target"));
+	assert_eq!(hashed, Canonical::Oid(added));
+}
+
+/// An edited placeholder is converted by `git add` as any file is: under
+/// `text`, its CRLF line endings are stored as LF.
+#[test]
+fn an_edited_placeholder_hashes_with_the_text_conversion() {
+	for format in ["sha1", "sha256"] {
+		let repo = TestRepo::init_with_format(format);
+		placeholder_link(&repo);
+		repo.write(".gitattributes", "* text\n");
+		repo.commit_all("attributes");
+		repo.write("link", "line one\r\nline two\r\n");
+
+		let hashed = canonical(&repo, "link");
+		let added = added_link(&repo, "link");
+		assert_eq!(added, repo.hash(b"line one\nline two\n"), "{format}");
+		assert_eq!(hashed, Canonical::Oid(added), "{format}");
+	}
+}
+
+/// `git add` runs a clean filter on an edited placeholder, so the placeholder
+/// is refused exactly as a regular file under the same filter, and the
+/// filter never runs.
+#[test]
+fn an_edited_placeholder_under_a_clean_filter_is_refused() {
+	let repo = TestRepo::init();
+	placeholder_link(&repo);
+	repo.write(".gitattributes", "* filter=upper\n");
+	repo.write("plain.txt", "plain\n");
+	repo.commit_all("attributes");
+	repo.git(&[
+		"config",
+		"filter.upper.clean",
+		"touch filter-ran && tr a-z A-Z",
+	]);
+	repo.write("link", "edited-target");
+	repo.write("plain.txt", "edited\n");
+
+	let refused = Canonical::UnsupportedFilter {
+		filter: "upper".to_owned(),
+		attribute_origin: ".gitattributes:1".to_owned(),
+	};
+	let repository = repo.open();
+	let snapshot = repository.working_tree_snapshot().unwrap();
+	assert_eq!(
+		snapshot
+			.canonical_oids(&[path("link"), path("plain.txt")])
+			.unwrap(),
+		[refused.clone(), refused]
+	);
+	let ran = repo.path().join("filter-ran");
+	assert!(!ran.exists());
+	// Git itself runs the filter and stores the target upper-cased.
+	assert_eq!(added_link(&repo, "link"), repo.hash(b"EDITED-TARGET"));
+	assert!(ran.exists());
+}
+
+/// Under "auto" line-ending conversion, `git add` keeps the CRLF line endings
+/// that a link's blob already holds, as it does for a regular file's. An
+/// edited placeholder there hashes as its bytes, which git stores unchanged.
+#[test]
+fn an_edited_placeholder_keeps_crlf_its_link_blob_holds() {
+	for (attributes, autocrlf) in [("* text=auto\n", "false"), ("", "true")] {
+		let repo = TestRepo::init();
+		placeholder_link_to(&repo, b"x\r\ny\r\n");
+		repo.write(".gitattributes", attributes);
+		repo.commit_all("attributes");
+		repo.git(&["config", "core.autocrlf", autocrlf]);
+		let contents = b"line one\r\nline two\r\n";
+		repo.write("link", contents);
+
+		let hashed = canonical(&repo, "link");
+		let added = added_link(&repo, "link");
+		assert_eq!(added, repo.hash(contents), "{autocrlf}");
+		assert_eq!(hashed, Canonical::Oid(added), "{autocrlf}");
+	}
+}
+
+/// A regular file in place of a tracked link hashes as `git add` would store
+/// it, with its usual conversions. Where the checkout holds real links, git
+/// adds it as a regular file; under `core.symlinks=false` it is an edited
+/// placeholder, which stays a link.
+#[test]
+fn a_regular_file_replacing_a_link_is_hashed_as_git_adds_it() {
+	for (symlinks, mode) in [("true", "100644"), ("false", "120000")] {
 		let repo = TestRepo::init();
 		let link_blob = placeholder_link(&repo);
 		repo.write(".gitattributes", "link text\n");
 		repo.commit_all("attributes");
 		repo.git(&["config", "core.symlinks", symlinks]);
-		let contents = b"line one\r\nline two\r\n";
-		repo.write("link", contents);
+		repo.write("link", b"line one\r\nline two\r\n");
 		assert_eq!(
 			repo.git(&["ls-files", "--stage", "--", "link"]),
 			format!("120000 {link_blob} 0\tlink"),
@@ -456,14 +568,10 @@ fn a_regular_file_replacing_a_link_is_hashed_by_core_symlinks() {
 		let hashed = canonical(&repo, "link");
 		repo.git(&["add", "--", "link"]);
 		let staged = repo.git(&["ls-files", "--stage", "--", "link"]);
-		if symlinks == "true" {
-			let added = repo.blob_at("", "link");
-			assert!(staged.starts_with("100644 "), "{staged}");
-			assert_eq!(added, repo.hash(b"line one\nline two\n"));
-			assert_eq!(hashed, Canonical::Oid(added));
-		} else {
-			assert_eq!(hashed, Canonical::Oid(repo.hash(contents)), "{staged}");
-		}
+		let added = repo.blob_at("", "link");
+		assert!(staged.starts_with(&format!("{mode} ")), "{staged}");
+		assert_eq!(added, repo.hash(b"line one\nline two\n"), "{symlinks}");
+		assert_eq!(hashed, Canonical::Oid(added), "{symlinks}");
 	}
 }
 
