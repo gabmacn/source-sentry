@@ -548,7 +548,7 @@ review.
 ```
 # Source Sentry policy surfaces. Keep these lines last: the last
 # matching pattern takes precedence.
-/.source-sentry/                       @example-org/policy-owners
+**/.source-sentry/                     @example-org/policy-owners
 **/source-sentry.yaml                  @example-org/policy-owners
 **/source-sentry.lock                  @example-org/policy-owners
 /.github/workflows/source-sentry.yml   @example-org/policy-owners
@@ -566,7 +566,7 @@ review.
 `.forgejo/`, and its patterns are Go regular expressions, not globs:
 
 ```
-^\.source-sentry/.*$                        @example-org/policy-owners
+^(.*/)?\.source-sentry/.*$                  @example-org/policy-owners
 (^|.*/)source-sentry\.(yaml|lock)$          @example-org/policy-owners
 ^\.forgejo/workflows/source-sentry\.yml$    @example-org/policy-owners
 ^\.forgejo/CODEOWNERS$                      @example-org/policy-owners
