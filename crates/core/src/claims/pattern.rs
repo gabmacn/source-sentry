@@ -13,7 +13,9 @@ use crate::model::{PathError, RepoPath};
 /// and any other pattern is relative to the directory of the document that
 /// declares it, where leading `./` and `../` components apply and may climb
 /// no higher than the root. A remote document has no directory, so its
-/// patterns must start with `/`.
+/// patterns must start with `/`. The base's directories are taken literally,
+/// whatever characters their names hold; only the pattern as written has
+/// glob meaning.
 ///
 /// Matching uses gitignore-style glob conventions on the whole repository
 /// path: `*`, `?` and classes such as `[*]` never match `/`, while `**`
@@ -95,9 +97,60 @@ pub enum PatternProblem {
 	Glob(String),
 }
 
+/// The characters that give a component glob meaning.
+const GLOB_SYNTAX: [char; 6] = ['*', '?', '[', ']', '{', '}'];
+
 /// Whether a component holds a wildcard, an alternation or a class.
 fn is_wildcard(component: &str) -> bool {
-	component.contains(['*', '?', '[', ']', '{', '}'])
+	component.contains(GLOB_SYNTAX)
+}
+
+/// One component of a resolved pattern.
+#[derive(Clone, Copy)]
+enum Component<'a> {
+	/// A directory of the base, named literally whatever its characters.
+	Base(&'a str),
+	/// A component of the authored pattern, with its glob meaning.
+	Authored(&'a str),
+}
+
+impl<'a> Component<'a> {
+	/// The component's name as written.
+	fn name(self) -> &'a str {
+		match self {
+			Self::Base(name) | Self::Authored(name) => name,
+		}
+	}
+
+	/// Whether the component holds glob syntax; a base directory never does.
+	fn is_wildcard(self) -> bool {
+		match self {
+			Self::Base(_) => false,
+			Self::Authored(name) => is_wildcard(name),
+		}
+	}
+
+	/// The component as glob text: a base directory has each character of
+	/// glob syntax wrapped in a class, such as `[*]`, so it matches only
+	/// itself.
+	fn glob(self) -> String {
+		match self {
+			Self::Base(name) => {
+				let mut escaped = String::with_capacity(name.len());
+				for character in name.chars() {
+					if GLOB_SYNTAX.contains(&character) {
+						escaped.push('[');
+						escaped.push(character);
+						escaped.push(']');
+					} else {
+						escaped.push(character);
+					}
+				}
+				escaped
+			}
+			Self::Authored(name) => name.to_owned(),
+		}
+	}
 }
 
 impl SourceGlob {
@@ -141,39 +194,41 @@ impl SourceGlob {
 			}
 			(None, None, None) => return Err(PatternProblem::NotRooted),
 		};
-		let mut components: Vec<&str> = base.components().collect();
+		let mut components: Vec<Component> =
+			base.components().map(Component::Base).collect();
 		for component in body.split('/') {
 			match component {
 				"" | "." => {}
 				".." => match components.last() {
 					None => return Err(PatternProblem::EscapesRepository),
-					Some(last) if is_wildcard(last) => {
+					Some(last) if last.is_wildcard() => {
 						return Err(PatternProblem::ParentAfterWildcard);
 					}
 					Some(_) => {
 						components.pop();
 					}
 				},
-				name => components.push(name),
+				name => components.push(Component::Authored(name)),
 			}
 		}
 		if components.is_empty() {
 			return Err(PatternProblem::Root);
 		}
-		let literal = components
+		let literal: Vec<&str> = components
 			.iter()
-			.take_while(|component| !is_wildcard(component))
-			.count();
+			.take_while(|component| !component.is_wildcard())
+			.map(|component| component.name())
+			.collect();
 		let prefix =
-			RepoPath::new(&components[..literal].join("/")).map_err(|error| {
-				match error {
-					PathError::FilesystemAbsolute(_) => {
-						PatternProblem::FilesystemAbsolute
-					}
-					error => PatternProblem::Path(error),
-				}
+			RepoPath::new(&literal.join("/")).map_err(|error| match error {
+				PathError::FilesystemAbsolute(_) => PatternProblem::FilesystemAbsolute,
+				error => PatternProblem::Path(error),
 			})?;
-		let glob = components.join("/");
+		let glob = components
+			.iter()
+			.map(|component| component.glob())
+			.collect::<Vec<_>>()
+			.join("/");
 		let matcher = GlobBuilder::new(&glob)
 			.literal_separator(true)
 			.backslash_escape(false)

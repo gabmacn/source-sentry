@@ -9,7 +9,7 @@ use super::{
 use crate::claims::sources::resolve;
 use crate::claims::{
 	Claim, Dependency, DiagnosticKind, Inventory, Mode, Presence,
-	ResolvedPattern, ResolvedSource, Severity,
+	ResolvedPattern, ResolvedSource, Severity, SourceGlob,
 };
 use crate::model::{Declaration, PathSource, PatternSource, SourceDecl};
 use crate::testing::path;
@@ -219,6 +219,72 @@ fn relative_and_rooted_patterns_resolve_from_their_bases() {
 		.next()
 		.unwrap();
 	assert_eq!(claim.source_paths().len(), 3);
+}
+
+/// Directories whose names an unescaped glob would read as glob syntax.
+const GLOB_LIKE_DIRECTORIES: [&str; 5] =
+	["[draft]", "star*", "q?", "{one,two}", "open["];
+
+#[test]
+fn a_documents_directory_is_literal_in_its_relative_patterns() {
+	for directory in GLOB_LIKE_DIRECTORIES {
+		let document = format!("docs/{directory}/guide.md");
+		let own = format!("docs/{directory}/code.rs");
+		let inventory = inventory(&[
+			(&document, &with_patterns(&["*.rs", "../x/*.rs"])),
+			(&own, ""),
+			("docs/d/code.rs", ""),
+			("docs/starX/code.rs", ""),
+			("docs/qX/code.rs", ""),
+			("docs/one/code.rs", ""),
+			("docs/two/code.rs", ""),
+			("docs/open[/other/code.rs", ""),
+			("docs/x/a.rs", ""),
+		]);
+		assert_clean(&inventory);
+		let found: Vec<_> = patterns(&inventory, &document)
+			.into_iter()
+			.map(matches)
+			.collect();
+		assert_eq!(found, [vec![own], vec!["docs/x/a.rs".to_owned()]]);
+	}
+}
+
+#[test]
+fn a_documents_directory_is_escaped_in_the_resolved_glob() {
+	let inventory = inventory(&[
+		("docs/[draft]/guide.md", &with_patterns(&["*.rs"])),
+		("docs/[draft]/code.rs", ""),
+	]);
+	assert_eq!(
+		patterns(&inventory, "docs/[draft]/guide.md")[0].glob,
+		"/docs/[[]draft[]]/*.rs"
+	);
+}
+
+#[test]
+fn an_authored_class_still_matches_a_literal_wildcard_under_such_a_directory() {
+	let inventory = inventory(&[
+		("docs/a*b/guide.md", &with_patterns(&["lit[*].rs"])),
+		("docs/a*b/lit*.rs", ""),
+		("docs/a*b/litX.rs", ""),
+	]);
+	assert_clean(&inventory);
+	assert_eq!(
+		matches(patterns(&inventory, "docs/a*b/guide.md")[0]),
+		["docs/a*b/lit*.rs"]
+	);
+}
+
+#[test]
+fn a_projects_directory_is_literal_in_its_rooted_patterns() {
+	let project = path("p[1]");
+	let glob =
+		SourceGlob::compile_project(&project, Some(&path("p[1]/a.md")), "/*.rs")
+			.unwrap();
+	assert!(glob.is_match(&path("p[1]/code.rs")));
+	assert!(!glob.is_match(&path("p1/code.rs")));
+	assert_eq!(glob.rooted(), "/p[[]1[]]/*.rs");
 }
 
 #[test]
