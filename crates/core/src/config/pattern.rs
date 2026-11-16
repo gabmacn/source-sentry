@@ -246,12 +246,17 @@ struct Class {
 /// after the negation, is a member, and any other unescaped `]` closes the
 /// class. Braces are members like any other character.
 ///
-/// An unescaped `-` between two members makes a range, and a `-` that starts
-/// or ends the class is a member. A `-` right after a range extends that
-/// range, and a range whose end comes before its start is an error, as the
-/// glob library reads them. A named class such as `[:alpha:]` is no
-/// special spelling: `[[:alpha:]]` is a class of `[`, `:` and some letters,
-/// followed by a literal `]`.
+/// An unescaped `-` makes a range when a single member comes before it and a
+/// character other than `]` after it; the end may be escaped. Any other `-`
+/// is a member: one that starts or ends the class, and one right after a
+/// range or a named class, so that `[a-c-e]` holds `a` to `c`, `-` and `e`.
+/// A range whose end comes before its start is rejected, so that the mistake
+/// is seen.
+///
+/// A `[:` starts a named class when the first `]` after it follows a `:`:
+/// `[[:alpha:]]` is a class of every ASCII letter. Any other `[` is a member.
+/// A name that git does not know is rejected, since git would match no path
+/// with it.
 fn read_class(characters: &mut Characters<'_>) -> Result<Class, PatternError> {
 	let unclosed = || PatternError::new(ErrorKind::UnclosedClass.to_string());
 	let negated = characters
@@ -259,36 +264,102 @@ fn read_class(characters: &mut Characters<'_>) -> Result<Class, PatternError> {
 		.is_some();
 	let mut ranges: Vec<(char, char)> = Vec::new();
 	let mut first = true;
-	let mut in_range = false;
+	// The single member just read, which a `-` may start a range from.
+	let mut previous: Option<char> = None;
 	loop {
 		let character = characters.next().ok_or_else(unclosed)?;
 		let member = match character {
-			'\\' => characters.next().ok_or_else(unclosed)?,
 			']' if !first => break,
-			'-' if !first && !in_range => {
-				in_range = true;
-				continue;
+			'\\' => characters.next().ok_or_else(unclosed)?,
+			'-' => match previous {
+				Some(start) if characters.peek().is_some_and(|&next| next != ']') => {
+					let mut end = characters.next().ok_or_else(unclosed)?;
+					if end == '\\' {
+						end = characters.next().ok_or_else(unclosed)?;
+					}
+					if end < start {
+						return Err(PatternError::new(
+							ErrorKind::InvalidRange(start, end).to_string(),
+						));
+					}
+					if let Some(single) = ranges.last_mut() {
+						single.1 = end;
+					}
+					previous = None;
+					continue;
+				}
+				_ => '-',
+			},
+			'[' if characters.peek() == Some(&':') => {
+				if let Some(named) = read_named_class(characters)? {
+					ranges.extend_from_slice(named);
+					previous = None;
+					first = false;
+					continue;
+				}
+				'['
 			}
 			member => member,
 		};
 		first = false;
-		match ranges.last_mut() {
-			Some(range) if in_range => {
-				range.1 = member;
-				if range.1 < range.0 {
-					return Err(PatternError::new(
-						ErrorKind::InvalidRange(range.0, range.1).to_string(),
-					));
-				}
-				in_range = false;
-			}
-			_ => ranges.push((member, member)),
-		}
-	}
-	if in_range {
-		ranges.push(('-', '-'));
+		ranges.push((member, member));
+		previous = Some(member);
 	}
 	Ok(Class { negated, ranges })
+}
+
+/// The ranges of the named class whose `[` was just read, with `:` next, and
+/// moves past its closing `:]`. `None`, with nothing read, when the first `]`
+/// does not follow a `:`, so that the `[` is an ordinary member.
+///
+/// The names and their members are those of git, which reads them in ASCII
+/// only: `space`, for one, holds the tab, line feed, carriage return and
+/// space, but neither the vertical tab nor the form feed.
+fn read_named_class(
+	characters: &mut Characters<'_>,
+) -> Result<Option<&'static [(char, char)]>, PatternError> {
+	let mut ahead = characters.clone();
+	ahead.next();
+	let mut text = String::new();
+	loop {
+		match ahead.next() {
+			None => {
+				return Err(PatternError::new(ErrorKind::UnclosedClass.to_string()));
+			}
+			Some(']') => break,
+			Some(character) => text.push(character),
+		}
+	}
+	let Some(name) = text.strip_suffix(':') else {
+		return Ok(None);
+	};
+	let ranges: &'static [(char, char)] = match name {
+		"alnum" => &[('0', '9'), ('A', 'Z'), ('a', 'z')],
+		"alpha" => &[('A', 'Z'), ('a', 'z')],
+		"blank" => &[('\t', '\t'), (' ', ' ')],
+		"cntrl" => &[('\0', '\x1f'), ('\x7f', '\x7f')],
+		"digit" => &[('0', '9')],
+		"graph" => &[('!', '~')],
+		"lower" => &[('a', 'z')],
+		"print" => &[(' ', '~')],
+		"punct" => &[('!', '/'), (':', '@'), ('[', '`'), ('{', '~')],
+		"space" => &[('\t', '\n'), ('\r', '\r'), (' ', ' ')],
+		"upper" => &[('A', 'Z')],
+		"xdigit" => &[('0', '9'), ('A', 'F'), ('a', 'f')],
+		_ => {
+			return Err(
+				PatternError::new(format!("`[:{name}:]` names no character class"))
+					.correct(
+						"Use one of `[:alnum:]`, `[:alpha:]`, `[:blank:]`, \
+					 `[:cntrl:]`, `[:digit:]`, `[:graph:]`, `[:lower:]`, \
+					 `[:print:]`, `[:punct:]`, `[:space:]`, `[:upper:]` or \
+					 `[:xdigit:]`, or `\\[` for a literal `[`",
+					),
+			);
+		}
+	};
+	*characters = ahead;
+	Ok(Some(ranges))
 }
 
 impl Class {
@@ -533,6 +604,8 @@ mod tests {
 			("[{},]", &["{", "}", ","], &[true, true, true]),
 			("[a-c-e]", &["a", "d", "e", "-"], &[true, true, true, false]),
 			("[a-c-]", &["a", "-", "d"], &[true, true, false]),
+			("[[a]", &["[", "a", ":"], &[true, true, false]),
+			("[[:a]", &["[", ":", "a", "]"], &[true, true, true, false]),
 			(r"\!", &["!"], &[true]),
 			(r"{\!,\^}", &["!", "^", "a"], &[true, true, false]),
 		] {
@@ -551,6 +624,10 @@ mod tests {
 	/// Each pattern's answers are what `git check-ignore --no-index` gives
 	/// for the same line in a `.gitignore`.
 	#[test]
+	#[expect(
+		clippy::too_many_lines,
+		reason = "one table of patterns and git's answers reads best whole"
+	)]
 	fn character_classes_match_as_in_gitignore() {
 		for (pattern, names, expected) in [
 			(
@@ -603,6 +680,114 @@ mod tests {
 				&["a", "b", "c", "d", "-"],
 				&[true, true, true, false, false],
 			),
+			(
+				"[[:alnum:]]",
+				&["a", "0", "Z", "_", "-"],
+				&[true, true, true, false, false],
+			),
+			(
+				"[[:alpha:]]",
+				&["a", "z", "A", "Z", "0", "_", "a]", "é"],
+				&[true, true, true, true, false, false, false, false],
+			),
+			("[[:blank:]]", &[" ", "a", "_"], &[true, false, false]),
+			("[[:cntrl:]]", &["a", " ", "~"], &[false, false, false]),
+			("[[:digit:]]", &["0", "9", "a"], &[true, true, false]),
+			(
+				"[[:graph:]]",
+				&["a", "!", "~", "-", "]", " "],
+				&[true, true, true, true, true, false],
+			),
+			("[[:lower:]]", &["a", "z", "A"], &[true, true, false]),
+			("[[:print:]]", &[" ", "a", "~"], &[true, true, true]),
+			(
+				"[[:punct:]]",
+				&["!", "-", "[", "]", "^", "_", "`", "{", "~", "a", "0"],
+				&[
+					true, true, true, true, true, true, true, true, true, false, false,
+				],
+			),
+			(
+				"ab[[:punct:]]",
+				&["ab.", "ab:", "abc"],
+				&[true, true, false],
+			),
+			("[[:space:]]", &[" ", "a"], &[true, false]),
+			("[[:upper:]]", &["A", "Z", "a"], &[true, true, false]),
+			(
+				"[[:xdigit:]]",
+				&["0", "9", "a", "f", "A", "F", "g", "G"],
+				&[true, true, true, true, true, true, false, false],
+			),
+			(
+				"[![:alpha:]]",
+				&["0", "-", "]", "!", "a", "Z"],
+				&[true, true, true, true, false, false],
+			),
+			(
+				"ab[![:alpha:]]",
+				&["ab/c", "ab.", "abc"],
+				&[false, true, false],
+			),
+			("[^[:digit:]]", &["0", "a", "^"], &[false, true, true]),
+			(
+				"[a[:digit:]-]",
+				&["a", "5", "-", "b"],
+				&[true, true, true, false],
+			),
+			(
+				"[[:digit:]-z]",
+				&["5", "-", "z", "y"],
+				&[true, true, true, false],
+			),
+			(
+				"[[:upper:][:digit:]]",
+				&["A", "5", "a"],
+				&[true, true, false],
+			),
+			(
+				"[A-[:alpha:]]",
+				&["A]", "Z]", "[]", ":]", "l]", "b]", "a"],
+				&[true, true, true, true, true, false, false],
+			),
+			(
+				"ab[[:]]",
+				&["ab[]", "ab:]", "ab]", "ab["],
+				&[true, true, false, false],
+			),
+			(
+				"ab[[:alpha]]",
+				&["aba]", "ab[]", "ab:]", "aba", "abb]"],
+				&[true, true, true, false, false],
+			),
+			(
+				r"[\[:digit:]]",
+				&["[]", "d]", "1", "]"],
+				&[true, true, false, false],
+			),
+			(
+				"[a-c-e]",
+				&["a", "b", "c", "d", "e", "-"],
+				&[true, true, true, false, true, true],
+			),
+			(
+				"[!a-c-e]",
+				&["a", "b", "c", "d", "e", "f", "-"],
+				&[false, false, false, true, false, true, false],
+			),
+			("[a-]", &["a", "-", "b"], &[true, true, false]),
+			("[-a]", &["a", "-", "b"], &[true, true, false]),
+			("[--0]", &["-", "0", "1", ","], &[true, true, false, false]),
+			(
+				"ab[--0]",
+				&["ab.", "ab0", "ab-", "ab1"],
+				&[true, true, true, false],
+			),
+			(
+				"[a-c--0]",
+				&["a", "b", "-", "0", "d"],
+				&[true, true, true, true, false],
+			),
 		] {
 			assert_eq!(matches(pattern, names), expected, "{pattern}");
 		}
@@ -623,6 +808,12 @@ mod tests {
 			(r"[!\-]", "[!-]"),
 			("[{}]{a,b}", r"[{}]\{a,b\}"),
 			("[a-c]", "[a-c]"),
+			("[[:alpha:]]", "[A-Za-z]"),
+			("[![:digit:]]", "[!0-9]"),
+			("[[:punct:]]", "[]!-,.-/:-@[-\\^-`{-~-]"),
+			("[a-c-e]", "[-a-ce]"),
+			("[--0]", "[-.-0]"),
+			("[[:alpha]]", "[[:alpha]]"),
 		] {
 			assert_eq!(translate(pattern), Ok(glob.to_owned()), "{pattern}");
 		}
@@ -642,19 +833,63 @@ mod tests {
 		}
 	}
 
-	/// A named class such as `[:alpha:]` is no special spelling, a `-` right
-	/// after a range extends that range, and a range that ends before it
-	/// starts is rejected.
+	/// Git matches no path with a class name it does not know, and names are
+	/// case-sensitive; the pattern is rejected instead, so that the mistake
+	/// is seen.
 	#[test]
-	fn named_classes_and_ranges_keep_the_glob_library_s_reading() {
-		assert_eq!(
-			matches("[[:alpha:]]", &["a", "a]", ":]", "[]", "b]"]),
-			[false, true, true, true, false]
-		);
-		assert_eq!(
-			matches("[a-c-e]", &["a", "d", "e", "-"]),
-			[true, true, true, false]
-		);
+	fn an_unknown_class_name_is_rejected() {
+		for (pattern, name) in [
+			("[[:word:]]", "word"),
+			("[[:ALPHA:]]", "ALPHA"),
+			("[![:alpha:][:nope:]]", "nope"),
+			("[[::]]", ""),
+		] {
+			let error = PathPattern::compile(pattern, true)
+				.expect_err("an unknown class name is rejected");
+			assert_eq!(
+				error.reason,
+				format!("`[:{name}:]` names no character class"),
+				"{pattern}"
+			);
+			assert!(
+				error
+					.correction
+					.is_some_and(|correction| correction.contains("`[:alpha:]`")),
+				"{pattern}"
+			);
+		}
+	}
+
+	/// A named class must still be followed by the `]` that closes its
+	/// class.
+	#[test]
+	fn a_named_class_left_open_is_rejected() {
+		for pattern in ["[[:alpha:]", "[[:alpha:", "[a[:"] {
+			let error = PathPattern::compile(pattern, true)
+				.expect_err("an unclosed class is rejected");
+			assert_eq!(
+				error.reason, "unclosed character class; missing ']'",
+				"{pattern}"
+			);
+		}
+	}
+
+	/// Each named class holds the ASCII characters that git gives it, with
+	/// none beyond: these characters cannot be in a path, so the
+	/// translation is checked instead of a match.
+	#[test]
+	fn named_classes_hold_git_s_control_characters() {
+		for (pattern, glob) in [
+			("[[:cntrl:]]", "[\0-\x1f\x7f]"),
+			("[[:space:]]", "[\t-\n\r ]"),
+			("[[:blank:]]", "[\t ]"),
+		] {
+			assert_eq!(translate(pattern), Ok(glob.to_owned()), "{pattern}");
+		}
+	}
+
+	#[test]
+	fn a_range_that_ends_before_it_starts_is_rejected() {
 		let error = PathPattern::compile("[c-a]", true)
 			.expect_err("a reversed range is rejected");
 		assert_eq!(error.reason, "invalid range; 'c' > 'a'");
