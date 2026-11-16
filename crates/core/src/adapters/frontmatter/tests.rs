@@ -377,6 +377,71 @@ fn invalid_yaml_in_other_keys_still_reads() {
 	assert!(matches!(read_str(text), Ok(Some(_))));
 }
 
+/// When the whole frontmatter does not parse, nothing shows that no other key
+/// uses an anchor the declaration defines, so changing or removing such a
+/// declaration is refused.
+#[test]
+fn an_anchor_in_the_declaration_blocks_a_write_when_other_keys_do_not_parse() {
+	let text =
+		"---\nsource-sentry: &shared {}\ncopy: *shared\ntags: [a, b\n---\n# Body\n";
+	assert_eq!(read_str(text), Ok(Some(Declaration::default())));
+	assert_eq!(
+		write_str(text, Some(&owned_by(&["qa"]))),
+		Err(FrontmatterError::BreaksYaml { line: 2 })
+	);
+	assert_eq!(
+		write_str(text, None),
+		Err(FrontmatterError::BreaksYaml { line: 2 })
+	);
+	// An anchor deeper in the declaration counts too.
+	let nested =
+		"---\nsource-sentry:\n  owners: &team [docs]\ntags: [a, b\n---\n";
+	assert_eq!(
+		write_str(nested, Some(&owned_by(&["qa"]))),
+		Err(FrontmatterError::BreaksYaml { line: 2 })
+	);
+	// Rewriting the same declaration changes nothing, so it is not refused.
+	assert_eq!(
+		write_str(text, Some(&Declaration::default())).unwrap(),
+		text
+	);
+}
+
+/// A declaration without anchors is still rewritten when other keys do not
+/// parse, and an `&` inside a quoted value is no anchor.
+#[test]
+fn a_declaration_without_anchors_is_rewritten_when_other_keys_do_not_parse() {
+	let text =
+		"---\nsource-sentry: {}\ncopy: *shared\ntags: [a, b\n---\n# Body\n";
+	assert_eq!(
+		write_str(text, Some(&owned_by(&["qa"]))).unwrap(),
+		"---\nsource-sentry:\n  owners: ['qa']\ncopy: *shared\ntags: [a, b\n---\n# Body\n"
+	);
+	let quoted =
+		"---\nsource-sentry:\n  owners: ['&docs', \"& more\"]\ntags: [a, b\n---\n";
+	assert_eq!(
+		write_str(quoted, Some(&owned_by(&["qa"]))).unwrap(),
+		"---\nsource-sentry:\n  owners: ['qa']\ntags: [a, b\n---\n"
+	);
+	assert_eq!(write_str(quoted, None).unwrap(), "---\ntags: [a, b\n---\n");
+}
+
+/// With frontmatter that parses, an anchor in the declaration is refused only
+/// when another key uses it.
+#[test]
+fn an_unused_anchor_in_parsed_frontmatter_is_rewritten() {
+	let text = "---\nsource-sentry: &shared {}\ncopy: x\n---\n# Body\n";
+	assert_eq!(
+		write_str(text, Some(&owned_by(&["qa"]))).unwrap(),
+		"---\nsource-sentry:\n  owners: ['qa']\ncopy: x\n---\n# Body\n"
+	);
+	let used = "---\nsource-sentry: &shared {}\ncopy: *shared\n---\n# Body\n";
+	assert_eq!(
+		write_str(used, Some(&owned_by(&["qa"]))),
+		Err(FrontmatterError::BreaksYaml { line: 2 })
+	);
+}
+
 #[test]
 fn a_closed_value_stays_closed_when_a_later_value_never_closes() {
 	// `tags` never closes, so the frontmatter does not parse, and the line

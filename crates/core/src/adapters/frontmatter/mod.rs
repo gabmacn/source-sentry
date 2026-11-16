@@ -13,7 +13,9 @@
 //! that parse, the scan alone decides, and refuses any line that names the
 //! key in a form it cannot locate. A write must leave such frontmatter
 //! parseable, with every other key's value unchanged once aliases are
-//! resolved; otherwise it is refused.
+//! resolved; otherwise it is refused. When the whole frontmatter does not
+//! parse, a write that changes or removes a declaration defining an anchor
+//! is refused, since nothing can show that no other key uses the anchor.
 //!
 //! The declaration is read on its own, so that no other key can affect it:
 //! an alias inside it can refer only to an anchor inside it.
@@ -27,8 +29,10 @@ mod emit;
 mod scan;
 mod whole;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::rc::Rc;
 
 use serde::Deserialize;
 use serde_saphyr::{MessageFormatter as _, UserMessageFormatter};
@@ -188,7 +192,8 @@ pub fn read_in_project(
 ) -> Result<Option<Declaration>, FrontmatterError> {
 	match locate(bytes)?.0 {
 		Located::Present { block, line, .. } => {
-			parse(project, document, bytes, block, line).map(Some)
+			parse(project, document, bytes, block, line)
+				.map(|(declaration, _)| Some(declaration))
 		}
 		Located::NoFrontmatter { .. }
 		| Located::NotAMapping { .. }
@@ -334,12 +339,17 @@ pub fn write_in_projects(
 			(insert_at..insert_at, emit::block(declaration, eol))
 		}
 		(Located::Present { block, line, eol }, declaration) => {
-			let existing =
+			let (existing, anchors) =
 				parse(previous_project, previous, bytes, block.clone(), line)?;
+			if declaration == Some(&existing) {
+				return Ok(bytes.to_vec());
+			}
+			// Without a parse of the whole frontmatter, nothing shows that no
+			// other key uses an anchor that the declaration defines.
+			if before.is_none() && anchors > 0 {
+				return Err(FrontmatterError::BreaksYaml { line });
+			}
 			match declaration {
-				Some(declaration) if *declaration == existing => {
-					return Ok(bytes.to_vec());
-				}
 				Some(declaration) => (block, emit::block(declaration, eol)),
 				None => (block, String::new()),
 			}
@@ -387,14 +397,15 @@ fn locate(
 	Ok((scan::locate(bytes, yaml)?, parsed))
 }
 
-/// Parses and validates the block at `range`, whose key is on `line`.
+/// Parses and validates the block at `range`, whose key is on `line`, and
+/// counts the anchors (`&name`) it defines.
 fn parse(
 	project: &RepoPath,
 	document: &RepoPath,
 	bytes: &[u8],
 	range: Range<usize>,
 	line: usize,
-) -> Result<Declaration, FrontmatterError> {
+) -> Result<(Declaration, usize), FrontmatterError> {
 	/// The block, which holds only the key.
 	#[derive(Deserialize)]
 	#[serde(deny_unknown_fields)]
@@ -409,9 +420,12 @@ fn parse(
 	// file's, and change nothing else.
 	let padded = format!("{}{text}", "\n".repeat(line.saturating_sub(1)));
 	let mut at = FieldPath::default();
+	// The parser reports how many anchors it met once it is done.
+	let anchors = Rc::new(Cell::new(0));
+	let counted = Rc::clone(&anchors);
 	let block = serde_saphyr::with_deserializer_from_str_with_options(
 		&padded,
-		options(),
+		options().with_budget_report(move |report| counted.set(report.anchors)),
 		|deserializer| {
 			serde_path_to_error::deserialize::<_, Block>(deserializer).map_err(
 				|error| {
@@ -432,7 +446,7 @@ fn parse(
 		Scope::Frontmatter(project, document),
 		&FieldPath::root(KEY),
 	)?;
-	Ok(declaration)
+	Ok((declaration, anchors.get()))
 }
 
 /// The strict parser options.
