@@ -140,6 +140,85 @@ fn an_unknown_context_is_a_configuration_error() {
 	);
 }
 
+/// A preset that defines a context whose only rule has an empty `facts`
+/// list.
+const EMPTY_FACTS_PRESET: &str = "define:
+  contexts:
+    never:
+      fallback: pass
+      rules:
+        - facts: []
+          outcome: fail
+";
+
+/// A defining preset's invalid context is one configuration error at its
+/// rule, whether or not the repository config imports the preset.
+#[test]
+fn a_presets_invalid_context_is_reported_whether_or_not_it_is_imported() {
+	let preset = ".source-sentry/presets/unused.yaml";
+	for config in [
+		"version: 1
+",
+		"version: 1
+imports: [unused]
+",
+	] {
+		let repo = Repo::new(&[(REPOSITORY, config), (preset, EMPTY_FACTS_PRESET)]);
+		let evaluation = repo.evaluate(day(1), None);
+		assert_eq!(
+			kinds(&evaluation),
+			[DiagnosticKind::InvalidContext],
+			"{config}"
+		);
+		let diagnostic = &evaluation.diagnostics[0];
+		assert_eq!(diagnostic.location.file.as_str(), preset);
+		assert_eq!(
+			(diagnostic.location.line, diagnostic.location.column),
+			(Some(6), Some(11))
+		);
+		assert_eq!(
+			diagnostic.location.field.as_deref(),
+			Some("define.contexts.never.rules[0]")
+		);
+		assert!(
+			diagnostic
+				.message
+				.contains("rule 1 has an empty `facts` list")
+		);
+		assert_eq!(
+			gates(&evaluation),
+			(
+				ExitCode::ConfigurationOrIntegrity,
+				ExitCode::ConfigurationOrIntegrity
+			)
+		);
+	}
+}
+
+/// A preset that is not imported is validated against the classes it defines
+/// itself as well as the declared ones.
+#[test]
+fn an_unimported_presets_context_may_use_the_classes_it_defines() {
+	let repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		(
+			".source-sentry/presets/legal.yaml",
+			"define:
+  classes:
+    legal: {}
+  contexts:
+    audit:
+      fallback: pass
+      rules:
+        - classes: ['legal', 'privacy']
+          facts: ['stale']
+          outcome: fail
+",
+		),
+	]);
+	assert_clean(&repo.evaluate(day(1), None));
+}
+
 /// A source behind an unsupported filter is left out of
 /// the facts, and the evaluation is incomplete: exit 4.
 #[test]

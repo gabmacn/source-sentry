@@ -36,6 +36,9 @@ pub struct ConfigSet {
 	pub(super) time_zone: Resolved<String>,
 	pub(super) classes: BTreeMap<ClassName, ClassDefinition>,
 	pub(super) contexts: BTreeMap<String, ContextDefinition>,
+	/// The definitions of loaded presets that the project's config does not
+	/// import, which are validated all the same.
+	pub(super) unimported: Vec<Unimported>,
 	pub(super) repository: Option<Node>,
 	/// Directory configs, by the directory that holds them.
 	pub(super) directories: BTreeMap<RepoPath, Node>,
@@ -52,6 +55,16 @@ pub(super) struct Node {
 	/// Every preset the config imports, depth-first in the order listed, with
 	/// repetitions, each after the presets it imports itself.
 	pub(super) imports: Vec<Expanded>,
+}
+
+/// The classes and contexts that a preset defines while the project's config
+/// does not import it.
+#[derive(Clone, Debug)]
+pub(crate) struct Unimported {
+	/// The classes the preset defines.
+	pub(crate) classes: BTreeSet<ClassName>,
+	/// The contexts the preset defines.
+	pub(crate) contexts: BTreeMap<String, ContextDefinition>,
 }
 
 /// One preset in a config's expanded imports.
@@ -330,6 +343,7 @@ impl ConfigSet {
 			time_zone: time_zone(repository_file),
 			classes: sharing::classes_from(&definitions),
 			contexts: sharing::contexts_from(&definitions),
+			unimported: sharing::unimported(&files, &definitions),
 			repository,
 			directories,
 			remotes,

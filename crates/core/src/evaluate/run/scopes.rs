@@ -7,8 +7,8 @@ use chrono::NaiveDate;
 use super::model::AppliedContext;
 use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location, Mode};
 use crate::config::{
-	ConfigSet, DirectorySettings, DocumentDefaults, Origin, RemoteSettings,
-	Resolved, Series,
+	ConfigSet, ContextDefinition, DirectorySettings, DocumentDefaults, Origin,
+	RemoteSettings, Resolved, Series,
 };
 use crate::evaluate::schedule::{EffectiveSchedule, ScheduleError, TimeZone};
 use crate::evaluate::settings::{
@@ -39,9 +39,9 @@ pub(super) fn config_location(origin: &Origin, field: &str) -> Location {
 		)
 }
 
-/// Selects the context, and validates every declared one. Every
-/// problem is a configuration error. Returns `None` when no context can be
-/// selected.
+/// Selects the context, and validates every declared one, and every one
+/// that a preset defines without being imported. Every problem is a
+/// configuration error. Returns `None` when no context can be selected.
 pub(super) fn context(
 	configs: &ConfigSet,
 	requested: Option<&str>,
@@ -50,29 +50,16 @@ pub(super) fn context(
 	let declared_classes: BTreeSet<ClassName> =
 		configs.classes().keys().cloned().collect();
 	for (name, definition) in configs.contexts() {
-		if let Err(error) =
-			validate_context(name, &definition.context, &declared_classes)
-		{
-			// The first broken rule's own line, when the config recorded it.
-			let rule = match &error {
-				PolicyError::InvalidContext { errors, .. } => {
-					errors.first().and_then(|first| {
-						Some((definition.rule_origins.get(first.index)?, first.index))
-					})
-				}
-				_ => None,
-			};
-			let location = match rule {
-				Some((origin, index)) => config_location(
-					origin,
-					&format!("define.contexts.{name}.rules[{index}]"),
-				),
-				None => config_location(
-					&definition.origin,
-					&format!("define.contexts.{name}"),
-				),
-			};
-			diagnostics.push(policy_diagnostic(&error, location));
+		validate_definition(name, definition, &declared_classes, diagnostics);
+	}
+	for unimported in configs.unimported_definitions() {
+		let declared: BTreeSet<ClassName> = declared_classes
+			.iter()
+			.chain(&unimported.classes)
+			.cloned()
+			.collect();
+		for (name, definition) in &unimported.contexts {
+			validate_definition(name, definition, &declared, diagnostics);
 		}
 	}
 	let declared: BTreeMap<String, Context> = configs
@@ -107,6 +94,37 @@ pub(super) fn context(
 			None
 		}
 	}
+}
+
+/// Validates one defined context against the `declared` classes, and reports
+/// what is wrong with it at its first broken rule.
+fn validate_definition(
+	name: &str,
+	definition: &ContextDefinition,
+	declared: &BTreeSet<ClassName>,
+	diagnostics: &mut Vec<Diagnostic>,
+) {
+	let Err(error) = validate_context(name, &definition.context, declared) else {
+		return;
+	};
+	// The first broken rule's own line, when the config recorded it.
+	let rule = match &error {
+		PolicyError::InvalidContext { errors, .. } => {
+			errors.first().and_then(|first| {
+				Some((definition.rule_origins.get(first.index)?, first.index))
+			})
+		}
+		_ => None,
+	};
+	let location = match rule {
+		Some((origin, index)) => {
+			config_location(origin, &format!("define.contexts.{name}.rules[{index}]"))
+		}
+		None => {
+			config_location(&definition.origin, &format!("define.contexts.{name}"))
+		}
+	};
+	diagnostics.push(policy_diagnostic(&error, location));
 }
 
 /// The diagnostic for a policy error at `location`.

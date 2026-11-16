@@ -2,8 +2,8 @@
 
 use super::{
 	BTreeMap, BTreeSet, ClassDefinition, ClassName, ConfigError, ConfigErrorKind,
-	ContextDefinition, Expanded, Files, Found, RepoPath, classes, contexts,
-	discover, expand,
+	ContextDefinition, Expanded, Files, Found, RepoPath, Unimported, classes,
+	contexts, discover, expand,
 };
 
 /// Adds enclosing projects' presets without replacing a nearer name.
@@ -133,6 +133,30 @@ pub(super) fn classes_from(
 		}
 	}
 	all
+}
+
+/// The definitions of every loaded preset that defines classes or contexts
+/// but is not among the project's `definitions`, in the order of the
+/// presets' names.
+pub(super) fn unimported(
+	files: &Files,
+	definitions: &[Expanded],
+) -> Vec<Unimported> {
+	let imported: BTreeSet<&RepoPath> = definitions
+		.iter()
+		.map(|definition| &definition.preset.path)
+		.collect();
+	files
+		.presets
+		.values()
+		.filter(|preset| {
+			preset.define.is_some() && !imported.contains(&preset.path)
+		})
+		.map(|preset| Unimported {
+			classes: classes(Some(preset)).into_keys().collect(),
+			contexts: contexts(Some(preset)),
+		})
+		.collect()
 }
 
 /// Merges checked context definitions, retaining origins for each rule.

@@ -621,6 +621,14 @@ impl ConfigSet {
 		&self.contexts
 	}
 
+	/// The classes and contexts of every loaded preset that defines them while
+	/// the project's config does not import it. They take no part in
+	/// evaluation, but are validated like the declared ones, since a preset
+	/// is valid or invalid whoever imports it.
+	pub(crate) fn unimported_definitions(&self) -> &[super::load::Unimported] {
+		&self.unimported
+	}
+
 	/// Whether `name` is a context that may be selected and given rules: a
 	/// declared one, or the built-in default.
 	#[must_use]
