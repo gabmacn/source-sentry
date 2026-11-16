@@ -17,10 +17,12 @@
 //!    Beside each file to delete, an empty placeholder reserves a unique
 //!    backup name.
 //! 3. **Commit.** Each file to delete is renamed onto its backup name, then
-//!    each staged file is renamed over its target. If a rename fails, the
-//!    steps already taken are undone in reverse: backups are renamed back,
-//!    replaced files are restored from the contents read during
-//!    verification, and new files are removed.
+//!    each staged file is renamed over its target. Just before each rename,
+//!    the target is checked again: unchanged bytes, or a still-free path for
+//!    a new file, pass; anything else is verified again as in phase 1. If a
+//!    check or a rename fails, the steps already taken are undone in
+//!    reverse: backups are renamed back, replaced files are restored from
+//!    the contents read during verification, and new files are removed.
 //! 4. **Mark.** The files the plan creates, those the index did not hold
 //!    before, are marked intent-to-add in one `git add --intent-to-add`, so
 //!    the next snapshot sees them. If that fails, any path it
@@ -227,6 +229,13 @@ impl GitRepository {
 	/// renamed to a backup beside it, which is removed once every change has
 	/// succeeded. Directories that a delete leaves empty stay.
 	///
+	/// Immediately before each rename, the target is checked again against
+	/// what verification found, so that a file another program saves while
+	/// the plan is being applied fails the plan, which is then undone, rather
+	/// than being overwritten. No file is locked, so a short window remains:
+	/// a change made between that last check and the rename itself is still
+	/// replaced.
+	///
 	/// Files the plan creates, those the index did not hold before, are then
 	/// marked intent-to-add, so the next snapshot sees them; this is the only
 	/// change Source Sentry makes to the index. Files the plan
@@ -289,6 +298,8 @@ impl GitRepository {
 			.collect();
 		self.check_markable(&created)?;
 		self.verify(&index, &writes, &deletes)?;
+		#[cfg(test)]
+		tests::after_verification();
 
 		let mut created_directories = Vec::new();
 		let mut steps = match stage(writes, deletes, &mut created_directories) {
@@ -298,31 +309,104 @@ impl GitRepository {
 				return Err(failure.into_error());
 			}
 		};
-		let result = commit(&mut steps, &mut |from, to| fs::rename(from, to));
-		let Err((failed, source)) = result else {
+		let result = commit(
+			&mut steps,
+			&mut |step| self.recheck(work_dir, &index, plan, step),
+			&mut |from, to| fs::rename(from, to),
+		);
+		let Err((failed, interruption)) = result else {
 			if created.is_empty() {
 				// Dropping the steps removes the backups of deleted files.
 				return Ok(());
 			}
 			return self.mark_created(&created, steps, &created_directories);
 		};
-		let failure = Failure {
-			path: steps[failed].path().clone(),
-			deleting: matches!(steps[failed], Step::Delete { .. }),
-			source,
-		};
+		let path = steps[failed].path().clone();
+		let deleting = matches!(steps[failed], Step::Delete { .. });
 		let unrestored = roll_back(&mut steps[..failed]);
 		drop(steps);
 		remove_directories(&created_directories);
-		if unrestored.is_empty() {
-			Err(failure.into_error())
-		} else {
-			Err(ApplyError::RollbackFailed {
-				path: failure.path,
-				source: failure.source,
+		if !unrestored.is_empty() {
+			let source = match interruption {
+				Interruption::Failed(source) => source,
+				Interruption::Changed(error) => io::Error::other(error),
+			};
+			return Err(ApplyError::RollbackFailed {
+				path,
+				source,
 				unrestored,
-			})
+			});
 		}
+		Err(match interruption {
+			Interruption::Failed(source) => Failure {
+				path,
+				deleting,
+				source,
+			}
+			.into_error(),
+			Interruption::Changed(error) => error,
+		})
+	}
+
+	/// Checks, just before a step is taken, that its target is still as
+	/// verification found it. A file whose bytes are unchanged, or a new
+	/// file's path that is still free, passes at once. Anything else is
+	/// verified again exactly as the verification phase verifies it, and
+	/// fails with that phase's error. A rewritten file that still meets the
+	/// expectation passes, and its current contents become what a rollback
+	/// restores.
+	fn recheck(
+		&self,
+		work_dir: &Path,
+		index: &BTreeMap<RepoPath, IndexRecord>,
+		plan: &WritePlan,
+		step: &mut Step,
+	) -> Result<(), ApplyError> {
+		match step {
+			Step::Write {
+				path,
+				target,
+				original,
+				..
+			} => {
+				let contents = original.as_ref().map(|kept| kept.contents.as_slice());
+				if unchanged(target, contents) {
+					return Ok(());
+				}
+				let write = plan
+					.writes
+					.iter()
+					.find(|write| write.path == *path)
+					.ok_or_else(|| ApplyError::ChangedDuringVerification(path.clone()))?;
+				let targets = [WriteTarget {
+					write,
+					inspected: inspect(work_dir, path)?,
+				}];
+				self.verify(index, &targets, &[])?;
+				let [WriteTarget { inspected, .. }] = targets;
+				*original = inspected.original;
+			}
+			Step::Delete {
+				path,
+				target,
+				contents,
+				..
+			} => {
+				if unchanged(target, Some(contents)) {
+					return Ok(());
+				}
+				let delete = plan
+					.deletes
+					.iter()
+					.find(|delete| delete.path == *path)
+					.ok_or_else(|| ApplyError::ChangedDuringVerification(path.clone()))?;
+				let targets = [inspect_delete(work_dir, delete)?];
+				self.verify(index, &[], &targets)?;
+				let [DeleteTarget { original, .. }] = targets;
+				*contents = original.contents;
+			}
+		}
+		Ok(())
 	}
 
 	/// Refuses new files that `git add --intent-to-add` would not record:
@@ -719,6 +803,8 @@ enum Step {
 		path: RepoPath,
 		target: PathBuf,
 		backup: Staged,
+		/// The contents verification found, which the target must still hold.
+		contents: Vec<u8>,
 	},
 	/// Moves a staged content over its target.
 	Write {
@@ -735,6 +821,28 @@ impl Step {
 		match self {
 			Self::Delete { path, .. } | Self::Write { path, .. } => path,
 		}
+	}
+}
+
+/// Why the commit phase stopped before a step.
+#[derive(Debug)]
+enum Interruption {
+	/// The step's target is no longer as verification found it.
+	Changed(ApplyError),
+	/// The step's rename failed.
+	Failed(io::Error),
+}
+
+/// Whether the file at `target` still holds exactly `contents`, or, for
+/// `None`, whether nothing is there yet. A symbolic link never matches.
+fn unchanged(target: &Path, contents: Option<&[u8]>) -> bool {
+	match (fs::symlink_metadata(target), contents) {
+		(Ok(metadata), Some(contents)) => {
+			metadata.is_file()
+				&& fs::read(target).is_ok_and(|current| current == contents)
+		}
+		(Err(source), None) => is_absence(&source),
+		_ => false,
 	}
 }
 
@@ -786,6 +894,7 @@ fn stage(
 			path: path.clone(),
 			target: target.native,
 			backup,
+			contents: target.original.contents,
 		});
 	}
 	for target in writes {
@@ -828,19 +937,23 @@ fn stage(
 }
 
 /// Takes every step in order: moves each file to delete onto its backup, and
-/// each staged content over its target. On failure, returns the index of the
-/// step that failed; those before it have been taken.
+/// each staged content over its target, each only once `check` has found its
+/// target as verified. On failure, returns the index of the step that failed;
+/// those before it have been taken.
 fn commit(
 	steps: &mut [Step],
+	check: &mut dyn FnMut(&mut Step) -> Result<(), ApplyError>,
 	rename: &mut dyn FnMut(&Path, &Path) -> io::Result<()>,
-) -> Result<(), (usize, io::Error)> {
+) -> Result<(), (usize, Interruption)> {
 	for (index, step) in steps.iter_mut().enumerate() {
+		check(step).map_err(|error| (index, Interruption::Changed(error)))?;
+		let failed = |source| (index, Interruption::Failed(source));
 		match step {
 			Step::Delete { target, backup, .. } => {
-				rename(target, &backup.path).map_err(|source| (index, source))?;
+				rename(target, &backup.path).map_err(failed)?;
 			}
 			Step::Write { target, staged, .. } => {
-				rename(&staged.path, target).map_err(|source| (index, source))?;
+				rename(&staged.path, target).map_err(failed)?;
 				staged.armed = false;
 			}
 		}
@@ -895,7 +1008,227 @@ fn remove_directories(created: &[PathBuf]) {
 
 #[cfg(test)]
 mod tests {
+	use std::{cell::RefCell, process::Command};
+
+	use source_sentry_core::ports::Snapshot as _;
+	use tempfile::TempDir;
+
 	use super::*;
+
+	thread_local! {
+		/// Runs once, right after the next plan on this thread is verified, so
+		/// that a test can change a target before the plan is committed.
+		static AFTER_VERIFICATION: RefCell<Option<Box<dyn FnOnce()>>> =
+			const { RefCell::new(None) };
+	}
+
+	/// Runs the hook set for this point, if any.
+	pub(super) fn after_verification() {
+		let hook = AFTER_VERIFICATION.with(|slot| slot.borrow_mut().take());
+		if let Some(hook) = hook {
+			hook();
+		}
+	}
+
+	/// A repository in a temporary directory with `files` committed, and the
+	/// working tree's path. Git runs with an empty global configuration.
+	fn repository(files: &[(&str, &[u8])]) -> (TempDir, PathBuf) {
+		let root = tempfile::tempdir().unwrap();
+		fs::write(root.path().join("global.gitconfig"), "").unwrap();
+		let work = root.path().join("repo");
+		fs::create_dir(&work).unwrap();
+		let git = |args: &[&str]| {
+			let output = Command::new("git")
+				.args(args)
+				.current_dir(&work)
+				.env("GIT_CONFIG_GLOBAL", root.path().join("global.gitconfig"))
+				.env("GIT_CONFIG_NOSYSTEM", "1")
+				.env_remove("GIT_DIR")
+				.env_remove("GIT_WORK_TREE")
+				.env_remove("GIT_INDEX_FILE")
+				.output()
+				.unwrap();
+			assert!(
+				output.status.success(),
+				"git {args:?}: {}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+		};
+		git(&["init", "--quiet"]);
+		for (key, value) in [
+			("user.name", "Test Author"),
+			("user.email", "author@example.com"),
+			("commit.gpgsign", "false"),
+			("core.autocrlf", "false"),
+			("core.safecrlf", "false"),
+		] {
+			git(&["config", key, value]);
+		}
+		for (name, contents) in files {
+			fs::write(work.join(name), contents).unwrap();
+		}
+		git(&["add", "--all"]);
+		git(&["commit", "--quiet", "--message", "files"]);
+		(root, work)
+	}
+
+	/// The canonical oid of a working-tree file.
+	fn oid(work: &Path, name: &str) -> ObjectId {
+		let repository = GitRepository::open(work).unwrap();
+		let snapshot = repository.working_tree_snapshot().unwrap();
+		match snapshot.canonical_oids(&[RepoPath::new(name).unwrap()]) {
+			Ok(mut oids) => match oids.pop() {
+				Some(Canonical::Oid(id)) => id,
+				other => panic!("no oid for {name}: {other:?}"),
+			},
+			Err(error) => panic!("no oid for {name}: {error}"),
+		}
+	}
+
+	/// Applies `plan` to the repository at `work`, running `meanwhile` once
+	/// the plan has been verified and before anything is changed.
+	fn apply_meanwhile(
+		work: &Path,
+		plan: &WritePlan,
+		meanwhile: impl FnOnce() + 'static,
+	) -> Result<(), ApplyError> {
+		AFTER_VERIFICATION
+			.with(|slot| *slot.borrow_mut() = Some(Box::new(meanwhile)));
+		let result = GitRepository::open(work).unwrap().apply(plan);
+		AFTER_VERIFICATION.with(|slot| slot.borrow_mut().take());
+		result
+	}
+
+	/// A planned rewrite of `name`, which must hold what it holds now.
+	fn rewrite(work: &Path, name: &str, contents: &[u8]) -> PlannedWrite {
+		PlannedWrite {
+			path: RepoPath::new(name).unwrap(),
+			expected: Some(oid(work, name)),
+			contents: contents.to_vec(),
+		}
+	}
+
+	#[test]
+	fn a_file_saved_after_verification_is_not_overwritten() {
+		let (_root, work) =
+			repository(&[("a.md", b"old a\n"), ("b.md", b"old b\n")]);
+		let plan = WritePlan {
+			writes: vec![
+				rewrite(&work, "a.md", b"new a\n"),
+				rewrite(&work, "b.md", b"new b\n"),
+			],
+			deletes: Vec::new(),
+		};
+		let edited = work.join("b.md");
+		let result = apply_meanwhile(&work, &plan, move || {
+			fs::write(edited, b"saved by an editor\n").unwrap();
+		});
+
+		match result {
+			Err(ApplyError::Stale {
+				path,
+				expected,
+				actual,
+			}) => {
+				assert_eq!(path, RepoPath::new("b.md").unwrap());
+				assert_eq!(expected, plan.writes[1].expected);
+				assert_eq!(actual, Some(oid(&work, "b.md")));
+			}
+			other => panic!("expected a stale plan, got {other:?}"),
+		}
+		// The rewrite already made is undone, and the saved file is kept.
+		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"old a\n");
+		assert_eq!(
+			fs::read(work.join("b.md")).unwrap(),
+			b"saved by an editor\n"
+		);
+		assert_eq!(names(&work), [".git", "a.md", "b.md"]);
+	}
+
+	#[test]
+	fn a_new_file_saved_after_verification_is_not_overwritten() {
+		let (_root, work) = repository(&[("a.md", b"a\n")]);
+		let plan = WritePlan {
+			writes: vec![PlannedWrite {
+				path: RepoPath::new("new.md").unwrap(),
+				expected: None,
+				contents: b"planned\n".to_vec(),
+			}],
+			deletes: Vec::new(),
+		};
+		let created = work.join("new.md");
+		let result = apply_meanwhile(&work, &plan, move || {
+			fs::write(created, b"saved by an editor\n").unwrap();
+		});
+
+		assert!(
+			matches!(
+				&result,
+				Err(ApplyError::Stale {
+					expected: None,
+					actual: Some(_),
+					..
+				})
+			),
+			"{result:?}"
+		);
+		assert_eq!(
+			fs::read(work.join("new.md")).unwrap(),
+			b"saved by an editor\n"
+		);
+		assert_eq!(names(&work), [".git", "a.md", "new.md"]);
+	}
+
+	#[test]
+	fn a_file_to_delete_saved_after_verification_is_kept() {
+		let (_root, work) = repository(&[("gone.lock", b"{}\n")]);
+		let plan = WritePlan {
+			writes: Vec::new(),
+			deletes: vec![PlannedDelete {
+				path: RepoPath::new("gone.lock").unwrap(),
+				expected: oid(&work, "gone.lock"),
+			}],
+		};
+		let edited = work.join("gone.lock");
+		let result = apply_meanwhile(&work, &plan, move || {
+			fs::write(edited, b"{\"saved\": true}\n").unwrap();
+		});
+
+		assert!(
+			matches!(
+				&result,
+				Err(ApplyError::Stale {
+					actual: Some(_),
+					..
+				})
+			),
+			"{result:?}"
+		);
+		assert_eq!(
+			fs::read(work.join("gone.lock")).unwrap(),
+			b"{\"saved\": true}\n"
+		);
+		assert_eq!(names(&work), [".git", "gone.lock"]);
+	}
+
+	/// A save that changes the bytes but not the canonical oid still meets
+	/// the plan's expectation, as it would have before verification.
+	#[test]
+	fn a_save_that_keeps_the_canonical_oid_is_replaced() {
+		let (_root, work) =
+			repository(&[(".gitattributes", b"*.md text\n"), ("a.md", b"a\n")]);
+		let plan = WritePlan {
+			writes: vec![rewrite(&work, "a.md", b"new a\n")],
+			deletes: Vec::new(),
+		};
+		let edited = work.join("a.md");
+		apply_meanwhile(&work, &plan, move || {
+			fs::write(edited, b"a\r\n").unwrap();
+		})
+		.unwrap();
+
+		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"new a\n");
+	}
 
 	/// A write step over `name`, which holds `old` beforehand when given.
 	fn write_step(
@@ -928,6 +1261,7 @@ mod tests {
 			path: RepoPath::new(name).unwrap(),
 			backup: Staged::create(&target, b"", None, "bak").unwrap(),
 			target,
+			contents: contents.to_vec(),
 		}
 	}
 
@@ -958,7 +1292,7 @@ mod tests {
 			let directory = tempfile::tempdir().unwrap();
 			let mut steps = plan_steps(directory.path());
 			let mut calls = 0;
-			let result = commit(&mut steps, &mut |from, to| {
+			let result = commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
 				calls += 1;
 				if calls == failing {
 					Err(io::Error::other("injected"))
@@ -987,7 +1321,10 @@ mod tests {
 	fn success_removes_the_backups() {
 		let directory = tempfile::tempdir().unwrap();
 		let mut steps = plan_steps(directory.path());
-		commit(&mut steps, &mut |from, to| fs::rename(from, to)).unwrap();
+		commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
+			fs::rename(from, to)
+		})
+		.unwrap();
 		drop(steps);
 
 		assert_eq!(names(directory.path()), ["a.md", "new.md"]);
@@ -1016,7 +1353,10 @@ mod tests {
 	fn a_backup_that_cannot_be_restored_is_kept() {
 		let directory = tempfile::tempdir().unwrap();
 		let mut steps = vec![delete_step(directory.path(), "gone.lock", b"gone")];
-		commit(&mut steps, &mut |from, to| fs::rename(from, to)).unwrap();
+		commit(&mut steps, &mut |_| Ok(()), &mut |from, to| {
+			fs::rename(from, to)
+		})
+		.unwrap();
 		// Something now occupies the deleted path with a directory, so the
 		// backup cannot be renamed back.
 		fs::create_dir(directory.path().join("gone.lock")).unwrap();
