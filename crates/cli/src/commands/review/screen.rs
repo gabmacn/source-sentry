@@ -26,7 +26,7 @@ use super::closing::Writer;
 use super::external;
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
-use crate::output::{self, Printer};
+use crate::output::Printer;
 use crate::workspace::Workspace;
 
 /// Whether this terminal can show the full screen: it has colour, including
@@ -41,8 +41,8 @@ pub(super) fn supported() -> bool {
 
 /// Runs a session on the full screen, then prints its closing: what the
 /// session recorded at once, and what remains after a final evaluation. A
-/// session with nothing to review prints the closing of the evaluation that
-/// found nothing, alone.
+/// session with nothing to review prints its closing alone, after the same
+/// final evaluation.
 ///
 /// # Errors
 ///
@@ -55,21 +55,20 @@ pub(super) fn run(
 	printer: Printer,
 ) -> Result<(), Failure> {
 	let mut app = App::new(workspace, args)?;
-	let quiet = printer.is_quiet();
-	if app.open.is_empty() {
-		let closing = app.closing();
-		output::data(&if quiet {
-			closing.plain()
-		} else {
-			closing.text()
-		});
-		return Ok(());
+	review(&mut app, printer.is_quiet())
+}
+
+/// Shows the screen until the reviewer quits, unless nothing needs review,
+/// then ends the session as both modes do: what it recorded at once, then
+/// what remains after a final evaluation.
+fn review(app: &mut App, quiet: bool) -> Result<(), Failure> {
+	if !app.open.is_empty() {
+		release_mouse_on_panic();
+		let mut terminal = take_over()?;
+		let result = events(&mut terminal, app);
+		hand_back();
+		result?;
 	}
-	release_mouse_on_panic();
-	let mut terminal = take_over()?;
-	let result = events(&mut terminal, &mut app);
-	hand_back();
-	result?;
 	// The alternate screen leaves nothing behind, so no blank line is needed.
 	let mut closing = Writer::new(quiet, false);
 	let closed = app

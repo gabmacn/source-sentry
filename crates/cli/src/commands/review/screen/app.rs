@@ -18,7 +18,6 @@ use source_sentry_core::mutate::{
 
 use super::super::Batch;
 use super::super::changes::{self, Entry, Row};
-use super::super::closing::Closing;
 use super::super::session::{CHANGED, Session, Undone, Written};
 use super::super::state::{Document, Key as Id, Stamp, State as Evaluated};
 use crate::cli::ReviewArgs;
@@ -557,7 +556,8 @@ impl<'a> App<'a> {
 
 	/// The closing, from the latest evaluation. When the screen closes, the
 	/// session evaluates once more for it; see [`Session::finish`].
-	pub(super) fn closing(&self) -> Closing {
+	#[cfg(test)]
+	pub(super) fn closing(&self) -> super::super::closing::Closing {
 		self.session.closing()
 	}
 

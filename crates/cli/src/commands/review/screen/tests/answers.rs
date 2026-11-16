@@ -357,3 +357,24 @@ fn a_modified_drag_is_left_to_the_terminal() {
 		Some(super::super::Input::Drag(Target::Row(Cursor::Open(1))))
 	));
 }
+
+/// A session that finds nothing to review still ends as every session
+/// does: its closing follows a final evaluation, so a change made after the
+/// first one is reported.
+#[test]
+fn a_session_with_nothing_to_review_closes_after_a_final_evaluation() {
+	let repo =
+		Repo::new(json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}]}}));
+	repo.attest("docs/a.md");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.open, Vec::new());
+	repo.write("src/a.rs", "changed after the first evaluation\n");
+
+	super::super::review(&mut app, true).unwrap();
+	let closing = app.closing().plain();
+	assert!(
+		closing.contains("1 document still needs review:\n  docs/a.md: "),
+		"{closing}"
+	);
+}
