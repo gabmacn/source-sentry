@@ -1,5 +1,8 @@
 //! Series: living heads, `awaiting-seal`, and cadence with its completions.
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::BTreeSet;
 
 use chrono::{DateTime, Days, Utc};
@@ -474,12 +477,17 @@ fn next_deadline(
 	grace: u32,
 	zone: &TimeZone,
 ) -> Result<Option<Deadline>, ScheduleError> {
+	// `missed` is in ascending order, so one cursor walks it alongside the
+	// windows and each membership test is constant time.
+	let mut missed = status.missed.iter().copied().peekable();
 	let open = status
 		.windows
 		.iter()
 		.enumerate()
-		.find(|(index, window)| {
-			window.credit.is_none() && !status.missed.contains(index)
+		.find(|&(index, window)| {
+			while missed.next_if(|&missed| missed < index).is_some() {}
+			let is_missed = missed.next_if_eq(&index).is_some();
+			window.credit.is_none() && !is_missed
 		})
 		.map(|(_, window)| window.last_day);
 	let last_day = match (open, status.windows.last()) {
