@@ -98,6 +98,50 @@ fn nested_document_commands_and_both_source_roots() {
 	}
 }
 
+/// In frontmatter too, `/` starts at the document's project root and `:/` at
+/// the repository's, so repeated sources are found by the files they name.
+#[test]
+fn on_file_sources_are_compared_in_the_documents_project() {
+	let repo = nested();
+	repo.write("app/src/a.rs", "fn nested() {}\n");
+	let guide = |first: &str, second: &str| {
+		format!(
+			"---\nsource-sentry:\n  sources:\n    - path: \"{first}\"\n    - path: \
+			 \"{second}\"\n---\n# Guide\n"
+		)
+	};
+
+	repo.write("app/guide.md", &guide("/src/a.rs", ":/src/a.rs"));
+	let diff = repo.run(&["-C", "app", "diff", "guide.md", "--format", "json"]);
+	diff.expect_code(0);
+	let json = diff.json();
+	let named: Vec<&str> = json["sources"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|source| source["entries"][0]["path"].as_str().unwrap())
+		.collect();
+	assert_eq!(named, ["src/a.rs", "../src/a.rs"], "{json:#}");
+	let check = repo.run(&["-C", "app", "check", "--at", AT]);
+	assert!(
+		!check.stdout.contains("configuration-error"),
+		"{}",
+		check.stdout
+	);
+
+	repo.write("app/guide.md", &guide("/src/a.rs", "src/a.rs"));
+	let check = repo.run(&["-C", "app", "check", "--at", AT]);
+	check.expect_code(3);
+	assert!(
+		check.stdout.contains(
+			"`source-sentry.sources[1].path` repeats \
+			 `source-sentry.sources[0].path`: both name `app/src/a.rs`"
+		),
+		"{}",
+		check.stdout
+	);
+}
+
 /// Foreign source freshness uses its declaration even when its context differs.
 #[test]
 fn cross_project_source_documents_propagate_freshness() {

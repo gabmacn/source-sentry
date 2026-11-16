@@ -126,6 +126,7 @@ pub fn discover<S: Snapshot>(
 	read::on_file(
 		snapshot,
 		&paths,
+		configs.project(),
 		&mut directories,
 		&mut found,
 		&mut diagnostics,

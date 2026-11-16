@@ -265,12 +265,17 @@ fn add_remote(
 /// existing claims. `.source-sentry/`, lockfiles and configs are
 /// not documents, so they are skipped.
 ///
+/// Every path belongs to `project`, the project being discovered, so each
+/// declaration is validated there, as lockfile entries are: its `/` source
+/// paths start at that project's root.
+///
 /// # Errors
 ///
 /// Fails when the snapshot cannot read a file.
 pub(super) fn on_file<S: Snapshot>(
 	snapshot: &S,
 	paths: &[RepoPath],
+	project: &RepoPath,
 	directories: &mut Directories<'_>,
 	found: &mut Found,
 	diagnostics: &mut Vec<Diagnostic>,
@@ -288,7 +293,7 @@ pub(super) fn on_file<S: Snapshot>(
 			continue;
 		};
 		let bytes = snapshot.read(path)?;
-		match adapter.read_declaration(path, &bytes) {
+		match adapter.read_declaration(project, path, &bytes) {
 			Ok(Some(declaration)) => found.claims.push(Claim {
 				document: DocumentId::Local(path.clone()),
 				mode: Mode::OnFile,

@@ -97,11 +97,14 @@ fn only_md_utf8_documents_carry_a_declaration() {
 	assert!(!Adapter::Opaque.carries_declaration());
 	assert!(
 		Adapter::MdUtf8
-			.read_declaration(&document, bytes)
+			.read_declaration(&RepoPath::ROOT, &document, bytes)
 			.unwrap()
 			.is_some()
 	);
-	assert_eq!(Adapter::Opaque.read_declaration(&document, bytes), Ok(None));
+	assert_eq!(
+		Adapter::Opaque.read_declaration(&RepoPath::ROOT, &document, bytes),
+		Ok(None)
+	);
 }
 
 /// Both formats preserve optional pattern reviews, independently of members.

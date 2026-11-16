@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
 	OID, REVIEW, assert_clean, inventory, kinds, local, lockfile, markdown, only,
-	paths, sealed_with_source, with_source,
+	paths, project_inventory, sealed_with_source, with_source,
 };
 use crate::claims::sources::resolve;
 use crate::claims::{
@@ -723,6 +723,115 @@ fn a_sealed_record_adds_no_dependency() {
 	]);
 	assert_eq!(kinds(&inventory), []);
 	assert_eq!(inventory.dependencies, []);
+}
+
+/// The paths a declaration of `document` resolves to, in declared order.
+fn resolved(inventory: &Inventory, document: &str) -> Vec<String> {
+	let claim = inventory
+		.claims
+		.iter()
+		.find(|claim| claim.document == local(document))
+		.unwrap_or_else(|| panic!("no claim for {document}"));
+	claim
+		.sources
+		.iter()
+		.map(|source| match source {
+			ResolvedSource::Path(resolved) => resolved.path.to_string(),
+			ResolvedSource::Pattern(pattern) => pattern.glob.clone(),
+		})
+		.collect()
+}
+
+/// Repeated sources are found by the files they name in the document's own
+/// project: in a nested project, `/` starts at that project's root and `:/`
+/// at the repository's. A declaration in frontmatter and one in a lockfile
+/// accept and refuse the same pairs.
+#[test]
+fn repeated_sources_are_compared_in_the_documents_project() {
+	let declaration = |first: &str, second: &str| {
+		format!("  sources:\n    - path: '{first}'\n    - path: '{second}'\n")
+	};
+	let entry = |first: &str, second: &str| {
+		format!(r#"{{"sources": [{{"path": "{first}"}}, {{"path": "{second}"}}]}}"#)
+	};
+	let files = |project: &str, first: &str, second: &str, on_file: bool| {
+		let guide = if project.is_empty() {
+			"guide.md".to_owned()
+		} else {
+			format!("{project}/guide.md")
+		};
+		let mut files = vec![
+			("src/a.rs".to_owned(), "root\n".to_owned()),
+			(format!("{project}/src/a.rs"), "nested\n".to_owned()),
+		];
+		if !project.is_empty() {
+			files.push((
+				format!("{project}/.source-sentry/source-sentry.yaml"),
+				"version: 1\n".to_owned(),
+			));
+		}
+		if on_file {
+			files.push((guide, markdown(&declaration(first, second))));
+		} else {
+			let lockfile_path = if project.is_empty() {
+				"source-sentry.lock".to_owned()
+			} else {
+				format!("{project}/source-sentry.lock")
+			};
+			files.push((guide, "# Guide\n".to_owned()));
+			files.push((
+				lockfile_path,
+				lockfile(&[("guide.md", &entry(first, second))], &[]),
+			));
+		}
+		files
+	};
+	let discover = |project: &str, first: &str, second: &str, on_file: bool| {
+		let files = files(project, first, second, on_file);
+		let files: Vec<(&str, &str)> = files
+			.iter()
+			.map(|(file, contents)| (file.trim_start_matches('/'), contents.as_str()))
+			.collect();
+		project_inventory(&files, project)
+	};
+
+	for on_file in [true, false] {
+		// In project `product`, the project's file and the repository's.
+		let distinct = discover("product", "/src/a.rs", ":/src/a.rs", on_file);
+		assert_clean(&distinct);
+		assert_eq!(
+			resolved(&distinct, "product/guide.md"),
+			["product/src/a.rs", "src/a.rs"],
+			"on-file: {on_file}"
+		);
+
+		// One file of the project, spelled from its root and from beside the
+		// document, which lies at that root.
+		let repeated = discover("product", "/src/a.rs", "src/a.rs", on_file);
+		let kind = if on_file {
+			DiagnosticKind::InvalidDeclaration
+		} else {
+			DiagnosticKind::InvalidLockfile
+		};
+		let diagnostic = only(&repeated, kind);
+		assert!(
+			diagnostic.message.contains("both name `product/src/a.rs`"),
+			"on-file: {on_file}: {}",
+			diagnostic.message
+		);
+
+		// At the repository's root project, `/` and `:/` start at the same
+		// root, so both pairs name one file.
+		for second in [":/src/a.rs", "src/a.rs"] {
+			let root = discover("", "/src/a.rs", second, on_file);
+			let diagnostic = only(&root, kind);
+			assert!(
+				diagnostic.message.contains("both name `src/a.rs`"),
+				"on-file: {on_file}: {}",
+				diagnostic.message
+			);
+		}
+	}
 }
 
 #[test]

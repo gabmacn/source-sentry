@@ -72,20 +72,23 @@ impl Adapter {
 	}
 
 	/// Reads the declaration that `document`'s own `bytes` carry, if any.
+	/// `project` is the root of the project the document belongs to, where
+	/// its `/` source paths start.
 	///
 	/// An opaque document never carries one, so its bytes are not looked at.
-	/// An MD/UTF8 document is read by [`frontmatter::read`].
+	/// An MD/UTF8 document is read by [`frontmatter::read_in_project`].
 	///
 	/// # Errors
 	///
-	/// Fails as [`frontmatter::read`] does.
+	/// Fails as [`frontmatter::read_in_project`] does.
 	pub fn read_declaration(
 		self,
+		project: &RepoPath,
 		document: &RepoPath,
 		bytes: &[u8],
 	) -> Result<Option<Declaration>, frontmatter::FrontmatterError> {
 		match self {
-			Self::MdUtf8 => frontmatter::read(document, bytes),
+			Self::MdUtf8 => frontmatter::read_in_project(project, document, bytes),
 			Self::Opaque => Ok(None),
 		}
 	}
