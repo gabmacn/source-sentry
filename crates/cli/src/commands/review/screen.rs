@@ -257,21 +257,21 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 /// What the mouse did, beyond moving: a turn of the wheel over a part of
 /// the screen, a press of its left button on something that takes clicks,
 /// or a drag over a row with that button held, which picks a range. A click
-/// made with Control or Shift held is left alone: terminals give those
-/// their own meaning, such as opening a path or selecting text.
+/// or a drag made with Control or Shift held is left alone: terminals give
+/// those their own meaning, such as opening a path or selecting text.
 fn pointed(mouse: MouseEvent, app: &App, columns: u16) -> Option<Input> {
 	let area = draw::area_at(columns, mouse.column);
 	let target = || app.target_at(mouse.column, mouse.row);
-	let held = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+	let held = mouse
+		.modifiers
+		.intersects(KeyModifiers::CONTROL | KeyModifiers::SHIFT);
 	match mouse.kind {
 		MouseEventKind::ScrollDown => Some(Input::Key(Key::Wheel(true, area))),
 		MouseEventKind::ScrollUp => Some(Input::Key(Key::Wheel(false, area))),
-		MouseEventKind::Down(MouseButton::Left)
-			if !mouse.modifiers.intersects(held) =>
-		{
+		MouseEventKind::Down(MouseButton::Left) if !held => {
 			target().map(Input::Click)
 		}
-		MouseEventKind::Drag(MouseButton::Left) => target()
+		MouseEventKind::Drag(MouseButton::Left) if !held => target()
 			.filter(|target| matches!(target, Target::Row(_) | Target::Source(_)))
 			.map(Input::Drag),
 		_ => None,

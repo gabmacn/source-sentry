@@ -11,7 +11,7 @@ use super::super::super::tests::support::Repo;
 use super::super::app::{
 	App, Area, Cursor, Field, Focus, Kept, Key, Overlay, Target,
 };
-use super::{drawn, press, shows};
+use super::{drawn, press, show, shows};
 
 /// A source changed on disk after its changes were shown refuses a review
 /// of the picked sources, as it refuses a review of the whole document:
@@ -329,4 +329,31 @@ fn the_wheel_ends_a_range_of_picked_rows() {
 		.map(|id| id.document.to_string())
 		.collect();
 	assert_eq!(picked, ["docs/a.md", "docs/b.md", "docs/d.md", "docs/e.md"]);
+}
+
+/// A drag made with Control or Shift held is left to the terminal, as a
+/// click made so is, so that selecting text with Shift picks no row.
+#[test]
+fn a_modified_drag_is_left_to_the_terminal() {
+	use ratatui::crossterm::event::{
+		KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+	};
+
+	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	show(&mut app, 120, 30);
+	let at = |modifiers| MouseEvent {
+		kind: MouseEventKind::Drag(MouseButton::Left),
+		column: 10,
+		row: 5,
+		modifiers,
+	};
+	for held in [KeyModifiers::SHIFT, KeyModifiers::CONTROL] {
+		assert!(super::super::pointed(at(held), &app, 120).is_none());
+	}
+	assert!(matches!(
+		super::super::pointed(at(KeyModifiers::NONE), &app, 120),
+		Some(super::super::Input::Drag(Target::Row(Cursor::Open(1))))
+	));
 }
