@@ -476,6 +476,9 @@ pub(super) struct App<'a> {
 	base: BTreeSet<Id>,
 	/// The same for the picked sources.
 	base_sources: BTreeSet<usize>,
+	/// A failure that ended the session after part of an answer was
+	/// recorded. It is reported once the closing has listed what was.
+	pub(super) failed: Option<Failure>,
 }
 
 impl<'a> App<'a> {
@@ -518,6 +521,7 @@ impl<'a> App<'a> {
 			anchor: None,
 			base: BTreeSet::new(),
 			base_sources: BTreeSet::new(),
+			failed: None,
 		};
 		app.rebuild()?;
 		app.select(app.first());
@@ -1665,7 +1669,7 @@ impl<'a> App<'a> {
 					// Nothing is due; only `i` records.
 					self.overlay = Some(Overlay::All(batch));
 				} else {
-					self.record_all(batch.due, false)?;
+					return self.record_all(batch.due, false);
 				}
 			}
 			(Overlay::All(batch), Key::Char('i' | 'I')) => {
@@ -1673,11 +1677,11 @@ impl<'a> App<'a> {
 					self.overlay = Some(Overlay::All(batch));
 				} else {
 					let every = batch.due.into_iter().chain(batch.later).collect();
-					self.record_all(every, false)?;
+					return self.record_all(every, false);
 				}
 			}
 			(Overlay::Picked(comparisons, _, reread), Key::Char('y' | 'Y')) => {
-				self.record_all(comparisons, reread)?;
+				return self.record_all(comparisons, reread);
 			}
 			(Overlay::Reviewer(mut name), Key::Char(character)) => {
 				name.push(character);
@@ -2100,14 +2104,18 @@ impl<'a> App<'a> {
 	/// Records every confirmed comparison. One that no longer takes the
 	/// answer, such as one that no longer needs review after an earlier
 	/// write, is passed over. A source that changed since the confirmation
-	/// stops the batch.
+	/// stops the batch. A write that fails stops it too, and ends the
+	/// session: the reviews written before it stand, so the failure says how
+	/// many there were and which document was not recorded, and is kept in
+	/// [`Self::failed`] until the closing has listed them.
 	fn record_all(
 		&mut self,
 		comparisons: Vec<(Id, DocumentDiff)>,
 		reread: bool,
-	) -> Result<(), Failure> {
+	) -> Result<Flow, Failure> {
 		let mut recorded = 0;
 		let mut stopped = false;
+		let mut failed = None;
 		// One answer records them all, so they are taken back together.
 		let from = self.session.steps().len();
 		for (id, compared) in comparisons {
@@ -2115,22 +2123,43 @@ impl<'a> App<'a> {
 				continue;
 			}
 			self.cache.remove(&id);
-			match self.session.write(&id, &compared, reread)? {
-				Written::Changed => {
+			match self.session.write(&id, &compared, reread) {
+				Ok(Written::Changed) => {
 					stopped = true;
 					break;
 				}
-				Written::Recorded(_) => {
-					self.session.settle(&id)?;
+				Ok(Written::Recorded(_)) => {
 					recorded += 1;
+					if let Err(failure) = self.session.settle(&id) {
+						failed = Some(failure);
+						break;
+					}
+				}
+				Err(failure) => {
+					failed = Some(Failure::new(
+						failure.code,
+						format!(
+							"{} was not recorded: {}",
+							id.display(self.workspace()),
+							failure.message
+						),
+					));
+					break;
 				}
 			}
 		}
 		self.session.join(from);
 		self.picked.clear();
+		let count = describe::count(recorded, "review", "reviews");
+		if let Some(failure) = failed {
+			self.failed = Some(Failure::new(
+				failure.code,
+				format!("Recorded {count}, then stopped: {}", failure.message),
+			));
+			return Ok(Flow::Quit);
+		}
 		self.rebuild()?;
 		self.select(self.first());
-		let count = describe::count(recorded, "review", "reviews");
 		self.notice = Some(if stopped {
 			format!(
 				"Recorded {count}, then stopped: a source changed after the confirmation."
@@ -2138,7 +2167,7 @@ impl<'a> App<'a> {
 		} else {
 			format!("Recorded {count}.")
 		});
-		Ok(())
+		Ok(Flow::Stay)
 	}
 
 	/// Asks the caller to open the document on display in an editor.

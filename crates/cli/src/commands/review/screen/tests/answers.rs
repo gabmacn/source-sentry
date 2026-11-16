@@ -237,3 +237,62 @@ fn a_confirmed_document_outside_the_named_ones_is_recorded() {
 	assert_eq!(app.session.recorded.len(), 1);
 	assert_eq!(app.notice.as_deref(), Some("Recorded 1 review."));
 }
+
+/// A write that fails partway through a batch ends the session without
+/// hiding the reviews already written: the failure says how many were
+/// recorded and which document was not, and the closing lists them. A
+/// lockfile made read-only refuses its replacement on Windows.
+#[test]
+#[cfg(windows)]
+fn a_batch_that_fails_partway_accounts_for_what_it_recorded() {
+	use source_sentry_core::model::RepoPath;
+
+	use super::super::app::Flow;
+
+	let repo = Repo::new(json!({"docs/a.md": {}}));
+	repo.write("z/.source-sentry/source-sentry.yaml", "version: 1\n");
+	repo.write("z/b.md", "# Nested\n");
+	repo.write(
+		"z/source-sentry.lock",
+		r#"{"schema":1,"documents":{"b.md":{}},"retired":{}}"#,
+	);
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Nested project"]);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('a')]);
+	let Some(Overlay::All(batch)) = &app.overlay else {
+		panic!("expected the confirmation");
+	};
+	let due: Vec<_> = batch
+		.due
+		.iter()
+		.map(|(id, _)| id.document.to_string())
+		.collect();
+	assert_eq!(due, ["docs/a.md", "z/b.md"]);
+
+	let lock = workspace.file(&RepoPath::new("z/source-sentry.lock").unwrap());
+	let writable = std::fs::metadata(&lock).unwrap().permissions();
+	let mut read_only = writable.clone();
+	read_only.set_readonly(true);
+	std::fs::set_permissions(&lock, read_only).unwrap();
+	let flow = app.key(Key::Char('y'));
+	std::fs::set_permissions(&lock, writable).unwrap();
+
+	assert_eq!(flow.unwrap(), Flow::Quit);
+	let failure = app.failed.take().unwrap();
+	assert!(
+		failure.message.starts_with(
+			"Recorded 1 review, then stopped: z/b.md was not recorded: "
+		),
+		"{}",
+		failure.message
+	);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert_eq!(app.session.steps().len(), 1);
+	let closing = app.closing().plain();
+	assert!(
+		closing.starts_with("Recorded 1 review.\n  docs/a.md (reread)\n"),
+		"{closing}"
+	);
+}

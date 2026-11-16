@@ -47,6 +47,8 @@ pub(super) fn supported() -> bool {
 /// # Errors
 ///
 /// Fails as the line mode does, and when the terminal cannot be taken over.
+/// A write that fails after others of the same answer were recorded fails
+/// once the closing has listed them.
 pub(super) fn run(
 	workspace: &Workspace,
 	args: &ReviewArgs,
@@ -70,9 +72,10 @@ pub(super) fn run(
 	result?;
 	// The alternate screen leaves nothing behind, so no blank line is needed.
 	let mut closing = Writer::new(quiet, false);
-	app
+	let closed = app
 		.session
-		.finish(|summary, part| closing.show(summary, part))
+		.finish(|summary, part| closing.show(summary, part));
+	app.failed.take().map_or(closed, Err)
 }
 
 /// Takes the terminal over: the alternate screen, every key as it is
