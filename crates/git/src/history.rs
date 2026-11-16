@@ -70,12 +70,7 @@ impl History for GitRepository {
 						object_id(entry.id(), self.algorithm()).map(Some)
 					}
 					Ok(_) => Ok(None),
-					Err(source)
-						if source.code() == git2::ErrorCode::NotFound
-							&& !is_missing_object(&source) =>
-					{
-						Ok(None)
-					}
+					Err(source) if is_absent(&source) => Ok(None),
 					Err(source) => Err(error::git(
 						format!("cannot look up {path} in {commit}"),
 						source,
@@ -87,7 +82,9 @@ impl History for GitRepository {
 
 	/// Looks `directory` up in each commit's tree, and lists a subtree only
 	/// the first time it is seen, so that a directory that rarely changes
-	/// costs one lookup per commit.
+	/// costs one lookup per commit. The root is each commit's own tree. A
+	/// commit that lacks `directory` contributes nothing; a tree that cannot
+	/// be read on the way to it is an error.
 	fn files_ever_in(
 		&self,
 		start: &CommitId,
@@ -110,16 +107,27 @@ impl History for GitRepository {
 				.map_err(|source| {
 					error::git(format!("cannot read the tree of {}", commit.id), source)
 				})?;
-			let Ok(entry) = tree.get_path(std::path::Path::new(directory.as_str()))
-			else {
-				continue;
+			let subtree_id = if directory.is_root() {
+				tree.id()
+			} else {
+				match tree.get_path(std::path::Path::new(directory.as_str())) {
+					Ok(entry) if entry.kind() == Some(git2::ObjectType::Tree) => {
+						entry.id()
+					}
+					Ok(_) => continue,
+					Err(source) if is_absent(&source) => continue,
+					Err(source) => {
+						return Err(error::git(
+							format!("cannot look up {directory} in {}", commit.id),
+							source,
+						));
+					}
+				}
 			};
-			if entry.kind() != Some(git2::ObjectType::Tree)
-				|| !seen.insert(entry.id())
-			{
+			if !seen.insert(subtree_id) {
 				continue;
 			}
-			let subtree = raw.find_tree(entry.id()).map_err(|source| {
+			let subtree = raw.find_tree(subtree_id).map_err(|source| {
 				error::git(format!("cannot read {directory} in {}", commit.id), source)
 			})?;
 			for item in &subtree {
@@ -140,6 +148,12 @@ impl History for GitRepository {
 	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError> {
 		self.blob_content(id)
 	}
+}
+
+/// Whether a failed tree lookup means that the path is not in the tree, as
+/// opposed to a tree on the way to it being unreadable.
+fn is_absent(error: &git2::Error) -> bool {
+	error.code() == git2::ErrorCode::NotFound && !is_missing_object(error)
 }
 
 /// The lazy iterator behind [`History::first_parent_walk`].

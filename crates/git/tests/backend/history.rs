@@ -3,6 +3,7 @@
 use chrono::{TimeZone as _, Utc};
 use source_sentry_core::ports::{
 	BackendErrorKind, Commit, FirstParent, HashAlgorithm, History as _, ObjectId,
+	RepoPath,
 };
 
 use crate::support::{TestRepo, commit_id, object_id, path};
@@ -211,6 +212,68 @@ fn populated_submodule_contents_are_not_blobs_of_the_parent_repository() {
 			)
 			.unwrap(),
 		[None, None]
+	);
+}
+
+/// The repository root lists the files committed directly at the root,
+/// including those deleted since, and not those in subdirectories.
+#[test]
+fn the_files_ever_in_the_root_are_listed() {
+	let repo = TestRepo::init();
+	repo.write("old.md", "removed later\n");
+	repo.commit_all("add old");
+	repo.git(&["rm", "--quiet", "old.md"]);
+	repo.write("root.md", "root document\n");
+	repo.write("docs/nested.md", "nested document\n");
+	let head = repo.commit_all("replace old");
+	assert_eq!(
+		repo.open().files_ever_in(&head, &RepoPath::ROOT).unwrap(),
+		[path("old.md"), path("root.md")]
+	);
+}
+
+/// A directory that no commit has is empty, not an error.
+#[test]
+fn a_directory_never_committed_has_no_files() {
+	let repo = TestRepo::init();
+	repo.write("docs/a.md", "a\n");
+	let head = repo.commit_all("add docs");
+	let repository = repo.open();
+	assert_eq!(
+		repository.files_ever_in(&head, &path("guides")).unwrap(),
+		[]
+	);
+	assert_eq!(
+		repository
+			.files_ever_in(&head, &path("docs/a.md/inner"))
+			.unwrap(),
+		[]
+	);
+}
+
+/// A tree on the way to the directory that the object database lacks is an
+/// error, never an absent directory.
+#[test]
+fn a_missing_intermediate_tree_is_an_error() {
+	let repo = TestRepo::init();
+	repo.write("docs/archive/old.md", "historical document\n");
+	let head = repo.commit_all("add the archive");
+	let tree = repo.git(&["rev-parse", "HEAD:docs"]);
+	let object = repo
+		.path()
+		.join(".git/objects")
+		.join(&tree[..2])
+		.join(&tree[2..]);
+	std::fs::remove_file(object).unwrap();
+
+	let result = repo.open().files_ever_in(&head, &path("docs/archive"));
+	let error = result.expect_err("a missing tree must fail");
+	assert!(
+		matches!(
+			error.kind,
+			BackendErrorKind::Git | BackendErrorKind::MissingObject
+		),
+		"{error:?}"
 	);
 }
 
