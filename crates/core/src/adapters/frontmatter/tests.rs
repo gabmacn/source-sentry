@@ -502,6 +502,52 @@ fn values_after_one_that_never_closes_are_read_as_written() {
 }
 
 #[test]
+fn a_quote_in_the_declaration_does_not_close_an_earlier_unclosed_value() {
+	// The title's quote is never closed. The first quote in `["docs"]` would
+	// close it, but the rest of that line cannot follow a closing quote, so
+	// the line is not part of the title and the declaration is read.
+	let declaration = "source-sentry:\n  owners: [\"docs\"]\n  sources:\n    \
+	                   - path: /a.rs\n";
+	let expected = Declaration {
+		sources: vec![path_source("/a.rs")],
+		..owned_by(&["docs"])
+	};
+	for before in [
+		"title: \"unclosed\n",
+		"title: 'unclosed\n",
+		"tags: [a, \"b\n",
+		"tags: {a: 'b\n",
+	] {
+		let text = format!("---\n{before}{declaration}---\n# Guide\n");
+		assert_eq!(read_str(&text), Ok(Some(expected.clone())), "{text:?}");
+		assert_eq!(
+			write_str(&text, Some(&owned_by(&["legal"]))).unwrap(),
+			format!(
+				"---\n{before}source-sentry:\n  owners: ['legal']\n---\n# Guide\n"
+			),
+			"{text:?}"
+		);
+	}
+	// A bracket that would close an unclosed collection, followed by more
+	// text, does not close it either.
+	let bracket = "---\ntags: [a,\nsource-sentry:\n  sources:\n    - path: \
+	               /v1]/a.rs\n---\n";
+	assert_eq!(
+		read_str(bracket).unwrap().unwrap().sources,
+		[path_source("/v1]/a.rs")]
+	);
+	// The controls: no quote in the declaration, an unclosed collection with
+	// a quoted owner, and the unclosed value after the declaration.
+	for text in [
+		"---\ntitle: \"unclosed\nsource-sentry:\n  owners: [docs]\n---\n",
+		"---\ntags: [a,\nsource-sentry:\n  owners: [\"docs\"]\n---\n",
+		"---\nsource-sentry:\n  owners: [\"docs\"]\ntitle: \"unclosed\n---\n",
+	] {
+		assert_eq!(read_str(text), Ok(Some(owned_by(&["docs"]))), "{text:?}");
+	}
+}
+
+#[test]
 fn an_empty_key_is_an_error() {
 	for text in [
 		"---\ntitle: x\nsource-sentry:\n---\n",

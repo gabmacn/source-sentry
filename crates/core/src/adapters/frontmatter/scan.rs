@@ -16,9 +16,12 @@
 //! is part of that value, even at column 0, so it never starts an entry.
 //! Each value is judged on its own: one that is never closed is a mistake,
 //! which the scan reads past as written, from the line after the one that
-//! opened it, and it changes nothing about the values around it. A
-//! double-quoted key is compared after its escapes are resolved, as YAML
-//! reads it.
+//! opened it, and it changes nothing about the values around it. A value
+//! also counts as never closed when the quote or bracket that would close
+//! it is followed by text YAML does not allow there, such as the rest of
+//! `owners: ["docs"]` after its first quote: such a line cannot continue
+//! the value. A double-quoted key is compared after its escapes are
+//! resolved, as YAML reads it.
 //!
 //! The scan works on bytes, so other keys need not be valid UTF-8.
 
@@ -325,11 +328,28 @@ impl Open {
 	}
 }
 
-/// What stays open after `text`. With `starts_value`, `text` is a value as
-/// it follows `key:`, `- `, `? ` or `: `, which opens a quote or a flow
-/// collection only with its first token, after any anchor or tag; otherwise
-/// it continues what `open` holds.
-fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Open {
+/// Whether `rest`, the bytes after a closing quote or bracket, can follow it
+/// in YAML: nothing, a comment, or the `:` that makes the value a key.
+/// Inside a flow collection, `,` and the collection's end may follow too.
+fn closes_cleanly(rest: &[u8], in_flow: bool) -> bool {
+	let trimmed = rest.trim_ascii_start();
+	match trimmed.first() {
+		None | Some(b':') => true,
+		Some(b'#') => trimmed.len() < rest.len(),
+		Some(b',' | b']' | b'}') => in_flow,
+		Some(_) => false,
+	}
+}
+
+/// What stays open after `text`, or `None` when `text` cannot continue the
+/// value at all. In YAML a quote ends a quoted scalar unless it is escaped,
+/// so a quote or bracket that would close the value or a scalar in it, but
+/// is followed by text that cannot follow it, shows that the line is not
+/// part of the value. With `starts_value`, `text` is a value as it follows
+/// `key:`, `- `, `? ` or `: `, which opens a quote or a flow collection only
+/// with its first token, after any anchor or tag; otherwise it continues
+/// what `open` holds.
+fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Option<Open> {
 	let mut index = 0;
 	if starts_value {
 		loop {
@@ -352,7 +372,7 @@ fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Open {
 		match text.get(index) {
 			Some(&quote @ (b'"' | b'\'')) => open.quote = Some(quote),
 			Some(b'[' | b'{') => open.depth = 1,
-			_ => return open,
+			_ => return Some(open),
 		}
 		index += 1;
 	}
@@ -360,45 +380,62 @@ fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Open {
 	let mut token_start = true;
 	while index < text.len() {
 		let byte = text[index];
-		match open.quote {
+		// Whether this byte closes a quoted scalar, or the value as a whole.
+		let closes = match open.quote {
 			Some(b'"') => match byte {
-				b'\\' => index += 1,
-				b'"' => {
-					open.quote = None;
-					token_start = false;
+				b'\\' => {
+					index += 1;
+					false
 				}
-				_ => {}
+				b'"' => true,
+				_ => false,
 			},
-			Some(_) => {
-				if byte == b'\'' {
-					if text.get(index + 1) == Some(&b'\'') {
-						index += 1;
-					} else {
-						open.quote = None;
-						token_start = false;
-					}
+			Some(_) if byte == b'\'' => {
+				let doubled = text.get(index + 1) == Some(&b'\'');
+				if doubled {
+					index += 1;
 				}
+				!doubled
 			}
+			Some(_) => false,
 			None if open.depth == 0 => break,
 			None => match byte {
-				b'"' | b'\'' if token_start => open.quote = Some(byte),
+				b'"' | b'\'' if token_start => {
+					open.quote = Some(byte);
+					false
+				}
 				b'[' | b'{' | b',' => {
 					open.depth += usize::from(byte != b',');
 					token_start = true;
+					false
 				}
 				b']' | b'}' => {
 					open.depth -= 1;
 					token_start = false;
+					open.depth == 0
 				}
-				b':' => token_start = true,
+				b':' => {
+					token_start = true;
+					false
+				}
 				b'#' if index == 0 || matches!(text[index - 1], b' ' | b'\t') => break,
-				b' ' | b'\t' => {}
-				_ => token_start = false,
+				b' ' | b'\t' => false,
+				_ => {
+					token_start = false;
+					false
+				}
 			},
+		};
+		if closes {
+			open.quote = None;
+			token_start = false;
+			if !closes_cleanly(&text[index + 1..], open.depth > 0) {
+				return None;
+			}
 		}
 		index += 1;
 	}
-	open
+	Some(open)
 }
 
 /// Marks as continuations the lines that continue a quoted scalar or a flow
@@ -407,9 +444,10 @@ fn advance(mut open: Open, text: &[u8], starts_value: bool) -> Open {
 ///
 /// Each value is judged on its own. A value that closes keeps its marks,
 /// whatever happens to the values after it. A value that never closes before
-/// the frontmatter ends is a mistake: it marks nothing, and the scan reads
-/// on from the line after the one that opened it, as written, so that a
-/// typo in another key never hides the declaration.
+/// the frontmatter ends, or that meets a line which cannot continue it, is a
+/// mistake: it marks nothing, and the scan reads on from the line after the
+/// one that opened it, as written, so that a typo in another key never
+/// hides the declaration.
 fn mark_continuations(bytes: &[u8], body: &mut [(Line, Kind)]) {
 	let mut index = 0;
 	while index < body.len() {
@@ -426,11 +464,13 @@ fn mark_continuations(bytes: &[u8], body: &mut [(Line, Kind)]) {
 		};
 		let mut open = advance(Open::default(), &content[start..], true);
 		let mut end = index;
-		while open.is_open() && end < body.len() {
-			open = advance(open, body[end].0.content(bytes), false);
+		while let Some(still) = open.filter(|open| open.is_open())
+			&& end < body.len()
+		{
+			open = advance(still, body[end].0.content(bytes), false);
 			end += 1;
 		}
-		if !open.is_open() {
+		if open.is_some_and(|open| !open.is_open()) {
 			for (_, kind) in &mut body[index..end] {
 				*kind = Kind::Indented;
 			}
