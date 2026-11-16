@@ -18,7 +18,7 @@ use crate::claims::{
 	Attestation, Claim, Diagnostic, DiagnosticKind, Inventory, Location,
 	LockfileKind, Mode, Presence, ResolvedPath, ResolvedPattern, ResolvedSource,
 };
-use crate::config::Resolved;
+use crate::config::{ConfigSet, Resolved};
 use crate::evaluate::schedule::{Deadline, EffectiveSchedule, TimeZone};
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{
@@ -66,6 +66,9 @@ pub(super) struct Planner<'i, 'm, 'c> {
 	pub(super) scopes: &'m mut Scopes<'c>,
 	pub(super) requests: &'m mut Requests,
 	pub(super) diagnostics: &'m mut Vec<Diagnostic>,
+	/// The projects whose declarations are read for a source that the
+	/// inventory does not track.
+	pub(super) elsewhere: &'m Elsewhere<'m>,
 }
 
 impl<'i> Planner<'i, '_, '_> {
@@ -298,25 +301,65 @@ impl<'i> Planner<'i, '_, '_> {
 	}
 
 	/// The query that reads the declaration of the document at `path`, when
-	/// it is a renamed document of the evaluated project, so that a drift
-	/// search follows it to its earlier paths. A source that is no tracked
-	/// document here, or was never renamed, has none and is searched at its
-	/// path alone. Of several claims, the first is read.
+	/// it is a renamed document, so that a drift search follows it to its
+	/// earlier paths. The document is looked up in the evaluated inventory,
+	/// then in the project that owns it among [`Elsewhere`]'s.
 	fn lineage(&mut self, path: &RepoPath) -> Option<Query> {
-		let inventory = self.inventory;
-		let claim = inventory
-			.claims_of(&DocumentId::Local(path.clone()))
-			.next()
-			.filter(|claim| !claim.declaration.renamed.is_empty())?;
-		Some(Query {
-			project: inventory.project.clone(),
-			projects: inventory.projects.clone(),
-			renamed: claim.declaration.renamed.clone(),
-			document: claim.document.clone(),
-			sites: sites(claim, inventory, self.scopes),
-			condition: Condition::Declared,
-		})
+		let document = DocumentId::Local(path.clone());
+		match self.inventory.claims_of(&document).next() {
+			Some(claim) => lineage(claim, self.inventory, self.scopes),
+			None => self.elsewhere.lineage(&document),
+		}
 	}
+}
+
+/// The projects, each with its configs and its discovery, whose
+/// declarations are read for a drift question's source that the evaluated
+/// inventory does not track: a document of another project. Reading a
+/// declaration evaluates nothing of that project.
+#[derive(Default)]
+pub(super) struct Elsewhere<'a> {
+	pub(super) projects: Vec<(&'a ConfigSet, &'a Inventory)>,
+}
+
+impl Elsewhere<'_> {
+	/// The query that reads the declaration of `document` in the project
+	/// that owns it, as [`lineage`] builds it there. A document of a project
+	/// that is not among these, or that project does not track, has none.
+	fn lineage(&self, document: &DocumentId) -> Option<Query> {
+		let DocumentId::Local(path) = document else {
+			return None;
+		};
+		let (configs, inventory) = self
+			.projects
+			.iter()
+			.find(|(configs, _)| configs.owns(path))?;
+		let claim = inventory.claims_of(document).next()?;
+		lineage(claim, inventory, &mut Scopes::new(configs, None))
+	}
+}
+
+/// The query that reads the declaration of `claim`'s document, found in
+/// `inventory`, when it is a renamed document, so that a drift search
+/// follows it to its earlier paths. A document that was never renamed has
+/// none and is searched at its path alone. Of several claims of one
+/// document, the caller passes the first.
+fn lineage(
+	claim: &Claim,
+	inventory: &Inventory,
+	scopes: &mut Scopes<'_>,
+) -> Option<Query> {
+	if claim.declaration.renamed.is_empty() {
+		return None;
+	}
+	Some(Query {
+		project: inventory.project.clone(),
+		projects: inventory.projects.clone(),
+		renamed: claim.declaration.renamed.clone(),
+		document: claim.document.clone(),
+		sites: sites(claim, inventory, scopes),
+		condition: Condition::Declared,
+	})
 }
 
 /// How a path relates to a pattern source.

@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, Utc};
 
 use super::{
-	Coverage, Evaluation, SubjectKind, check_local, judge_all, propagate,
-	unloadable,
+	Coverage, Elsewhere, Evaluation, SubjectKind, check_within, judge_all,
+	propagate, unloadable,
 };
-use crate::claims::{Inventory, discover, graph};
+use crate::claims::{Diagnostic, Inventory, discover, graph};
 use crate::config::{ConfigSet, LoadError, project_of};
 use crate::model::{DocumentId, RepoPath};
 use crate::ports::{BackendError, History, Snapshot};
@@ -33,6 +33,10 @@ struct Cited {
 /// documents' sources, as are the configuration errors of a project that
 /// cannot be loaded.
 ///
+/// The other projects are discovered before any evaluation, so that a
+/// drifted source that is a renamed document of another project is followed
+/// to its earlier paths, as a source of the same project is.
+///
 /// # Errors
 ///
 /// Fails when the snapshot or history cannot be read.
@@ -44,14 +48,99 @@ pub fn check<S: Snapshot, H: History>(
 	at: DateTime<Utc>,
 	context: Option<&str>,
 ) -> Result<Evaluation, BackendError> {
-	let mut result = check_local(
+	let Discovered {
+		mut combined,
+		loaded,
+		unloaded,
+	} = discover_cited(snapshot, configs, inventory, at)?;
+	let elsewhere = Elsewhere {
+		projects: std::iter::once((configs, inventory))
+			.chain(
+				loaded
+					.values()
+					.flatten()
+					.map(|cited| (&cited.configs, &cited.found)),
+			)
+			.collect(),
+	};
+	let mut result = check_within(
 		snapshot,
 		history,
 		configs,
 		inventory,
 		at,
 		Coverage::Project(context),
+		&elsewhere,
 	)?;
+	result.diagnostics.extend(unloaded);
+	let mut foreign = Vec::new();
+	for cited in loaded.values().flatten() {
+		if cited.documents.is_empty() {
+			continue;
+		}
+		let evaluated = check_within(
+			snapshot,
+			history,
+			&cited.configs,
+			&narrowed(&cited.found, &cited.documents),
+			at,
+			Coverage::Cited(&cited.documents),
+			&elsewhere,
+		)?;
+		foreign.extend(evaluated.subjects.into_iter().filter(|subject| {
+			matches!(&subject.kind, SubjectKind::Document(document)
+				if cited.documents.contains(&document.document))
+		}));
+		result.diagnostics.extend(evaluated.diagnostics);
+	}
+
+	combined
+		.claims
+		.sort_by(|left, right| left.document.cmp(&right.document));
+	combined.dependencies =
+		graph::dependencies(&combined.claims, &mut result.diagnostics);
+	let count = result.subjects.len();
+	result.subjects.extend(foreign);
+	propagate(&mut result.subjects, &combined);
+	result.subjects.truncate(count);
+	result
+		.diagnostics
+		.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+	result.diagnostics.dedup();
+	result.summary = judge_all(
+		&mut result.subjects,
+		result.context.as_ref(),
+		&result.diagnostics,
+	);
+	Ok(result)
+}
+
+/// What [`discover_cited`] finds: the other projects that a project cites,
+/// before any of them is evaluated.
+struct Discovered {
+	/// The checked project's claims, with those of every cited document.
+	combined: Inventory,
+	/// Each other project whose documents are cited, by root, or `None`
+	/// when it cannot be loaded.
+	loaded: BTreeMap<RepoPath, Option<Cited>>,
+	/// The configuration errors of the projects that cannot be loaded.
+	unloaded: Vec<Diagnostic>,
+}
+
+/// The other projects whose documents the claims of `inventory` cite, and
+/// those that the cited documents cite in turn, each loaded and discovered
+/// once, with the documents of it that are cited. Nothing is evaluated.
+///
+/// # Errors
+///
+/// Fails when the snapshot cannot be read.
+fn discover_cited<S: Snapshot>(
+	snapshot: &S,
+	configs: &ConfigSet,
+	inventory: &Inventory,
+	at: DateTime<Utc>,
+) -> Result<Discovered, BackendError> {
+	let mut unloaded = Vec::new();
 	let mut combined = inventory.clone();
 	let mut loaded: BTreeMap<RepoPath, Option<Cited>> = BTreeMap::new();
 	let mut visited = BTreeSet::new();
@@ -74,8 +163,7 @@ pub fn check<S: Snapshot, H: History>(
 					Ok(other) => other,
 					Err(LoadError::Backend(error)) => return Err(error),
 					Err(LoadError::Invalid(errors)) => {
-						result
-							.diagnostics
+						unloaded
 							.extend(unloadable(snapshot.revision(), at, &errors).diagnostics);
 						loaded.insert(project, None);
 						continue;
@@ -104,46 +192,11 @@ pub fn check<S: Snapshot, H: History>(
 			}
 		}
 	}
-
-	let mut foreign = Vec::new();
-	for cited in loaded.values().flatten() {
-		if cited.documents.is_empty() {
-			continue;
-		}
-		let evaluated = check_local(
-			snapshot,
-			history,
-			&cited.configs,
-			&narrowed(&cited.found, &cited.documents),
-			at,
-			Coverage::Cited(&cited.documents),
-		)?;
-		foreign.extend(evaluated.subjects.into_iter().filter(|subject| {
-			matches!(&subject.kind, SubjectKind::Document(document)
-				if cited.documents.contains(&document.document))
-		}));
-		result.diagnostics.extend(evaluated.diagnostics);
-	}
-
-	combined
-		.claims
-		.sort_by(|left, right| left.document.cmp(&right.document));
-	combined.dependencies =
-		graph::dependencies(&combined.claims, &mut result.diagnostics);
-	let count = result.subjects.len();
-	result.subjects.extend(foreign);
-	propagate(&mut result.subjects, &combined);
-	result.subjects.truncate(count);
-	result
-		.diagnostics
-		.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
-	result.diagnostics.dedup();
-	result.summary = judge_all(
-		&mut result.subjects,
-		result.context.as_ref(),
-		&result.diagnostics,
-	);
-	Ok(result)
+	Ok(Discovered {
+		combined,
+		loaded,
+		unloaded,
+	})
 }
 
 /// `found` narrowed to the claims of `cited` documents: no other claim and

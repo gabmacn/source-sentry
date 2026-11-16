@@ -240,3 +240,188 @@ fn an_unreadable_declaration_never_delays_a_renamed_sources_clock() {
 	let (timing, _, _) = clock_of(&evaluation, "docs/r.md");
 	assert_eq!(started(&timing), (&change, day(2)));
 }
+
+/// The config of the nested project `up`.
+const UP_CONFIG: &str = "up/.source-sentry/source-sentry.yaml";
+
+/// The top lockfile of `up`.
+const UP_LOCK: &str = "up/source-sentry.lock";
+
+/// The lockfile of `up`: the tracked document `source`, renamed through
+/// `markers`.
+fn up_lock(source: &str, markers: &[Value]) -> String {
+	let mut entry = json!({"reviewed": review()});
+	if !markers.is_empty() {
+		entry["renamed"] = json!(markers);
+	}
+	lockfile(&json!({ source: entry }))
+}
+
+/// The docs lockfile of the root project: `docs/d.md` cites `cited`, a
+/// source entry, with a week's grace.
+fn citing_lock(cited: &Value) -> String {
+	lockfile(&json!({
+		"d.md": {"schedule": {"grace": 7}, "sources": [cited]},
+	}))
+}
+
+/// A repository where `docs/d.md`, in the root project, attests
+/// `up/s.md`, a document of the project `up`, at `v1` on day 0, and
+/// `up/s.md` changes on day 2, with `extra` files from the start. Returns
+/// the commit of the change.
+fn cited_in_another_project(
+	extra: &[(&str, &str)],
+) -> (Repo, crate::ports::CommitId) {
+	let up = up_lock("s.md", &[]);
+	let docs = citing_lock(&attested("/up/s.md", "v1"));
+	let mut files = vec![
+		(REPOSITORY, CONFIG),
+		(UP_CONFIG, "version: 1\n"),
+		("up/s.md", "v1"),
+		(UP_LOCK, up.as_str()),
+		("docs/d.md", "# D\n"),
+		(DOCS_LOCK, docs.as_str()),
+	];
+	files.extend_from_slice(extra);
+	let mut repo = Repo::new(&files);
+	let change = repo.commit(2, &[("up/s.md", Some("v2"))]);
+	(repo, change)
+}
+
+/// The changes that rename `up/s.md` to `up/r.md`, whose content is `v2`,
+/// as `rename` records it with `from`, and update the citation in
+/// `docs/d.md`.
+fn rename_in_up(from: &str) -> (String, String) {
+	(
+		up_lock("r.md", &[renamed(from, 4)]),
+		citing_lock(&attested("/up/r.md", "v1")),
+	)
+}
+
+/// A document that cites a document of another project keeps its clock,
+/// deadline and facts when that document is renamed within its project,
+/// before and after the rename is committed.
+#[test]
+fn a_source_renamed_in_another_project_keeps_the_citing_documents_clock() {
+	let (mut repo, change) = cited_in_another_project(&[]);
+	let before = repo.evaluate(day(5), None);
+	let (timing_before, deadline_before, facts_before) =
+		clock_of(&before, "up/s.md");
+	assert_eq!(started(&timing_before), (&change, day(2)));
+	assert_eq!(facts_before, [Fact::Stale]);
+	assert!(deadline_before.is_some());
+
+	let (up, docs) = rename_in_up("/s.md");
+	let uncommitted = repo
+		.checkout()
+		.without_file("up/s.md")
+		.with_file("up/r.md", b"v2")
+		.with_file(UP_LOCK, up.as_bytes())
+		.with_file(DOCS_LOCK, docs.as_bytes());
+	let pending = evaluate(&repo.history, &uncommitted, day(5), None);
+	repo.commit(
+		4,
+		&[
+			("up/s.md", None),
+			("up/r.md", Some("v2")),
+			(UP_LOCK, Some(&up)),
+			(DOCS_LOCK, Some(&docs)),
+		],
+	);
+	let committed = repo.evaluate(day(5), None);
+	for after in [&pending, &committed] {
+		let (timing_after, deadline_after, facts_after) =
+			clock_of(after, "up/r.md");
+		assert_eq!(started(&timing_after), (&change, day(2)));
+		assert_eq!(deadline_after, deadline_before);
+		assert_eq!(facts_after, facts_before);
+	}
+}
+
+/// A rename in another project, recorded with a repository-rooted `from`,
+/// to a path that once held the attested content, does not move the clock
+/// of the citing document to the rename: it stays overdue.
+#[test]
+fn a_rename_in_another_project_onto_the_attested_content_keeps_the_clock() {
+	let (mut repo, change) = cited_in_another_project(&[("up/r.md", "v1")]);
+	let before = repo.evaluate(day(10), None);
+	let (_, deadline_before, facts_before) = clock_of(&before, "up/s.md");
+	assert_eq!(facts_before, [Fact::Stale, Fact::Due, Fact::Overdue]);
+	assert_eq!(
+		deadline_before.and_then(|deadline| deadline.due),
+		NaiveDate::from_ymd_opt(2026, 1, 10)
+	);
+
+	let (up, docs) = rename_in_up(":/up/s.md");
+	repo.commit(
+		4,
+		&[
+			("up/s.md", None),
+			("up/r.md", Some("v2")),
+			(UP_LOCK, Some(&up)),
+			(DOCS_LOCK, Some(&docs)),
+		],
+	);
+	let after = repo.evaluate(day(10), None);
+	let (timing_after, deadline_after, facts_after) = clock_of(&after, "up/r.md");
+	assert_eq!(started(&timing_after), (&change, day(2)));
+	assert_eq!(deadline_after, deadline_before);
+	assert_eq!(facts_after, facts_before);
+}
+
+/// A document of another project, cited by `docs/d.md`, keeps its clock
+/// when its own source, in the citing project, is renamed onto a path that
+/// once held the attested content: it stays overdue, so `docs/d.md` stays
+/// `upstream-due`.
+#[test]
+fn a_cited_documents_source_renamed_in_the_citing_project_keeps_its_clock() {
+	let up = |source: &str| {
+		lockfile(&json!({"s.md": {
+			"schedule": {"grace": 7},
+			"reviewed": review(),
+			"sources": [attested(source, "v1")],
+		}}))
+	};
+	let docs = |source: &str, markers: &[Value]| {
+		let mut entry = json!({"reviewed": review()});
+		if !markers.is_empty() {
+			entry["renamed"] = json!(markers);
+		}
+		lockfile(&json!({
+			source: entry,
+			"d.md": {"sources": [attested("/up/s.md", "# S\n")]},
+		}))
+	};
+	let (up_start, docs_start) = (up(":/docs/t.md"), docs("t.md", &[]));
+	let mut repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		(UP_CONFIG, "version: 1\n"),
+		("up/s.md", "# S\n"),
+		(UP_LOCK, &up_start),
+		("docs/t.md", "v1"),
+		("docs/u.md", "v1"),
+		("docs/d.md", "# D\n"),
+		(DOCS_LOCK, &docs_start),
+	]);
+	repo.commit(2, &[("docs/t.md", Some("v2"))]);
+	let before = repo.evaluate(day(10), None);
+	let facts_before = facts(document(&before, "docs/d.md"));
+	assert!(
+		facts_before.contains(&Fact::UpstreamDue),
+		"{facts_before:?}"
+	);
+
+	let (up_moved, docs_moved) =
+		(up(":/docs/u.md"), docs("u.md", &[renamed("/docs/t.md", 4)]));
+	repo.commit(
+		4,
+		&[
+			("docs/t.md", None),
+			("docs/u.md", Some("v2")),
+			(DOCS_LOCK, Some(&docs_moved)),
+			(UP_LOCK, Some(&up_moved)),
+		],
+	);
+	let after = repo.evaluate(day(10), None);
+	assert_eq!(facts(document(&after, "docs/d.md")), facts_before);
+}

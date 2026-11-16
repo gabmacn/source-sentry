@@ -46,11 +46,11 @@ pub use self::model::{
 };
 use self::{
 	clocks::Requests,
-	documents::{Finisher, Planner, propagate},
+	documents::{Elsewhere, Finisher, Planner, propagate},
 	scopes::Scopes,
 };
 use crate::claims::{
-	Diagnostic, DiagnosticKind, Inventory, Location, Unclaimed,
+	Claim, Diagnostic, DiagnosticKind, Inventory, Location, Unclaimed,
 };
 use crate::config::{
 	ConfigError, ConfigErrorKind, ConfigSet, Origin, Resolved, SUPPORTED_VERSIONS,
@@ -75,6 +75,9 @@ use crate::ports::{BackendError, History, Revision, Snapshot};
 ///   is measured against.
 /// - `coverage`: the whole project under the context the caller selected,
 ///   or only the documents another project cites.
+/// - `elsewhere`: the projects whose declarations are read for a source
+///   that `inventory` does not track, so that a drifted source renamed in
+///   another project is followed to its earlier paths.
 ///
 /// Every claim is evaluated, even one in a double claim: each becomes a
 /// subject of its own, and the diagnostics decide the exit code. Documents
@@ -90,13 +93,14 @@ use crate::ports::{BackendError, History, Revision, Snapshot};
 /// Fails only when the backend itself fails, including when a required
 /// object is missing from the object database. That is an operational error
 /// (exit 4).
-fn check_local<S: Snapshot, H: History>(
+fn check_within<S: Snapshot, H: History>(
 	snapshot: &S,
 	history: &H,
 	configs: &ConfigSet,
 	inventory: &Inventory,
 	at: DateTime<Utc>,
 	coverage: Coverage<'_>,
+	elsewhere: &Elsewhere<'_>,
 ) -> Result<Evaluation, BackendError> {
 	let revision = snapshot.revision();
 	let mut diagnostics = inventory.diagnostics.clone();
@@ -123,17 +127,12 @@ fn check_local<S: Snapshot, H: History>(
 			scopes: &mut scopes,
 			requests: &mut requests,
 			diagnostics: &mut diagnostics,
+			elsewhere,
 		};
 		inventory
 			.claims
 			.iter()
-			.filter(|claim| {
-				configs.owns(&claim.declared_in)
-					&& match &claim.document {
-						DocumentId::Local(path) => configs.owns(path),
-						DocumentId::Remote(_) => true,
-					}
-			})
+			.filter(|claim| is_owned(configs, claim))
 			.map(|claim| planner.document(claim))
 			.collect()
 	};
@@ -204,6 +203,42 @@ fn check_local<S: Snapshot, H: History>(
 		diagnostics,
 		summary,
 	})
+}
+
+/// Whether `configs`' project owns `claim`: its declaration, and its
+/// document when that is a local one.
+fn is_owned(configs: &ConfigSet, claim: &Claim) -> bool {
+	configs.owns(&claim.declared_in)
+		&& match &claim.document {
+			DocumentId::Local(path) => configs.owns(path),
+			DocumentId::Remote(_) => true,
+		}
+}
+
+/// Evaluates `snapshot` as [`check_within`] does, reading no other
+/// project's declarations.
+///
+/// # Errors
+///
+/// Fails as [`check_within`] does.
+#[cfg(test)]
+fn check_local<S: Snapshot, H: History>(
+	snapshot: &S,
+	history: &H,
+	configs: &ConfigSet,
+	inventory: &Inventory,
+	at: DateTime<Utc>,
+	coverage: Coverage<'_>,
+) -> Result<Evaluation, BackendError> {
+	check_within(
+		snapshot,
+		history,
+		configs,
+		inventory,
+		at,
+		coverage,
+		&Elsewhere::default(),
+	)
 }
 
 /// What one evaluation covers.

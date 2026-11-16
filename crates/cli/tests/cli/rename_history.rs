@@ -475,3 +475,83 @@ fn rename_history_keeps_the_clocks_of_citing_documents() {
 		}
 	}
 }
+
+/// A document that cites a document of another project keeps its clock,
+/// deadline, facts and exit code when that document is renamed within its
+/// project, before and after the rename is committed, even where the new
+/// path once held the attested content.
+#[test]
+fn rename_history_keeps_the_clocks_of_citing_documents_in_another_project() {
+	for reused in [false, true] {
+		let repo = TestRepo::init();
+		repo.write(
+			"app/.source-sentry/source-sentry.yaml",
+			if reused {
+				"version: 1\ndocuments:\n  ignore: [renamed.md]\n"
+			} else {
+				"version: 1\n"
+			},
+		);
+		if reused {
+			repo.write("app/renamed.md", "# Source v1\n");
+		}
+		repo.write("app/source.md", "# Source v1\n");
+		repo.write("guide.md", "# Guide\n");
+		repo
+			.run(&["-C", "app", "track", "source.md", "--yes"])
+			.expect_code(0);
+		repo
+			.run(&["-C", "app", "attest", "source.md", "--reread", "--yes"])
+			.expect_code(0);
+		repo
+			.run(&[
+				"track",
+				"guide.md",
+				"--source",
+				"/app/source.md",
+				"--grace",
+				"7",
+				"--yes",
+			])
+			.expect_code(0);
+		repo
+			.run(&["attest", "guide.md", "--reread", "--yes"])
+			.expect_code(0);
+		repo.commit_at("2026-10-01T12:00:00Z");
+		repo.write("app/source.md", "# Source v2\n");
+		repo.commit_at("2026-10-02T12:00:00Z");
+		let check = || {
+			repo
+				.run(&["check", "--format", "json", "--at", "2026-10-10T12:00:00Z"])
+				.json()
+		};
+		let before = check();
+		let guide = document(&before, "guide.md");
+		assert_eq!(guide["sources"][0]["path"], "app/source.md");
+		assert_eq!(
+			guide["sources"][0]["clock"]["since"],
+			"2026-10-02T12:00:00Z"
+		);
+		assert_eq!(guide["deadline"]["due"], "2026-10-09");
+		assert_eq!(guide["facts"], json!(["stale", "due", "overdue"]));
+		if reused {
+			repo.git(&["rm", "--quiet", "app/renamed.md"]);
+		}
+		repo.git(&["mv", "app/source.md", "app/renamed.md"]);
+		repo
+			.run(&["-C", "app", "rename", "source.md", "renamed.md", "--yes"])
+			.expect_code(0);
+		for committed in [false, true] {
+			if committed {
+				repo.commit_at("2026-10-04T12:00:00Z");
+			}
+			let after = check();
+			let moved = document(&after, "guide.md");
+			assert_eq!(moved["sources"][0]["path"], "app/renamed.md");
+			assert_eq!(moved["sources"][0]["clock"], guide["sources"][0]["clock"]);
+			assert_eq!(moved["deadline"], guide["deadline"]);
+			assert_eq!(moved["facts"], guide["facts"]);
+			assert_eq!(after["exit-code"], before["exit-code"]);
+		}
+	}
+}
