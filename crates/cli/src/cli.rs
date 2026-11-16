@@ -278,7 +278,8 @@ pub(crate) struct DiffArgs {
 	/// declared or `/`-rooted. By default, every source.
 	#[arg(long = "source", value_name = "PATH-OR-PATTERN")]
 	pub(crate) sources: Vec<String>,
-	/// The output format. The JSON `attest` array runs from the repository root.
+	/// The output format. The JSON `attest` array runs from the document's
+	/// project root.
 	#[arg(long, value_enum, default_value_t = Format::Human, value_name = "FORMAT")]
 	pub(crate) format: Format,
 }

@@ -82,6 +82,23 @@ fn help_and_version_exit_0() {
 	assert!(!top.stdout.contains('█'), "{}", top.stdout);
 }
 
+/// The JSON `attest` array is written to run from the document's project
+/// root, which in a nested project is not the repository root.
+#[test]
+fn diff_help_names_where_the_json_attest_array_runs() {
+	let repo = TestRepo::init();
+	let help = repo.run(&["diff", "--help"]);
+	help.expect_code(0);
+	let text = help.stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+	assert!(
+		text.contains(
+			"The JSON `attest` array runs from the document's project root"
+		),
+		"{}",
+		help.stdout
+	);
+}
+
 #[test]
 fn outside_a_repository_the_check_cannot_run() {
 	let directory = tempfile::tempdir().unwrap();
