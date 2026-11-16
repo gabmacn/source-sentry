@@ -1,6 +1,7 @@
 //! Temporary repositories driven by the `git` command line.
 
 use std::{
+	fmt::Write as _,
 	fs,
 	io::Write as _,
 	path::{Path, PathBuf},
@@ -151,6 +152,29 @@ impl TestRepo {
 	/// The blob of `path` in `revision`, as git reports it.
 	pub fn blob_at(&self, revision: &str, path: &str) -> ObjectId {
 		object_id(&self.git(&["rev-parse", &format!("{revision}:{path}")]))
+	}
+
+	/// Writes a blob with `contents` to the object database and returns its
+	/// ID as git prints it.
+	pub fn write_blob(&self, contents: &[u8]) -> String {
+		self.git_with_input(&["hash-object", "-w", "--stdin"], contents)
+	}
+
+	/// Puts `path` in a merge conflict, as a merge leaves it: the index holds
+	/// one entry per stage, each given as its stage number, mode and object
+	/// ID. The working tree is left alone.
+	pub fn conflict(&self, path: &str, stages: &[(u8, &str, &str)]) {
+		let mut info = String::new();
+		for (stage, mode, id) in stages {
+			writeln!(info, "{mode} {id} {stage}\t{path}").expect("index line");
+		}
+		self.git_with_input(&["update-index", "--index-info"], info.as_bytes());
+	}
+
+	/// Stages `path` with `git add` and returns the blob git stores.
+	pub fn added(&self, path: &str) -> ObjectId {
+		self.git(&["add", "--", path]);
+		self.blob_at("", path)
 	}
 
 	/// The ID git gives a blob with `contents`.

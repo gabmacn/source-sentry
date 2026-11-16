@@ -111,6 +111,81 @@ fn submodules_are_members_without_content() {
 	assert!(committed.read(&path("vendor/lib")).is_err());
 }
 
+/// A regular file in place of a submodule in a merge conflict is a member
+/// with the file's content, not a missing submodule.
+#[test]
+fn a_regular_file_in_a_submodule_conflict_is_a_member() {
+	let repo = TestRepo::init();
+	repo.write("file.txt", "one\n");
+	let commit = repo.commit_all("one");
+	let blob = repo.write_blob(b"regular\n");
+	repo.conflict(
+		"source.txt",
+		&[
+			(1, "160000", commit.0.hex()),
+			(2, "100644", &blob),
+			(3, "160000", commit.0.hex()),
+		],
+	);
+	repo.write("source.txt", "regular\n");
+
+	let repository = repo.open();
+	let snapshot = repository.working_tree_snapshot().unwrap();
+	assert_eq!(
+		names(&snapshot.paths().unwrap()),
+		["file.txt", "source.txt"]
+	);
+	assert_eq!(snapshot.read(&path("source.txt")).unwrap(), b"regular\n");
+	assert_eq!(
+		snapshot.canonical_oids(&[path("source.txt")]).unwrap(),
+		[Canonical::Oid(repo.hash(b"regular\n"))]
+	);
+
+	// While its directory is there, it is a submodule, as before the
+	// conflict.
+	std::fs::remove_file(repo.path().join("source.txt")).unwrap();
+	std::fs::create_dir(repo.path().join("source.txt")).unwrap();
+	assert_eq!(
+		names(&snapshot.paths().unwrap()),
+		["file.txt", "source.txt"]
+	);
+	assert_eq!(
+		snapshot.canonical_oids(&[path("source.txt")]).unwrap(),
+		[Canonical::Submodule]
+	);
+	assert_eq!(
+		snapshot.read(&path("source.txt")).unwrap_err().kind,
+		BackendErrorKind::Io
+	);
+}
+
+/// A path in a merge conflict whose file is gone is absent, as an unstaged
+/// deletion is.
+#[test]
+fn a_conflicted_path_without_a_file_is_absent() {
+	let repo = TestRepo::init();
+	repo.write("file.txt", "one\n");
+	repo.commit_all("one");
+	let base = repo.write_blob(b"base\n");
+	let ours = repo.write_blob(b"ours\n");
+	let theirs = repo.write_blob(b"theirs\n");
+	repo.conflict(
+		"source.txt",
+		&[
+			(1, "100644", &base),
+			(2, "100644", &ours),
+			(3, "100644", &theirs),
+		],
+	);
+
+	let repository = repo.open();
+	let snapshot = repository.working_tree_snapshot().unwrap();
+	assert_eq!(names(&snapshot.paths().unwrap()), ["file.txt"]);
+	// `git add` records the deletion.
+	repo.git(&["add", "--", "source.txt"]);
+	assert_eq!(repo.git(&["ls-files", "--", "source.txt"]), "");
+}
+
 /// A populated submodule is one member, with no content or child members.
 fn assert_populated_submodule(snapshot: &impl Snapshot, repo: &TestRepo) {
 	assert_eq!(

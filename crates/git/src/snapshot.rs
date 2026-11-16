@@ -34,6 +34,12 @@ use crate::{
 ///   fails for it.
 /// - Content and canonical oids are read from the working tree when asked
 ///   for. A symbolic link is never followed: its content is its target.
+/// - A path in a merge conflict is classified by what the working tree
+///   holds, whatever the kinds of its stages, and hashed as `git add` would
+///   store it: a regular file is hashed as a regular file, even when a
+///   stage is a symbolic link or a submodule, and a symbolic link as its
+///   target. A directory there makes it a submodule only when its first
+///   stage is one.
 #[derive(Debug)]
 pub struct WorkingTreeSnapshot<'repo> {
 	repository: &'repo GitRepository,
@@ -73,10 +79,11 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 		for record in self.index.values() {
 			let present = if record.skip_worktree {
 				true
-			} else if record.is_gitlink() {
+			} else if record.is_gitlink() && !record.unmerged {
 				probe.holds_directory(&record.path)?
 			} else {
 				probe.presence(&record.path)? != Presence::Absent
+					|| (record.is_gitlink() && probe.holds_directory(&record.path)?)
 			};
 			if present {
 				paths.push(record.path.clone());
@@ -87,7 +94,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 
 	fn read(&self, path: &RepoPath) -> Result<Vec<u8>, BackendError> {
 		let record = self.member(path)?;
-		if record.is_gitlink() {
+		if record.is_gitlink() && !record.unmerged {
 			return Err(submodule(path));
 		}
 		if record.skip_worktree {
@@ -98,6 +105,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 			Presence::File => fs::read(native(work_dir, path))
 				.map_err(|source| error::io(format!("cannot read {path}"), source)),
 			Presence::Symlink(target) => Ok(target),
+			Presence::Absent if record.is_gitlink() => Err(submodule(path)),
 			Presence::Absent => Err(absent(path)),
 		}
 	}
@@ -140,15 +148,17 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 		let mut placeholders = None;
 		for path in paths {
 			let record = self.member(path)?;
-			let canonical = if record.is_gitlink() {
+			// The stages of a path in a merge conflict may be of other kinds
+			// than the file on disk, so only a path in no conflict can be a
+			// placeholder.
+			let link = record.is_symlink() && !record.unmerged;
+			let canonical = if record.is_gitlink() && !record.unmerged {
 				Some(Canonical::Submodule)
 			} else if record.skip_worktree {
 				Some(Canonical::Oid(record.oid.clone()))
 			} else {
 				let presence = probe.presence(path)?;
-				if record.is_symlink()
-					&& matches!(presence, Presence::File)
-					&& placeholders.is_none()
+				if link && matches!(presence, Presence::File) && placeholders.is_none()
 				{
 					placeholders = Some(self.repository.symlink_placeholders()?);
 				}
@@ -165,9 +175,7 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 					// like a regular file. Where the checkout holds real links,
 					// a regular file in place of a link is a new regular file,
 					// hashed as git would add it.
-					Presence::File
-						if record.is_symlink() && placeholders == Some(true) =>
-					{
+					Presence::File if link && placeholders == Some(true) => {
 						let target =
 							fs::read(native(work_dir, path)).map_err(|source| {
 								error::io(format!("cannot read {path}"), source)
@@ -184,6 +192,12 @@ impl Snapshot for WorkingTreeSnapshot<'_> {
 					Presence::File => {
 						regular.push(path);
 						None
+					}
+					// A conflicted submodule whose directory is still there.
+					Presence::Absent
+						if record.is_gitlink() && probe.holds_directory(path)? =>
+					{
+						Some(Canonical::Submodule)
 					}
 					Presence::Absent => return Err(absent(path)),
 				}

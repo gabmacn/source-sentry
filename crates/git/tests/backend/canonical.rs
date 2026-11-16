@@ -663,6 +663,108 @@ fn a_regular_file_replacing_a_link_is_hashed_as_git_adds_it() {
 	}
 }
 
+/// Commits attributes that normalise `source.txt`'s line endings, under
+/// `core.symlinks=symlinks`, for a fixture that puts it in a conflict.
+fn conflict_fixture(symlinks: &str) -> TestRepo {
+	let repo = TestRepo::init();
+	repo.git(&["config", "core.symlinks", symlinks]);
+	repo.write(".gitattributes", "source.txt text\n");
+	repo.commit_all("attributes");
+	repo
+}
+
+/// A source in a merge conflict is classified by the file on disk, whatever
+/// the kinds of its stages: a regular file in place of stages that are
+/// links and regular files is hashed as `git add` stores it, with its
+/// conversions, under either `core.symlinks`.
+#[test]
+fn a_conflicted_regular_file_beside_link_stages_is_hashed_as_git_adds_it() {
+	let contents = b"same\r\nbytes\r\n";
+	for symlinks in ["true", "false"] {
+		for link_stages in [&[1_u8, 3][..], &[2]] {
+			let repo = conflict_fixture(symlinks);
+			let blob = repo.write_blob(contents);
+			let other = repo.write_blob(b"other\r\n");
+			let mode = |stage: u8| {
+				if link_stages.contains(&stage) {
+					"120000"
+				} else {
+					"100644"
+				}
+			};
+			repo.conflict(
+				"source.txt",
+				&[
+					(1, mode(1), &blob),
+					(2, mode(2), &blob),
+					(3, mode(3), &other),
+				],
+			);
+			repo.write("source.txt", contents);
+
+			let hashed = canonical(&repo, "source.txt");
+			let added = repo.added("source.txt");
+			let case = format!("core.symlinks={symlinks}, links {link_stages:?}");
+			assert_eq!(added, repo.hash(b"same\nbytes\n"), "{case}");
+			assert_eq!(hashed, Canonical::Oid(added), "{case}");
+		}
+	}
+}
+
+/// A regular file in place of a conflicted submodule is hashed as `git add`
+/// stores it.
+#[test]
+fn a_conflicted_regular_file_beside_submodule_stages_is_hashed_as_git_adds_it()
+{
+	let repo = conflict_fixture("false");
+	let commit = repo.git(&["rev-parse", "HEAD"]);
+	let contents = b"same\r\nbytes\r\n";
+	let blob = repo.write_blob(contents);
+	repo.conflict(
+		"source.txt",
+		&[
+			(1, "160000", &commit),
+			(2, "100644", &blob),
+			(3, "160000", &commit),
+		],
+	);
+	repo.write("source.txt", contents);
+
+	let hashed = canonical(&repo, "source.txt");
+	let added = repo.added("source.txt");
+	assert_eq!(added, repo.hash(b"same\nbytes\n"));
+	assert_eq!(hashed, Canonical::Oid(added));
+}
+
+/// An ordinary content conflict is hashed as `git add` stores the file on
+/// disk, conflict markers included.
+#[test]
+fn a_content_conflict_is_hashed_as_git_adds_it() {
+	let repo = conflict_fixture("false");
+	let base = repo.write_blob(b"base\r\n");
+	let ours = repo.write_blob(b"ours\r\n");
+	let theirs = repo.write_blob(b"theirs\r\n");
+	repo.conflict(
+		"source.txt",
+		&[
+			(1, "100644", &base),
+			(2, "100644", &ours),
+			(3, "100644", &theirs),
+		],
+	);
+	let contents =
+		b"<<<<<<< ours\r\nours\r\n=======\r\ntheirs\r\n>>>>>>> theirs\r\n";
+	repo.write("source.txt", contents);
+
+	let hashed = canonical(&repo, "source.txt");
+	let added = repo.added("source.txt");
+	assert_eq!(
+		added,
+		repo.hash(b"<<<<<<< ours\nours\n=======\ntheirs\n>>>>>>> theirs\n")
+	);
+	assert_eq!(hashed, Canonical::Oid(added));
+}
+
 /// When the attribute files nest macros deeper than they are read, nothing
 /// shows whether a driver named like an attribute state applies: the file is
 /// refused, and the driver never runs.

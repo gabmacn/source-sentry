@@ -41,6 +41,9 @@ pub(crate) struct IndexRecord {
 	/// Whether sparse checkout marks the path skip-worktree, so that the
 	/// working tree omits it and the index blob stands for it.
 	pub skip_worktree: bool,
+	/// Whether the path is in a merge conflict: the index holds it in
+	/// stages, whose kinds may differ, so the file on disk decides its kind.
+	pub unmerged: bool,
 }
 
 impl IndexRecord {
@@ -110,7 +113,7 @@ fn parse_ls_files(
 		let (meta, raw_path) = (&record[..tab], &record[tab + 1..]);
 		let meta = std::str::from_utf8(meta).map_err(|_| malformed())?;
 		let mut fields = meta.split(' ');
-		let (Some(tag), Some(mode), Some(oid), Some(_stage), None) = (
+		let (Some(tag), Some(mode), Some(oid), Some(stage), None) = (
 			fields.next(),
 			fields.next(),
 			fields.next(),
@@ -131,6 +134,7 @@ fn parse_ls_files(
 			mode,
 			oid: parse_printed(oid, algorithm)?,
 			skip_worktree: tag == "S",
+			unmerged: stage != "0",
 		};
 		// A conflicted path is listed once per stage; one record is enough.
 		records.entry(path).or_insert(record);
@@ -202,6 +206,8 @@ mod tests {
 		let script = &records[&RepoPath::new("dir/b.sh").unwrap()];
 		assert!(script.skip_worktree);
 		assert!(is_regular(script.mode));
+		assert!(!script.unmerged);
+		assert!(records[&RepoPath::new("c.txt").unwrap()].unmerged);
 		assert!(records[&RepoPath::new("sub").unwrap()].is_gitlink());
 	}
 
