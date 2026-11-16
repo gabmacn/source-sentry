@@ -220,7 +220,7 @@ fn relative_and_rooted_patterns_resolve_from_their_bases() {
 	let inventory = inventory(&[
 		(
 			"docs/guide/a.md",
-			&with_patterns(&["*.txt", "./*.txt", "../api/*.md", "/*.md"]),
+			&with_patterns(&["*.txt", "./notes.*", "../api/*.md", "/*.md"]),
 		),
 		("docs/guide/notes.txt", ""),
 		("docs/guide/deeper/notes.txt", ""),
@@ -241,7 +241,7 @@ fn relative_and_rooted_patterns_resolve_from_their_bases() {
 				vec!["docs/guide/notes.txt".to_owned()]
 			),
 			(
-				"/docs/guide/*.txt".to_owned(),
+				"/docs/guide/notes.*".to_owned(),
 				vec!["docs/guide/notes.txt".to_owned()]
 			),
 			(
@@ -251,7 +251,8 @@ fn relative_and_rooted_patterns_resolve_from_their_bases() {
 			("/*.md".to_owned(), vec!["README.md".to_owned()]),
 		]
 	);
-	// The union of current sources has no repeats.
+	// The union of current sources has no repeats, though two patterns match
+	// the same file.
 	let claim = inventory
 		.claims_of(&local("docs/guide/a.md"))
 		.next()
@@ -830,6 +831,173 @@ fn repeated_sources_are_compared_in_the_documents_project() {
 				"on-file: {on_file}: {}",
 				diagnostic.message
 			);
+		}
+	}
+}
+
+/// Two patterns of one declaration are one pattern when they are spelled
+/// alike once each is resolved from where it is declared, as two spellings
+/// of one path name one file. The pair is refused with the diagnostic of a
+/// repeated path in frontmatter, in a local lockfile and in a remote owner
+/// lockfile, in the repository's root project and in a nested one.
+#[test]
+fn repeated_patterns_are_compared_in_the_documents_project() {
+	#[derive(Clone, Copy, Debug)]
+	enum Site {
+		OnFile,
+		Local,
+		Remote,
+	}
+	let discover = |project: &str, site: Site, first: &str, second: &str| {
+		let at = |file: &str| {
+			if project.is_empty() {
+				file.to_owned()
+			} else {
+				format!("{project}/{file}")
+			}
+		};
+		let entry = format!(
+			r#"{{"sources": [{{"pattern": "{first}"}}, {{"pattern": "{second}"}}]}}"#
+		);
+		let mut files = vec![
+			(at("docs/src/a.rs"), "fn a() {}\n".to_owned()),
+			(at("src/a.rs"), "fn b() {}\n".to_owned()),
+			("docs/src/a.rs".to_owned(), "fn c() {}\n".to_owned()),
+		];
+		if !project.is_empty() {
+			files.push((
+				at(".source-sentry/source-sentry.yaml"),
+				"version: 1\n".to_owned(),
+			));
+		}
+		match site {
+			Site::OnFile => files.push((
+				at("docs/guide.md"),
+				markdown(&format!(
+					"  sources:\n    - pattern: '{first}'\n    - pattern: \
+					 '{second}'\n"
+				)),
+			)),
+			Site::Local => {
+				files.push((at("docs/guide.md"), "# Guide\n".to_owned()));
+				files.push((
+					at("docs/source-sentry.lock"),
+					lockfile(&[("guide.md", &entry)], &[]),
+				));
+			}
+			Site::Remote => files.push((
+				at(".source-sentry/remotes/legal.lock"),
+				lockfile(&[("abstract:video", &entry)], &[]),
+			)),
+		}
+		let files: Vec<(&str, &str)> = files
+			.iter()
+			.map(|(file, contents)| (file.as_str(), contents.as_str()))
+			.collect();
+		project_inventory(&files, project)
+	};
+
+	for project in ["", "product"] {
+		let nested = |file: &str| {
+			if project.is_empty() {
+				file.to_owned()
+			} else {
+				format!("{project}/{file}")
+			}
+		};
+		let target = nested("docs/src/*.rs");
+		let repository_rooted = format!(":/{target}");
+		for site in [Site::OnFile, Site::Local, Site::Remote] {
+			let (kind, field) = match site {
+				Site::OnFile => (
+					DiagnosticKind::InvalidDeclaration,
+					"source-sentry".to_owned(),
+				),
+				Site::Local => (
+					DiagnosticKind::InvalidLockfile,
+					"documents[\"guide.md\"]".to_owned(),
+				),
+				Site::Remote => (
+					DiagnosticKind::InvalidLockfile,
+					"documents[\"abstract:video\"]".to_owned(),
+				),
+			};
+			let rooted = [
+				("/docs/src/*.rs", "/docs/src/*.rs"),
+				("/docs/src/*.rs", repository_rooted.as_str()),
+				("/docs/./src/*.rs", "/docs//src/*.rs"),
+				("/docs/src/*.rs", "/src/../docs/src/*.rs"),
+			];
+			let relative = [
+				("src/*.rs", "/docs/src/*.rs"),
+				("src/*.rs", repository_rooted.as_str()),
+				("./src/*.rs", "../docs/src/*.rs"),
+			];
+			let repeated: Vec<_> = match site {
+				Site::Remote => rooted.to_vec(),
+				Site::OnFile | Site::Local => {
+					rooted.into_iter().chain(relative).collect()
+				}
+			};
+			for (first, second) in repeated {
+				let inventory = discover(project, site, first, second);
+				let diagnostic = only(&inventory, kind);
+				assert_eq!(
+					diagnostic.location.field.as_deref(),
+					Some(format!("{field}.sources[1].pattern").as_str()),
+					"{site:?} in `{project}`: `{first}` and `{second}`"
+				);
+				assert!(
+					diagnostic.message.contains(&format!(
+						"`{field}.sources[1].pattern` repeats \
+						 `{field}.sources[0].pattern`: both name `{target}`"
+					)),
+					"{site:?} in `{project}`: `{first}` and `{second}`: {}",
+					diagnostic.message
+				);
+			}
+
+			// Patterns that are spelled differently once resolved stay
+			// distinct, even when they match the same files.
+			let rooted = [
+				("/docs/src/*.rs", "/docs/src/[*].rs"),
+				("/docs/src/*.rs", "/docs/src/a.rs"),
+				("/docs/src/{a,b}.rs", "/docs/src/{b,a}.rs"),
+				("/docs/src/*.rs", "/src/*.rs"),
+				("/docs/src/*.rs", ":/docs/src/*.rs"),
+			];
+			let relative = [
+				("src/*.rs", "/src/*.rs"),
+				("src/*.rs", "src/[*].rs"),
+				("src/*.rs", "./src/a.rs"),
+			];
+			let distinct: Vec<_> = match site {
+				Site::Remote => rooted.to_vec(),
+				Site::OnFile | Site::Local => {
+					rooted.into_iter().chain(relative).collect()
+				}
+			};
+			for (first, second) in distinct {
+				if project.is_empty() && second.starts_with(":/") {
+					// At the root project, `/` and `:/` start at the same root.
+					continue;
+				}
+				let inventory = discover(project, site, first, second);
+				assert!(
+					!kinds(&inventory).contains(&kind),
+					"{site:?} in `{project}`: `{first}` and `{second}`: {:#?}",
+					inventory.diagnostics
+				);
+				assert_eq!(
+					inventory
+						.claims
+						.iter()
+						.map(|claim| claim.declaration.sources.len())
+						.collect::<Vec<_>>(),
+					[2],
+					"{site:?} in `{project}`: `{first}` and `{second}`"
+				);
+			}
 		}
 	}
 }

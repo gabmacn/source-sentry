@@ -798,6 +798,93 @@ fn a_source_cannot_be_declared_twice() {
 	));
 }
 
+/// Two spellings of one pattern, resolved from the document's directory, are
+/// refused as two spellings of one path are, when read and when written.
+#[test]
+fn a_pattern_cannot_be_declared_twice_under_two_spellings() {
+	let text = |first: &str, second: &str| {
+		format!(
+			"---\nsource-sentry:\n  sources:\n    - pattern: '{first}'\n    - \
+			 pattern: '{second}'\n---\n"
+		)
+	};
+	for (first, second, target) in [
+		("*.sql", "*.sql", "docs/guides/*.sql"),
+		("*.sql", "/docs/guides/*.sql", "docs/guides/*.sql"),
+		("*.sql", ":/docs/guides/*.sql", "docs/guides/*.sql"),
+		("./*.sql", "../guides/*.sql", "docs/guides/*.sql"),
+		("db/*.sql", "db//*.sql", "docs/guides/db/*.sql"),
+		("db/*.sql", "./db/./*.sql", "docs/guides/db/*.sql"),
+		("/db/**/*.sql", "../../db/**/*.sql", "db/**/*.sql"),
+	] {
+		let expected = DeclarationError::Duplicate {
+			at: "source-sentry.sources[1].pattern".to_owned(),
+			first: "source-sentry.sources[0].pattern".to_owned(),
+			target: target.to_owned(),
+		};
+		assert_eq!(
+			declaration_error(&text(first, second)),
+			expected,
+			"`{first}` and `{second}`"
+		);
+		assert_eq!(
+			expected.to_string(),
+			format!(
+				"`source-sentry.sources[1].pattern` repeats \
+				 `source-sentry.sources[0].pattern`: both name `{target}`"
+			)
+		);
+		let declaration = Declaration {
+			sources: [first, second]
+				.into_iter()
+				.map(|pattern| {
+					SourceDecl::Pattern(PatternSource {
+						members: Vec::new(),
+						pattern: pattern.to_owned(),
+						reviewed: None,
+					})
+				})
+				.collect(),
+			..Declaration::default()
+		};
+		assert_eq!(
+			write_str("", Some(&declaration)),
+			Err(FrontmatterError::Declaration(expected)),
+			"`{first}` and `{second}`"
+		);
+	}
+}
+
+/// Sameness is of spelling once resolved, not of meaning: patterns that
+/// would match the same files stay distinct, and a pattern never repeats a
+/// path.
+#[test]
+fn patterns_that_differ_once_resolved_are_distinct() {
+	for (first, second) in [
+		("*.sql", "[*].sql"),
+		("{a,b}.sql", "{b,a}.sql"),
+		("*.sql", "/*.sql"),
+		("*.sql", "**/*.sql"),
+		("a.sql", "[a].sql"),
+	] {
+		let text = format!(
+			"---\nsource-sentry:\n  sources:\n    - pattern: '{first}'\n    - \
+			 pattern: '{second}'\n---\n"
+		);
+		assert_eq!(
+			read_str(&text).map(|declaration| declaration.unwrap().sources.len()),
+			Ok(2),
+			"`{first}` and `{second}`"
+		);
+	}
+	let text = "---\nsource-sentry:\n  sources:\n    - path: 'a.sql'\n    - \
+	            pattern: '/docs/guides/a.sql'\n---\n";
+	assert_eq!(
+		read_str(text).map(|declaration| declaration.unwrap().sources.len()),
+		Ok(2)
+	);
+}
+
 // Writing.
 
 #[test]

@@ -406,6 +406,63 @@ fn sources_must_resolve() {
 	);
 }
 
+/// A second spelling of a pattern is refused as a second spelling of a path
+/// is: in one command line, and against the declaration being extended.
+/// Patterns that differ once resolved are added.
+#[test]
+fn a_pattern_is_tracked_once_whatever_its_spelling() {
+	let pattern = |declared: &str| SourceSpec::Pattern(declared.to_owned());
+	let attempt = |tree: &Tree, sources: Vec<SourceSpec>| {
+		let mut request = request(local("docs/guide.md"), nearest(), sources);
+		request.placement_named = false;
+		track(&tree.snapshot, &tree.configs, &tree.inventory, &request)
+	};
+	let refused = |result, first: &str, second: &str| match result {
+		Err(error @ MutateError::DuplicateSource { pattern: true, .. }) => {
+			assert_eq!(
+				error.to_string(),
+				format!(
+					"the sources `{first}` and `{second}` of `docs/guide.md` name the \
+					 same pattern; declare it once"
+				)
+			);
+		}
+		other => panic!("`{first}` and `{second}`: {:?}", other.map(|_| ())),
+	};
+
+	let tree = fixture(&[("docs/src/a.rs", SOURCE)]);
+	for second in ["/docs/src/*.rs", ":/docs/src/*.rs", "./src/*.rs"] {
+		refused(
+			attempt(&tree, vec![pattern("src/*.rs"), pattern(second)]),
+			"src/*.rs",
+			second,
+		);
+	}
+
+	let tree = fixture(&[
+		("docs/src/a.rs", SOURCE),
+		(
+			"docs/source-sentry.lock",
+			&lockfile(
+				&[("guide.md", r#"{"sources": [{"pattern": "src/*.rs"}]}"#)],
+				&[],
+			),
+		),
+	]);
+	for second in ["/docs/src/*.rs", ":/docs/src/*.rs", "./src/*.rs"] {
+		refused(attempt(&tree, vec![pattern(second)]), "src/*.rs", second);
+	}
+	for second in ["/src/*.rs", "src/a.rs", "src/[a].rs"] {
+		let planned = attempt(&tree, vec![pattern(second)])
+			.unwrap_or_else(|error| panic!("`{second}`: {error:?}"));
+		assert_eq!(
+			planned.summary.registered.declaration.sources.len(),
+			2,
+			"`{second}`"
+		);
+	}
+}
+
 /// A new pattern that matches nothing is never recorded.
 #[test]
 fn a_new_empty_pattern_is_refused() {

@@ -590,9 +590,10 @@ source-sentry migrate [--dry-run] [--yes]
   - classes and owners it lacks;
   - the grace, cadence or url given.
 
-  Existing reviews are kept. A source already declared is refused, and so
-  are a source inside or naming a submodule and a placement option that
-  names another placement.
+  Existing reviews are kept. A source already declared is refused, under
+  any spelling that resolves to it: `/docs/src/*.rs` repeats `src/*.rs`
+  declared in `docs/guide.md`. So are a source inside or naming a
+  submodule and a placement option that names another placement.
 - **`track` on an unclaimed series entry** starts with the newest earlier
   entry, ordered by parsed version, that still has a declaration. A sealed
   predecessor qualifies; a retired entry has no declaration to copy. Both

@@ -90,6 +90,34 @@ fn a_sealed_lockfile_document_keeps_every_marker_and_rebases_sources() {
 	assert_eq!(*renamed, expected);
 }
 
+/// Patterns that differ once resolved still differ after a rename: a
+/// relative pattern keeps its target, so it never becomes a second spelling
+/// of a rooted one beside it.
+#[test]
+fn a_rename_never_makes_two_patterns_one() {
+	let declaration =
+		r#"{"sources": [{"pattern": "src/*.rs"}, {"pattern": "/src/*.rs"}]}"#;
+	let lock = lockfile(&[("guide.md", declaration)], &[]);
+	let tree = Tree::new(&[
+		("docs/source-sentry.lock", lock.as_str()),
+		("guide.md", PLAIN),
+		("docs/src/a.rs", SOURCE),
+		("src/a.rs", SOURCE),
+	]);
+	let planned = plan(&tree, "docs/guide.md", "guide.md").unwrap();
+	let after = tree.apply(&planned.plan);
+	after.assert_clean();
+	let mut patterns: Vec<&str> = after
+		.claim(&local("guide.md"))
+		.declaration
+		.sources
+		.iter()
+		.map(SourceDecl::declared)
+		.collect();
+	patterns.sort_unstable();
+	assert_eq!(patterns, ["/src/*.rs", "docs/src/*.rs"]);
+}
+
 /// A destination's existing nearest lockfile receives the live declaration
 /// while every retirement under the old path stays in its original file.
 #[test]

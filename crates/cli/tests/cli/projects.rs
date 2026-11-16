@@ -142,6 +142,44 @@ fn on_file_sources_are_compared_in_the_documents_project() {
 	);
 }
 
+/// Patterns are compared as paths are: once resolved in the document's
+/// project, where `/` starts at the project root and `:/` at the
+/// repository's.
+#[test]
+fn on_file_patterns_are_compared_in_the_documents_project() {
+	let repo = nested();
+	repo.write("app/src/a.rs", "fn nested() {}\n");
+	repo.write("src/a.rs", "fn root() {}\n");
+	let guide = |first: &str, second: &str| {
+		format!(
+			"---\nsource-sentry:\n  sources:\n    - pattern: \"{first}\"\n    - \
+			 pattern: \"{second}\"\n---\n# Guide\n"
+		)
+	};
+
+	repo.write("app/guide.md", &guide("/src/*.rs", ":/src/*.rs"));
+	let check = repo.run(&["-C", "app", "check", "--at", AT]);
+	assert!(
+		!check.stdout.contains("configuration-error"),
+		"{}",
+		check.stdout
+	);
+
+	for second in ["src/*.rs", ":/app/src/*.rs"] {
+		repo.write("app/guide.md", &guide("/src/*.rs", second));
+		let check = repo.run(&["-C", "app", "check", "--at", AT]);
+		check.expect_code(3);
+		assert!(
+			check.stdout.contains(
+				"`source-sentry.sources[1].pattern` repeats \
+				 `source-sentry.sources[0].pattern`: both name `app/src/*.rs`"
+			),
+			"`{second}`: {}",
+			check.stdout
+		);
+	}
+}
+
 /// Foreign source freshness uses its declaration even when its context differs.
 #[test]
 fn cross_project_source_documents_propagate_freshness() {

@@ -252,6 +252,34 @@ fn additions_and_schedule_overrides_match_extension() {
 	));
 }
 
+/// A successor's additions are compared with its inherited patterns as
+/// resolved, so a second spelling of an inherited pattern is refused as a
+/// second spelling of an inherited path is.
+#[test]
+fn a_second_spelling_of_an_inherited_pattern_is_refused() {
+	let tree = fixture("living", false);
+	let mut request = request("audits/new/deep/v10.md");
+	for second in ["/src/*.rs", ":/src/*.rs", "../../../src/./*.rs"] {
+		request.sources = vec![SourceSpec::Pattern(second.to_owned())];
+		match track(&tree.snapshot, &tree.configs, &tree.inventory, &request) {
+			Err(error @ MutateError::DuplicateSource { pattern: true, .. }) => {
+				assert_eq!(
+					error.to_string(),
+					format!(
+						"the sources `../../../src/*.rs` and `{second}` of \
+						 `audits/new/deep/v10.md` name the same pattern; declare it once"
+					)
+				);
+			}
+			other => panic!("`{second}`: {:?}", other.map(|_| ())),
+		}
+	}
+	request.sources = vec![SourceSpec::Pattern("/src/[a].rs".to_owned())];
+	let planned =
+		track(&tree.snapshot, &tree.configs, &tree.inventory, &request).unwrap();
+	assert_eq!(planned.summary.registered.declaration.sources.len(), 4);
+}
+
 /// Each schedule option preserves the other field inherited from the predecessor.
 #[test]
 fn partial_schedule_overrides_preserve_other_fields() {

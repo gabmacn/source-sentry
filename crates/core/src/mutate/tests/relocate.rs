@@ -138,6 +138,70 @@ fn on_file_to_a_lockfile_and_back() {
 	assert_eq!(claim.declaration, original);
 }
 
+/// Patterns resolve from the document in frontmatter and in any lockfile, so
+/// a move between them keeps two patterns that differ once resolved
+/// distinct, even into a lockfile in another directory.
+#[test]
+fn a_move_never_makes_two_patterns_one() {
+	let tree = Tree::new(&[
+		(REPOSITORY, BASE),
+		("src/a.rs", SOURCE),
+		("docs/src/a.rs", SOURCE),
+		(
+			"docs/guide.md",
+			&markdown(
+				"  sources:\n    - pattern: 'src/*.rs'\n    - pattern: '/src/*.rs'\n",
+			),
+		),
+	]);
+	tree.assert_clean();
+	let document = local("docs/guide.md");
+	let patterns = |tree: &Tree| {
+		let mut patterns: Vec<String> = tree
+			.claim(&document)
+			.declaration
+			.sources
+			.iter()
+			.map(|source| source.declared().to_owned())
+			.collect();
+		patterns.sort_unstable();
+		patterns
+	};
+	assert_eq!(patterns(&tree), ["/src/*.rs", "src/*.rs"]);
+	let planned = track_from(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request(
+			std::slice::from_ref(&document),
+			Placement::OnFile,
+			Target::Lockfile {
+				directory: Some(path("")),
+			},
+		),
+	)
+	.unwrap();
+	let tree = tree.apply(&planned.plan);
+	tree.assert_clean();
+	assert_eq!(tree.claim(&document).mode, Mode::LocalLockfile);
+	assert_eq!(patterns(&tree), ["/src/*.rs", "src/*.rs"]);
+	let planned = track_from(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request(
+			std::slice::from_ref(&document),
+			lockfile_in(""),
+			Target::OnFile,
+		),
+	)
+	.unwrap();
+	let tree = tree.apply(&planned.plan);
+	tree.assert_clean();
+	assert_eq!(tree.claim(&document).mode, Mode::OnFile);
+	assert_eq!(patterns(&tree), ["/src/*.rs", "src/*.rs"]);
+}
+
 /// Moving every entry of a nested lockfile to its parent
 /// merges it, with its tombstones, and deletes it.
 #[test]

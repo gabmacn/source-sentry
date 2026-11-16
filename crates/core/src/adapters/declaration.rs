@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
+use crate::claims::SourceGlob;
 use crate::model::{
 	ClassName, Declaration, Member, ObjectId, PathError, PathSource,
 	PatternSource, Rename, RepoPath, Retired, Review, Schedule, Seal, SourceDecl,
@@ -89,14 +90,15 @@ pub enum DeclarationError {
 		at: String,
 	},
 	/// Two sources of one document that name the same file, or the same
-	/// pattern, or two members of one pattern that name the same file.
+	/// pattern once each is resolved from where it is declared, or two
+	/// members of one pattern that name the same file.
 	#[error("`{at}` repeats `{first}`: both name `{target}`")]
 	Duplicate {
 		/// The later field.
 		at: String,
 		/// The earlier field.
 		first: String,
-		/// The resolved path, or the pattern, that both name.
+		/// The resolved path, or the resolved pattern, that both name.
 		target: String,
 	},
 }
@@ -306,6 +308,21 @@ impl Scope<'_> {
 		}
 	}
 
+	/// The pattern `declared` resolved from where it is declared, without
+	/// its leading `/`, such as `docs/src/*.rs` for `src/*.rs` in
+	/// `docs/guide.md`; or `None` when it does not compile, which the code
+	/// that compiles it reports.
+	fn resolve_pattern(self, declared: &str) -> Option<String> {
+		let (project, document) = match self {
+			Self::Frontmatter(project, document) | Self::Local(project, document) => {
+				(project, Some(document))
+			}
+			Self::Remote(project) => (project, None),
+		};
+		let glob = SourceGlob::compile_project(project, document, declared).ok()?;
+		glob.rooted().strip_prefix('/').map(str::to_owned)
+	}
+
 	/// Checks the part of a pattern that the record constrains: a remote
 	/// document's patterns must be `/`-rooted. Everything else about a glob is
 	/// left to the code that compiles it.
@@ -331,8 +348,9 @@ impl Scope<'_> {
 /// - each path source has `oid` and `reviewed` together, or neither;
 /// - each source and member path resolves within the repository, or, for a
 ///   remote document, is `/`-rooted, as its patterns are as well;
-/// - no two path sources resolve to the same file, no pattern is declared
-///   twice, and no two members of one pattern resolve to the same file.
+/// - no two path sources resolve to the same file, no two patterns are the
+///   same pattern once each is resolved, and no two members of one pattern
+///   resolve to the same file.
 pub(super) fn validate(
 	declaration: &Declaration,
 	scope: Scope<'_>,
@@ -412,6 +430,8 @@ fn validate_sources(
 ) -> Result<(), DeclarationError> {
 	let mut paths = Seen::default();
 	let mut patterns = Seen::default();
+	// A pattern that does not compile is compared as written.
+	let mut unresolved = Seen::default();
 	for (index, source) in sources.iter().enumerate() {
 		let here = at.index(index);
 		match source {
@@ -440,7 +460,10 @@ fn validate_sources(
 						error,
 					}
 				})?;
-				patterns.insert(&source.pattern, field)?;
+				match scope.resolve_pattern(&source.pattern) {
+					Some(target) => patterns.insert(&target, field)?,
+					None => unresolved.insert(&source.pattern, field)?,
+				}
 				let mut members = Seen::default();
 				let members_at = here.key("members");
 				for (index, member) in source.members.iter().enumerate() {

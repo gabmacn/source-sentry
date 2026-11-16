@@ -490,34 +490,45 @@ fn add(
 }
 
 /// Whether `existing` and `added` declare the same source of `document`:
-/// paths that resolve to the same file, or patterns written alike.
+/// paths that resolve to the same file, or patterns that are the same
+/// pattern once each is resolved from the document.
 fn same_source(
 	project: &RepoPath,
 	document: &DocumentId,
 	existing: &SourceDecl,
 	added: &SourceDecl,
 ) -> bool {
-	let resolve = |declared: &str| {
-		resolve_project_source(
-			project,
-			match document {
-				DocumentId::Local(path) => Some(path),
-				DocumentId::Remote(_) => None,
-			},
-			declared,
-		)
-		.ok()
+	let local = match document {
+		DocumentId::Local(path) => Some(path),
+		DocumentId::Remote(_) => None,
 	};
+	let resolve =
+		|declared: &str| resolve_project_source(project, local, declared).ok();
 	match (existing, added) {
 		(SourceDecl::Path(existing), SourceDecl::Path(added)) => {
 			resolve(&existing.path).is_some()
 				&& resolve(&existing.path) == resolve(&added.path)
 		}
 		(SourceDecl::Pattern(existing), SourceDecl::Pattern(added)) => {
-			existing.pattern == added.pattern
+			resolved_pattern(project, local, &existing.pattern)
+				== resolved_pattern(project, local, &added.pattern)
 		}
 		_ => false,
 	}
+}
+
+/// The pattern `declared` of a document in `project`, resolved from where it
+/// is declared, as the declaration reader compares patterns: `src/*.rs` in
+/// `docs/guide.md` and `/docs/src/*.rs` are the same pattern. A pattern that
+/// does not compile is kept as written.
+fn resolved_pattern(
+	project: &RepoPath,
+	document: Option<&RepoPath>,
+	declared: &str,
+) -> Result<String, String> {
+	SourceGlob::compile_project(project, document, declared)
+		.map(|glob| glob.rooted())
+		.map_err(|_| declared.to_owned())
 }
 
 /// Confirms a registration against the discovery of the result, and refuses
@@ -961,7 +972,7 @@ pub(super) fn sources<S: Snapshot>(
 		error,
 	};
 	let mut paths: BTreeMap<RepoPath, &str> = BTreeMap::new();
-	let mut patterns: BTreeSet<&str> = BTreeSet::new();
+	let mut patterns: BTreeMap<Result<String, String>, &str> = BTreeMap::new();
 	let mut declared = Vec::with_capacity(specs.len());
 	// Every file a new source names, with the source as declared, so that a
 	// submodule is refused here rather than reported by every later `check`.
@@ -998,10 +1009,13 @@ pub(super) fn sources<S: Snapshot>(
 				{
 					return Err(invalid(pattern, PathError::NotRooted(pattern.clone())));
 				}
-				if !patterns.insert(pattern) {
+				if let Some(first) = patterns.insert(
+					resolved_pattern(&repo.inventory.project, local, pattern),
+					pattern,
+				) {
 					return Err(MutateError::DuplicateSource {
 						document: document.clone(),
-						first: pattern.clone(),
+						first: first.to_owned(),
 						declared: pattern.clone(),
 						pattern: true,
 					});

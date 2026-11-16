@@ -556,6 +556,72 @@ fn local_sources_resolve_from_their_document() {
 	));
 }
 
+/// Two spellings of one pattern are refused as two spellings of one path
+/// are, in a local lockfile and in a remote one, when read and when written.
+#[test]
+fn a_pattern_is_declared_once_whatever_its_spelling() {
+	let two = |first: &str, second: &str| {
+		format!(
+			r#"{{"sources": [{{"pattern": "{first}"}}, {{"pattern": "{second}"}}]}}"#
+		)
+	};
+	let duplicate = |entry: &str, target: &str| DeclarationError::Duplicate {
+		at: format!("documents[{entry:?}].sources[1].pattern"),
+		first: format!("documents[{entry:?}].sources[0].pattern"),
+		target: target.to_owned(),
+	};
+
+	let text = one_document("a.md", &two("src/*.rs", "/docs/src/*.rs"));
+	assert_eq!(
+		declaration_error(parse_local(&text)),
+		duplicate("a.md", "docs/src/*.rs")
+	);
+	let mut local =
+		parse_local(&one_document("a.md", &two("src/*.rs", "/src/*.rs"))).unwrap();
+	let Some(SourceDecl::Pattern(second)) = local
+		.documents
+		.get_mut(&path("docs/a.md"))
+		.and_then(|declaration| declaration.sources.get_mut(1))
+	else {
+		panic!("expected a second pattern");
+	};
+	second.pattern = "/docs/src/*.rs".to_owned();
+	assert_eq!(
+		local.to_bytes(),
+		Err(LockfileError::Declaration(duplicate(
+			"a.md",
+			"docs/src/*.rs"
+		)))
+	);
+
+	let text = one_document("abstract:video", &two("/src/*.rs", ":/src/*.rs"));
+	assert_eq!(
+		declaration_error(parse_remote(&text)),
+		duplicate("abstract:video", "src/*.rs")
+	);
+	let mut remote = parse_remote(&one_document(
+		"abstract:video",
+		&two("/src/*.rs", "/src/[*].rs"),
+	))
+	.unwrap();
+	let Some(SourceDecl::Pattern(second)) = remote
+		.documents
+		.values_mut()
+		.next()
+		.and_then(|declaration| declaration.sources.get_mut(1))
+	else {
+		panic!("expected a second pattern");
+	};
+	second.pattern = "/src/./*.rs".to_owned();
+	assert_eq!(
+		remote.to_bytes(),
+		Err(LockfileError::Declaration(duplicate(
+			"abstract:video",
+			"src/*.rs"
+		)))
+	);
+}
+
 #[test]
 fn remote_sources_must_be_rooted() {
 	for (source, at) in [

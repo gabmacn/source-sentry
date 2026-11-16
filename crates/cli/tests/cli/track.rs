@@ -513,6 +513,44 @@ fn track_refuses_what_cannot_extend() {
 	assert!(!repo.read("docs/guide.md").contains("source-sentry"));
 }
 
+/// `track` refuses a second spelling of a pattern as it refuses a second
+/// spelling of a path: in one command line, and against the declaration it
+/// extends. Nothing is written.
+#[test]
+fn track_refuses_a_second_spelling_of_a_pattern() {
+	let repo = TestRepo::init();
+	repo.write("docs/src/a.rs", "fn a() {}\n");
+	repo.git(&["add", "."]);
+	let refusal = "error: the sources `src/*.rs` and `/docs/src/*.rs` of \
+	               `docs/guide.md` name the same pattern; declare it once\n";
+
+	let both = repo.run(&[
+		"track",
+		"docs/guide.md",
+		"--pattern",
+		"docs/src/*.rs",
+		"--pattern",
+		"/docs/src/*.rs",
+		"--yes",
+	]);
+	both.expect_code(2);
+	assert_eq!(both.stderr, refusal);
+	assert_eq!(repo.read("docs/guide.md"), "# Guide\n");
+
+	let declared = "---\nsource-sentry:\n  sources:\n    - pattern: 'src/*.rs'\n---\n# Guide\n";
+	repo.write("docs/guide.md", declared);
+	let second = repo.run(&[
+		"track",
+		"docs/guide.md",
+		"--pattern",
+		"/docs/src/*.rs",
+		"--yes",
+	]);
+	second.expect_code(2);
+	assert_eq!(second.stderr, refusal);
+	assert_eq!(repo.read("docs/guide.md"), declared);
+}
+
 /// `untrack` removes a declared source, and the others keep their review.
 #[test]
 fn untrack_removes_a_source() {
@@ -587,6 +625,63 @@ fn untrack_fixes_a_missing_source_and_refuses_unknown_ones() {
 	run.expect_code(1);
 	assert!(run.stdout.contains("unattested"), "{}", run.stdout);
 	assert!(!run.stdout.contains("missing-source"), "{}", run.stdout);
+}
+
+/// A declaration holding one pattern under two spellings is refused as one
+/// holding one path under two spellings is, so no selector can act on the
+/// wrong one of them.
+#[test]
+fn two_spellings_of_one_pattern_are_refused() {
+	let repo = TestRepo::init();
+	repo.write("docs/src/a.rs", "fn a() {}\n");
+	let declared = "---\nsource-sentry:\n  sources:\n    - pattern: \"src/*.rs\"\n    \
+	                - pattern: \"/docs/src/*.rs\"\n---\n# Guide\n";
+	repo.write("docs/guide.md", declared);
+	repo.commit_at("2026-10-01T10:00:00Z");
+	let problem = "docs/guide.md `source-sentry.sources[1].pattern`  \
+	               `source-sentry.sources[1].pattern` repeats \
+	               `source-sentry.sources[0].pattern`: both name `docs/src/*.rs`. \
+	               Until the declaration is corrected, this document is not \
+	               tracked";
+
+	let check = repo.run(&["check", "--at", AT]);
+	check.expect_code(3);
+	assert!(
+		check
+			.stdout
+			.contains(&format!("invalid-declaration  {problem}")),
+		"{}",
+		check.stdout
+	);
+
+	for command in [
+		&[
+			"attest",
+			"docs/guide.md",
+			"--source",
+			"/docs/src/*.rs",
+			"--yes",
+		][..],
+		&[
+			"untrack",
+			"docs/guide.md",
+			"--pattern",
+			"/docs/src/*.rs",
+			"--yes",
+		],
+	] {
+		let run = repo.run(command);
+		run.expect_code(3);
+		assert_eq!(
+			run.stderr,
+			format!(
+				"error: `docs/guide.md` has errors to fix first:\n  - {}\n",
+				problem.replacen("  ", ": ", 1)
+			),
+			"{command:?}"
+		);
+		assert_eq!(repo.read("docs/guide.md"), declared, "{command:?}");
+	}
 }
 
 /// A pattern that lost its matches since it was declared does not block an
