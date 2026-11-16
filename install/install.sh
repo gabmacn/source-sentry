@@ -212,7 +212,7 @@ case ":$PATH:" in
 	say ""
 	say "$dir is not on your PATH. Add it in your shell's startup file:"
 	say "  sh, bash, zsh:  export PATH=\"$dir:\$PATH\""
-	say "  fish:           fish_add_path $dir"
+	say "  fish:           fish_add_path \"$dir\""
 	;;
 esac
 say ""
