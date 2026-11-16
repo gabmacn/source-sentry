@@ -406,12 +406,18 @@ impl<'a> Canonicalizer<'a> {
 	/// `git ls-files --eol` reads its file. That read dominated `check` under
 	/// `core.autocrlf`, where nearly every file is a candidate. A blob that
 	/// cannot be read keeps the path a candidate.
+	///
+	/// The blob is the one git reads: for a path in a merge conflict, stage
+	/// 2's. A conflicted path without a stage 2 has none, and `git add` keeps
+	/// no CRLF for it.
 	fn index_blob_has_crlf(&self, path: &RepoPath) -> bool {
-		let Some(oid) = self
-			.index
-			.get(path)
-			.and_then(|record| self.repository.git_oid(&record.oid))
-		else {
+		let Some(record) = self.index.get(path) else {
+			return true;
+		};
+		let Some(consulted) = &record.consulted else {
+			return false;
+		};
+		let Some(oid) = self.repository.git_oid(consulted) else {
 			return true;
 		};
 		self
@@ -642,10 +648,13 @@ impl<'a> Canonicalizer<'a> {
 		let work_dir = self.repository.require_work_dir().ok()?;
 		let global = self.repository.git_var("GIT_ATTR_GLOBAL").ok()?;
 		let system = self.repository.git_var("GIT_ATTR_SYSTEM").ok()?;
+		// The blob git reads attributes from: for a `.gitattributes` in a
+		// merge conflict, stage 2's, or none without a stage 2.
 		let index_blob = |file: &RepoPath| {
 			let record =
 				self.index.get(file).filter(|record| !record.is_gitlink())?;
-			self.repository.blob_content(&record.oid).ok().flatten()
+			let consulted = record.consulted.as_ref()?;
+			self.repository.blob_content(consulted).ok().flatten()
 		};
 		let context = OriginContext {
 			work_dir,

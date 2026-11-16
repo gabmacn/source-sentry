@@ -5,7 +5,7 @@
 //! unsupported mandatory extensions, and a sparse checkout is exactly what
 //! snapshots must support.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
 use source_sentry_core::ports::{
 	BackendError, BackendErrorKind, HashAlgorithm, ObjectId, RepoPath,
@@ -36,8 +36,15 @@ pub(crate) struct IndexRecord {
 	pub path: RepoPath,
 	/// The file mode, such as `0o100644`.
 	pub mode: u32,
-	/// The staged blob. For a conflicted path this is one stage's blob.
+	/// The staged blob. For a conflicted path this is its first stage's
+	/// blob, and `mode` is that stage's mode.
 	pub oid: ObjectId,
+	/// The blob git reads when it takes the path's content from the index,
+	/// as for the attributes in a `.gitattributes` file missing from the
+	/// working tree, or to decide whether `git add` keeps CRLF line endings
+	/// under "auto" conversion: the staged blob, or for a conflicted path,
+	/// stage 2's ("ours"), and none without a stage 2.
+	pub consulted: Option<ObjectId>,
 	/// Whether sparse checkout marks the path skip-worktree, so that the
 	/// working tree omits it and the index blob stands for it.
 	pub skip_worktree: bool,
@@ -129,15 +136,29 @@ fn parse_ls_files(
 			continue;
 		}
 		let path = repo_path(raw_path)?;
+		let oid = parse_printed(oid, algorithm)?;
+		// Git reads a conflicted path's content from stage 2 alone.
+		let consulted = matches!(stage, "0" | "2").then(|| oid.clone());
 		let record = IndexRecord {
 			path: path.clone(),
 			mode,
-			oid: parse_printed(oid, algorithm)?,
+			oid,
+			consulted,
 			skip_worktree: tag == "S",
 			unmerged: stage != "0",
 		};
-		// A conflicted path is listed once per stage; one record is enough.
-		records.entry(path).or_insert(record);
+		// A conflicted path is listed once per stage, first stage first; one
+		// record is enough, once it holds the blob git reads.
+		match records.entry(path) {
+			Entry::Vacant(vacant) => {
+				vacant.insert(record);
+			}
+			Entry::Occupied(mut occupied) => {
+				if record.consulted.is_some() {
+					occupied.get_mut().consulted = record.consulted;
+				}
+			}
+		}
 	}
 	Ok(records)
 }
@@ -209,6 +230,27 @@ mod tests {
 		assert!(!script.unmerged);
 		assert!(records[&RepoPath::new("c.txt").unwrap()].unmerged);
 		assert!(records[&RepoPath::new("sub").unwrap()].is_gitlink());
+	}
+
+	/// A conflicted path keeps its first stage's mode and blob, and the blob
+	/// git reads from the index is stage 2's, or none without a stage 2.
+	#[test]
+	fn a_conflicted_path_consults_stage_2() {
+		let [one, two, three] = ["1", "2", "3"].map(|digit| digit.repeat(40));
+		let output = format!(
+			"M 120000 {one} 1\tc.txt\0M 100644 {two} 2\tc.txt\0\
+			 M 100644 {three} 3\tc.txt\0M 100644 {one} 1\td.txt\0\
+			 M 100644 {three} 3\td.txt\0H 100644 {OID} 0\te.txt\0"
+		);
+		let records =
+			parse_ls_files(output.as_bytes(), HashAlgorithm::Sha1).unwrap();
+		let record = |name: &str| &records[&RepoPath::new(name).unwrap()];
+		let id = |hex: &str| Some(parse_printed(hex, HashAlgorithm::Sha1).unwrap());
+		assert!(record("c.txt").is_symlink());
+		assert_eq!(Some(record("c.txt").oid.clone()), id(&one));
+		assert_eq!(record("c.txt").consulted, id(&two));
+		assert_eq!(record("d.txt").consulted, None);
+		assert_eq!(record("e.txt").consulted, id(OID));
 	}
 
 	#[test]

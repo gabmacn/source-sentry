@@ -765,6 +765,136 @@ fn a_content_conflict_is_hashed_as_git_adds_it() {
 	assert_eq!(hashed, Canonical::Oid(added));
 }
 
+/// Puts `source.txt` under `text=auto` in a merge conflict with `stages`,
+/// each a stage number, a mode and its blob's contents, and writes a CRLF
+/// file on disk. Returns the repository, the file's canonical value, and the
+/// blob `git add` then stores.
+fn auto_conflict(
+	stages: &[(u8, &str, &[u8])],
+) -> (TestRepo, Canonical, ObjectId) {
+	let repo = TestRepo::init();
+	repo.git(&["config", "core.symlinks", "false"]);
+	repo.write(".gitattributes", "source.txt text=auto\n");
+	repo.commit_all("attributes");
+	let ids: Vec<String> = stages
+		.iter()
+		.map(|(_, _, contents)| repo.write_blob(contents))
+		.collect();
+	let entries: Vec<(u8, &str, &str)> = stages
+		.iter()
+		.zip(&ids)
+		.map(|(&(stage, mode, _), id)| (stage, mode, id.as_str()))
+		.collect();
+	repo.conflict("source.txt", &entries);
+	repo.write("source.txt", b"c\r\n");
+	let hashed = canonical(&repo, "source.txt");
+	let added = repo.added("source.txt");
+	(repo, hashed, added)
+}
+
+/// Checks that `git add` converted the CRLF file of [`auto_conflict`], and
+/// that its canonical value is the blob git stored.
+fn assert_converted((repo, hashed, added): (TestRepo, Canonical, ObjectId)) {
+	assert_eq!(added, repo.hash(b"c\n"));
+	assert_eq!(hashed, Canonical::Oid(added));
+}
+
+/// Checks that `git add` kept the CRLF of the file of [`auto_conflict`],
+/// which is then reported as CRLF held in the index.
+fn assert_crlf_kept((repo, hashed, added): (TestRepo, Canonical, ObjectId)) {
+	assert_eq!(added, repo.hash(b"c\r\n"));
+	assert_eq!(hashed, Canonical::CrlfInIndex);
+}
+
+/// Under "auto" conversion, `git add` keeps the CRLF of a path in a merge
+/// conflict only when stage 2 holds it: CRLF in the base alone is
+/// converted.
+#[test]
+fn a_conflict_with_crlf_in_stage_1_only_is_converted() {
+	assert_converted(auto_conflict(&[
+		(1, "100644", b"a\r\n"),
+		(2, "100644", b"a\n"),
+		(3, "100644", b"b\n"),
+	]));
+}
+
+/// Under "auto" conversion, `git add` keeps the CRLF that stage 2 of a path
+/// in a merge conflict holds, so the file is reported as holding CRLF in the
+/// index.
+#[test]
+fn a_conflict_with_crlf_in_stage_2_only_is_reported() {
+	assert_crlf_kept(auto_conflict(&[
+		(1, "100644", b"a\n"),
+		(2, "100644", b"a\r\n"),
+		(3, "100644", b"b\n"),
+	]));
+}
+
+/// Stage 2 decides even when it is a link: `git add` keeps the CRLF its blob
+/// holds.
+#[test]
+fn a_conflict_with_crlf_in_a_link_in_stage_2_is_reported() {
+	assert_crlf_kept(auto_conflict(&[
+		(1, "100644", b"a\n"),
+		(2, "120000", b"a\r\n"),
+		(3, "100644", b"b\n"),
+	]));
+}
+
+/// Under "auto" conversion, CRLF in the other side of a merge conflict alone
+/// is converted.
+#[test]
+fn a_conflict_with_crlf_in_stage_3_only_is_converted() {
+	assert_converted(auto_conflict(&[
+		(1, "100644", b"a\n"),
+		(2, "100644", b"a\n"),
+		(3, "100644", b"b\r\n"),
+	]));
+}
+
+/// A merge conflict without a stage 2 keeps no CRLF from the index, even
+/// when the other stages hold it.
+#[test]
+fn a_conflict_without_stage_2_is_converted() {
+	assert_converted(auto_conflict(&[
+		(1, "100644", b"a\r\n"),
+		(3, "100644", b"b\r\n"),
+	]));
+}
+
+/// Git reads a `.gitattributes` in a merge conflict that is missing from the
+/// working tree from its stage 2, so the line that sets a refused filter is
+/// found there.
+#[test]
+fn a_filter_set_in_stage_2_of_a_conflicted_attribute_file_is_located() {
+	let repo = TestRepo::init();
+	repo.write("f.dat", "payload\n");
+	repo.commit_all("add a file");
+	let [one, two, three] = [
+		"f.dat filter=one\n",
+		"f.dat filter=crypt\n",
+		"f.dat filter=three\n",
+	]
+	.map(|line| repo.write_blob(line.as_bytes()));
+	repo.conflict(
+		".gitattributes",
+		&[
+			(1, "100644", &one),
+			(2, "100644", &two),
+			(3, "100644", &three),
+		],
+	);
+	assert!(!repo.path().join(".gitattributes").exists());
+
+	assert_eq!(
+		canonical(&repo, "f.dat"),
+		Canonical::UnsupportedFilter {
+			filter: "crypt".to_owned(),
+			attribute_origin: ".gitattributes:1".to_owned(),
+		}
+	);
+}
+
 /// When the attribute files nest macros deeper than they are read, nothing
 /// shows whether a driver named like an attribute state applies: the file is
 /// refused, and the driver never runs.
