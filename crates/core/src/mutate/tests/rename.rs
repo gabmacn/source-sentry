@@ -531,6 +531,97 @@ fn a_rename_that_exposes_a_sealed_head_is_refused() {
 	);
 }
 
+/// Moving the only entry of a living series out of its pattern would leave
+/// the series without a head, which only retiring the series allows.
+#[test]
+fn moving_the_sole_living_head_out_of_its_series_is_refused() {
+	let tree = Tree::new(&[
+		(
+			".source-sentry/source-sentry.yaml",
+			&series_config("living"),
+		),
+		(
+			"source-sentry.lock",
+			&lockfile(&[("proposals/v1.md", "{}")], &[]),
+		),
+		("proposals/other.md", PLAIN),
+	]);
+	let Err(MutateError::WouldIntroduce { diagnostics }) =
+		plan(&tree, "proposals/v1.md", "proposals/other.md")
+	else {
+		panic!("a living series must keep its head");
+	};
+	let [diagnostic] = diagnostics.as_slice() else {
+		panic!("one refusal expected: {diagnostics:?}");
+	};
+	assert_eq!(diagnostic.kind, DiagnosticKind::MissingHead);
+	assert_eq!(diagnostic.document, Some(local("proposals/v1.md")));
+	assert_eq!(
+		diagnostic.location.file,
+		path(".source-sentry/source-sentry.yaml")
+	);
+	assert!(
+		diagnostic.message.contains(
+			"`proposals/v1.md` is the living head of the series `proposals`"
+		) && diagnostic.message.contains("requires retiring the series"),
+		"{}",
+		diagnostic.message
+	);
+}
+
+/// A head may move when the series keeps an entry, within its pattern or
+/// through another member, and records-only series need no head.
+#[test]
+fn a_series_that_keeps_a_head_or_needs_none_allows_the_rename() {
+	for (lifecycle, members, old, new) in [
+		(
+			"living",
+			&["proposals/v1.md"][..],
+			"proposals/v1.md",
+			"proposals/v2.md",
+		),
+		(
+			"living",
+			&["proposals/v1.md", "proposals/v2.md"],
+			"proposals/v2.md",
+			"proposals/other.md",
+		),
+		(
+			"living",
+			&["proposals/v1.md", "proposals/v2.md"],
+			"proposals/v1.md",
+			"proposals/other.md",
+		),
+		(
+			"records-only",
+			&["proposals/v1.md"],
+			"proposals/v1.md",
+			"proposals/other.md",
+		),
+	] {
+		let entries: Vec<_> =
+			members.iter().map(|member| (*member, "{}")).collect();
+		let lock = lockfile(&entries, &[]);
+		let config = series_config(lifecycle);
+		let mut files = vec![
+			(".source-sentry/source-sentry.yaml", config.as_str()),
+			("source-sentry.lock", lock.as_str()),
+			(new, PLAIN),
+		];
+		files.extend(
+			members
+				.iter()
+				.filter(|member| **member != old)
+				.map(|member| (*member, PLAIN)),
+		);
+		let tree = Tree::new(&files);
+		let planned = plan(&tree, old, new).unwrap_or_else(|error| {
+			panic!("{lifecycle} rename of {old} to {new}: {error}")
+		});
+		tree.apply(&planned.plan).assert_clean();
+	}
+}
+
 /// A destination already invalid in discovery cannot be adopted by rename.
 #[test]
 fn duplicate_versions_refuse_even_if_the_destination_was_already_unclaimed() {

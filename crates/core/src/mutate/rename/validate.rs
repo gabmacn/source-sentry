@@ -3,13 +3,15 @@
 use super::super::repo::Repo;
 use crate::claims::{
 	Claim, Diagnostic, DiagnosticKind, Inventory, Location, MemberState,
+	SeriesMembers,
 };
 use crate::model::{DocumentId, Lifecycle, RepoPath};
 use crate::mutate::MutateError;
 use crate::ports::Snapshot;
 
 /// Refuses final errors about the destination, a changed sealed record,
-/// and living-series heads newly left missing or sealed by the rename.
+/// and living-series heads newly left missing, sealed or removed by the
+/// rename.
 pub(super) fn integrity<S: Snapshot>(
 	repo: &Repo<'_, S>,
 	after: &Inventory,
@@ -41,7 +43,14 @@ pub(super) fn integrity<S: Snapshot>(
 		if series.series.lifecycle != Lifecycle::Living {
 			continue;
 		}
+		let old = repo.inventory.series.iter().find(|old| {
+			old.series.scope == series.series.scope
+				&& old.series.name == series.series.name
+		});
 		let Some(head) = series.members.last() else {
+			if let Some(previous) = old.and_then(|old| old.members.last()) {
+				diagnostics.push(headless(series, &previous.path, new));
+			}
 			continue;
 		};
 		let document = DocumentId::Local(head.path.clone());
@@ -49,10 +58,6 @@ pub(super) fn integrity<S: Snapshot>(
 			|| after.tombstones.iter().any(|tombstone| {
 				tombstone.document == document && tombstone.retired.seal.is_some()
 			});
-		let old = repo.inventory.series.iter().find(|old| {
-			old.series.scope == series.series.scope
-				&& old.series.name == series.series.name
-		});
 		let unchanged_head = old
 			.and_then(|old| old.members.last())
 			.is_some_and(|old| old == head);
@@ -80,6 +85,36 @@ pub(super) fn integrity<S: Snapshot>(
 	} else {
 		Err(MutateError::WouldIntroduce { diagnostics })
 	}
+}
+
+/// A living series that the rename would leave with no entry at all. Its
+/// head moves out of the series, which, like retiring the head, requires
+/// retiring the series itself or adding a successor first.
+fn headless(
+	series: &SeriesMembers,
+	head: &RepoPath,
+	new: &RepoPath,
+) -> Diagnostic {
+	let config = series.series.origin.file.clone();
+	let defined_in = config
+		.as_ref()
+		.map_or_else(|| "the built-in defaults".to_owned(), ToString::to_string);
+	Diagnostic::new(
+		DiagnosticKind::MissingHead,
+		Location::field(
+			config.unwrap_or_else(|| head.clone()),
+			format!("series.{}", series.series.name),
+		),
+		format!(
+			"`{head}` is the living head of the series `{name}`, and `{new}` is \
+			 outside the series, so the rename would leave it with no head. \
+			 Moving it out requires retiring the series, which is defined in \
+			 {defined_in}: remove the series there first. A head created by \
+			 mistake is replaced by adding a new successor",
+			name = series.series.name,
+		),
+	)
+	.about(DocumentId::Local(head.clone()))
 }
 
 /// Checks the filesystem identities and git membership before planning a rename.
