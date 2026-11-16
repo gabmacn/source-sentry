@@ -80,14 +80,13 @@ fn check_files(
 			return Err(Failure::new(
 				exit::REFUSED,
 				format!(
-					"{}; move the file first with `git mv {} {}`",
+					"{}; move the file first with `{}`",
 					if should_exist {
 						"the new file does not exist"
 					} else {
 						"the old file still exists"
 					},
-					super::shell_word(&workspace.display_path(old)),
-					super::shell_word(&workspace.display_path(new))
+					workspace.git_command(&["mv"], &[old, new])
 				),
 			));
 		}

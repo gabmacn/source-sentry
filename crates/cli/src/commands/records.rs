@@ -33,7 +33,7 @@ pub(super) fn seal(
 		at: super::now(),
 	};
 	let planned = mutate::seal(&snapshot, &inventory, &request)
-		.map_err(|error| Failure::mutate(workspace, &error))?;
+		.map_err(|error| Failure::mutate_in(workspace, &inventory, &error))?;
 	super::apply::confirm_and_apply(
 		workspace,
 		&planned.plan,

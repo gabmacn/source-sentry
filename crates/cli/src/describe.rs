@@ -101,16 +101,7 @@ pub(crate) fn inheritance_hint(
 		return None;
 	};
 	let predecessor = file.inherit_from.as_ref()?;
-	let path = workspace.display_path(&file.path);
-	let path = if path.starts_with('-')
-		|| matches!(
-			crate::cli::parse_document(&path),
-			Ok(crate::cli::DocumentArg::Remote(_))
-		) {
-		format!("./{path}")
-	} else {
-		path
-	};
+	let path = workspace.document_argument(&file.path);
 	let command = format!(
 		"{} track {}",
 		workspace.command_prefix(),

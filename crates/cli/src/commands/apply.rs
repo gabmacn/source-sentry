@@ -113,34 +113,18 @@ fn applied(workspace: &Workspace, plan: &WritePlan) -> String {
 		"Applied: {} changed.",
 		crate::describe::count(count, "file", "files")
 	);
-	// With `-C`, the command names the repository and its paths, so that
-	// it works from wherever it is run; otherwise paths are relative to the
-	// current directory, as git expects.
-	let repo = workspace.repo_argument();
-	let created: Vec<String> = plan
+	let created: Vec<_> = plan
 		.writes
 		.iter()
 		.filter(|write| write.expected.is_none())
-		.map(|write| {
-			let path = workspace.display_path(&write.path);
-			super::diff::shell_word(&path)
-		})
+		.map(|write| &write.path)
 		.collect();
 	if !created.is_empty() {
-		let git = repo.map_or_else(
-			|| "git".to_owned(),
-			|repo| {
-				format!(
-					"git -C {}",
-					super::diff::shell_word(&repo.display().to_string())
-				)
-			},
-		);
 		let _ = write!(
 			text,
 			"\nThe new files are marked intent-to-add. Stage them with the rest \
-			 of your change:\n  {git} add -- {}",
-			created.join(" ")
+			 of your change:\n  {}",
+			workspace.git_command(&["add"], &created)
 		);
 	}
 	text

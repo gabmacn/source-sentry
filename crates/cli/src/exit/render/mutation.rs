@@ -5,7 +5,8 @@ use std::fmt;
 use crate::describe;
 use crate::workspace::Workspace;
 use source_sentry_core::adapters::{Adapter, lockfile::LockfileError};
-use source_sentry_core::model::RebaseError;
+use source_sentry_core::claims::{Inventory, LockfileKind};
+use source_sentry_core::model::{DocumentId, RebaseError, RepoPath};
 use source_sentry_core::mutate::{
 	Expectation, Mismatch, MutateError, Placement, Target,
 };
@@ -16,7 +17,11 @@ use source_sentry_core::ports::Canonical;
 	clippy::too_many_lines,
 	reason = "one exhaustive error match makes every structured path conversion visible and rejects unhandled new variants"
 )]
-pub(super) fn render(workspace: &Workspace, error: &MutateError) -> String {
+pub(super) fn render(
+	workspace: &Workspace,
+	inventory: Option<&Inventory>,
+	error: &MutateError,
+) -> String {
 	match error {
 		MutateError::OutsideProject {
 			document,
@@ -124,11 +129,9 @@ pub(super) fn render(workspace: &Workspace, error: &MutateError) -> String {
 			)
 		}
 		MutateError::NotCanonical { path, canonical } => {
+			let problem = canonical_problem(workspace, path, canonical);
 			let path = workspace.display_path(path);
-			format!(
-				"cannot canonicalize `{path}`: {}; no oid was guessed",
-				canonical_problem(canonical)
-			)
+			format!("cannot canonicalize `{path}`: {problem}; no oid was guessed")
 		}
 		MutateError::NothingSelected { document } => {
 			let document = workspace.display_document(document);
@@ -219,11 +222,12 @@ pub(super) fn render(workspace: &Workspace, error: &MutateError) -> String {
 			)
 		}
 		MutateError::OnFileRecord { document } => {
+			let command = on_file_to_lockfile(workspace, inventory, document);
 			let document = workspace.display_document(document);
 			format!(
 				"`{document}` is tracked on-file, but records are tracked through \
-		 lockfiles only. Move it into a lockfile with `track --from on-file` \
-		 first, then seal it"
+		 lockfiles only. Move it into a lockfile with `{command}` first, then \
+		 seal it"
 			)
 		}
 		MutateError::RecordToOnFile { document } => {
@@ -623,8 +627,53 @@ fn not_tracked(retired: bool) -> &'static str {
 	}
 }
 
+/// The `track` command that moves an on-file declaration into the lockfile
+/// that `track` would list the document in: the nearest local lockfile of
+/// its project that contains it, or else a new one in its own directory.
+/// Without the inventory that lockfile is unknown, and the command shows
+/// the placement to fill in.
+fn on_file_to_lockfile(
+	workspace: &Workspace,
+	inventory: Option<&Inventory>,
+	document: &DocumentId,
+) -> String {
+	let unknown = "lockfile:<directory>";
+	let DocumentId::Local(path) = document else {
+		return format!(
+			"{} track {} --from on-file --to {unknown}",
+			workspace.command_prefix(),
+			crate::commands::shell_word(&workspace.display_document(document))
+		);
+	};
+	let to = inventory.map_or_else(
+		|| unknown.to_owned(),
+		|inventory| {
+			let directory = inventory
+				.lockfile_for(path)
+				.and_then(|lockfile| match &lockfile.kind {
+					LockfileKind::Local { directory } => Some(directory.clone()),
+					LockfileKind::Remote { .. } => None,
+				})
+				.unwrap_or_else(|| path.parent().unwrap_or(RepoPath::ROOT));
+			crate::commands::shell_word(&format!(
+				"lockfile:{}",
+				workspace.display_path(&directory)
+			))
+		},
+	);
+	format!(
+		"{} track {} --from on-file --to {to}",
+		workspace.command_prefix(),
+		crate::commands::shell_word(&workspace.document_argument(path))
+	)
+}
+
 /// What a non-oid canonical value means, and how to fix it.
-fn canonical_problem(canonical: &Canonical) -> String {
+fn canonical_problem(
+	workspace: &Workspace,
+	path: &RepoPath,
+	canonical: &Canonical,
+) -> String {
 	match canonical {
 		Canonical::Oid(oid) => format!("it has the oid {oid}"),
 		Canonical::UnsupportedFilter {
@@ -637,10 +686,11 @@ fn canonical_problem(canonical: &Canonical) -> String {
 		Canonical::UnsupportedLfsExtension => {
 			"its Git LFS pointer uses extensions, which are not supported".to_owned()
 		}
-		Canonical::CrlfInIndex => "the index holds it with CRLF line endings \
-		                           although its attributes ask git to normalize \
-		                           it. Run `git add --renormalize .`"
-			.to_owned(),
+		Canonical::CrlfInIndex => format!(
+			"the index holds it with CRLF line endings although its attributes \
+			 ask git to normalize it. Run `{}`",
+			workspace.git_command(&["add", "--renormalize"], &[path])
+		),
 		Canonical::Submodule => "it is a submodule, and submodules are not \
 		                         supported"
 			.to_owned(),

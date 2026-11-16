@@ -389,7 +389,7 @@ fn add_hints(
 		let Some(DocumentId::Local(path)) = &diagnostic.document else {
 			continue;
 		};
-		let argument = document_argument(workspace, path);
+		let argument = workspace.document_argument(path);
 		if diagnostic.kind == DiagnosticKind::MissingDocument {
 			let _ = write!(
 				diagnostic.message,
@@ -429,19 +429,5 @@ fn add_hints(
 				))
 			);
 		}
-	}
-}
-
-/// Prevents a local argument from being read as an option or remote identity.
-fn document_argument(workspace: &Workspace, path: &RepoPath) -> String {
-	let path = workspace.display_path(path);
-	if path.starts_with('-')
-		|| matches!(
-			crate::cli::parse_document(&path),
-			Ok(crate::cli::DocumentArg::Remote(_))
-		) {
-		format!("./{path}")
-	} else {
-		path
 	}
 }

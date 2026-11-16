@@ -371,7 +371,9 @@ fn plain_hunks(old: &str, new: &str) -> String {
 /// `word` as one shell word that POSIX shells and PowerShell read alike:
 ///
 /// - bare, when it is made only of characters that no common shell treats
-///   specially, and does not begin with PowerShell's `@` expression marker;
+///   specially, does not begin with PowerShell's `@` expression marker, and
+///   is not a single `-` followed by anything but letters, digits and `-`,
+///   which PowerShell splits at a `.` when passing it to a program;
 /// - single-quoted, when it holds no single quotation mark. PowerShell also
 ///   reads the typographic marks `‘ ’ ‚ ‛` as one;
 /// - double-quoted, when it holds one, but nothing that either shell expands
@@ -383,8 +385,15 @@ pub(crate) fn shell_word(word: &str) -> String {
 		['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 	const IN_DOUBLE: [char; 8] =
 		['$', '`', '\\', '!', '"', '\u{201C}', '\u{201D}', '\u{201E}'];
+	let parameter_like = word.strip_prefix('-').is_some_and(|rest| {
+		!rest.starts_with('-')
+			&& !rest
+				.chars()
+				.all(|character| character.is_ascii_alphanumeric() || character == '-')
+	});
 	let bare = !word.is_empty()
 		&& !word.starts_with('@')
+		&& !parameter_like
 		&& word.chars().all(|character| {
 			character.is_ascii_alphanumeric() || "-_./:@%+=".contains(character)
 		});
@@ -418,6 +427,18 @@ mod tests {
 			assert_eq!(shell_word(word), format!("'{word}'"));
 		}
 		for word in ["+doc.md", "=doc.md", "%doc.md", ":doc.md"] {
+			assert_eq!(shell_word(word), word);
+		}
+	}
+
+	/// PowerShell passes `-old.md` to a program as `-old` and `.md`; options
+	/// and the end-of-options marker stay bare.
+	#[test]
+	fn single_dash_words_with_punctuation_are_quoted() {
+		for word in ["-old.md", "-a/b.c", "-C=-my.repo"] {
+			assert_eq!(shell_word(word), format!("'{word}'"));
+		}
+		for word in ["-C", "--", "--source", "--expect=-old.md@sha1:9c1185a5"] {
 			assert_eq!(shell_word(word), word);
 		}
 	}

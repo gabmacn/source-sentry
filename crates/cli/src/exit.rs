@@ -10,6 +10,7 @@
 use std::error::Error;
 use std::fmt::Write as _;
 
+use source_sentry_core::claims::Inventory;
 use source_sentry_core::config::LoadError;
 use source_sentry_core::mutate::MutateError;
 use source_sentry_core::policy::USAGE_EXIT_CODE;
@@ -83,7 +84,24 @@ impl Failure {
 
 	/// A planner's refusal, with the code its cause calls for.
 	pub(crate) fn mutate(workspace: &Workspace, error: &MutateError) -> Self {
-		Self::new(refusal_code(error), render::mutation(workspace, error))
+		Self::new(
+			refusal_code(error),
+			render::mutation(workspace, None, error),
+		)
+	}
+
+	/// A planner's refusal, like [`Failure::mutate`], from a planner that
+	/// read `inventory`, so that a suggested command can name the lockfile
+	/// that would hold the document.
+	pub(crate) fn mutate_in(
+		workspace: &Workspace,
+		inventory: &Inventory,
+		error: &MutateError,
+	) -> Self {
+		Self::new(
+			refusal_code(error),
+			render::mutation(workspace, Some(inventory), error),
+		)
 	}
 
 	/// A write plan that could not be applied: exit 4.
@@ -102,28 +120,12 @@ impl Failure {
 			actual: Some(_),
 		} = error
 		{
-			let git = if workspace.repo_argument().is_some() {
-				format!(
-					"git -C {}",
-					crate::commands::shell_word(
-						&workspace.display_path(&source_sentry_core::model::RepoPath::ROOT)
-					)
-				)
-			} else {
-				"git".to_owned()
-			};
-			let argument = if workspace.repo_argument().is_some() {
-				path.as_str().to_owned()
-			} else {
-				workspace.display_path(path)
-			};
-			let argument = crate::commands::shell_word(&argument);
+			let add = workspace.git_command(&["add"], &[path]);
 			let path = workspace.display_path(path);
 			let _ = write!(
 				message,
 				". A file that git does not track already exists at {path}; move \
-				 it aside, or add it with `{git} add -- {argument}`, and run the command \
-				 again"
+				 it aside, or add it with `{add}`, and run the command again"
 			);
 		}
 		Self::new(OPERATIONAL, message)

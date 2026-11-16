@@ -41,6 +41,8 @@ mod schedules;
 #[cfg(test)]
 mod succession;
 #[cfg(test)]
+mod suggested_commands;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod tombstones;

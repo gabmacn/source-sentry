@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use source_sentry_core::claims::Diagnostic;
+use source_sentry_core::claims::{Diagnostic, Inventory};
 use source_sentry_core::config::ConfigError;
 use source_sentry_core::mutate::MutateError;
 
@@ -52,6 +52,12 @@ fn diagnostics(workspace: &Workspace, diagnostics: &[Diagnostic]) -> String {
 mod mutation;
 
 /// A planner refusal whose structured paths belong to this invocation.
-pub(super) fn mutation(workspace: &Workspace, error: &MutateError) -> String {
-	mutation::render(workspace, error)
+/// With the inventory the planner read, a suggested command can name the
+/// lockfile that would hold the document.
+pub(super) fn mutation(
+	workspace: &Workspace,
+	inventory: Option<&Inventory>,
+	error: &MutateError,
+) -> String {
+	mutation::render(workspace, inventory, error)
 }

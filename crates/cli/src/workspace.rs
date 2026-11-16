@@ -231,6 +231,47 @@ impl Workspace {
 		self.repo_argument.as_deref()
 	}
 
+	/// A git command for a hint, to be pasted into the shell the user
+	/// started in: `git`, then `-C` as given when it was, then `arguments`,
+	/// then `--` and `paths`. The paths are displayed from the effective
+	/// directory, which is where `-C` makes git resolve them, and `--` keeps
+	/// a path that begins with `-` from reading as an option.
+	pub(crate) fn git_command(
+		&self,
+		arguments: &[&str],
+		paths: &[&RepoPath],
+	) -> String {
+		let mut words = vec!["git".to_owned()];
+		if let Some(repo) = self.repo_argument() {
+			words.push("-C".to_owned());
+			words.push(repo.display().to_string());
+		}
+		words.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+		words.push("--".to_owned());
+		words.extend(paths.iter().map(|path| self.display_path(path)));
+		words
+			.iter()
+			.map(|word| crate::commands::shell_word(word))
+			.collect::<Vec<_>>()
+			.join(" ")
+	}
+
+	/// A local document as a Source Sentry command argument, displayed from
+	/// the effective directory, with `./` in front when it would otherwise
+	/// read as an option or as a remote identity. Not yet quoted.
+	pub(crate) fn document_argument(&self, path: &RepoPath) -> String {
+		let shown = self.display_path(path);
+		if shown.starts_with('-')
+			|| matches!(
+				crate::cli::parse_document(&shown),
+				Ok(DocumentArg::Remote(_))
+			) {
+			format!("./{shown}")
+		} else {
+			shown
+		}
+	}
+
 	/// The command prefix for a hint, including the repository argument.
 	pub(crate) fn command_prefix(&self) -> String {
 		self.repo_argument().map_or_else(
