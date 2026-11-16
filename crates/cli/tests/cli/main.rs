@@ -23,6 +23,8 @@ mod history;
 #[cfg(test)]
 mod init;
 #[cfg(test)]
+mod output;
+#[cfg(test)]
 mod path_regressions;
 #[cfg(test)]
 mod paths;

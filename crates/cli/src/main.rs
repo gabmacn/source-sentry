@@ -35,7 +35,14 @@ fn main() -> ExitCode {
 	};
 	output::set_color(cli.color);
 	let printer = Printer::new(cli.quiet);
-	match commands::run(&cli, printer) {
+	let result = commands::run(&cli, printer);
+	if let Err(failure) = &result {
+		output::error(&failure.message);
+	}
+	// Output that could not be written ends the command with exit 4, in
+	// place of the command's own exit code.
+	let code = result.unwrap_or_else(|failure| failure.code);
+	match output::finish(code) {
 		Ok(code) => ExitCode::from(code),
 		Err(failure) => {
 			output::error(&failure.message);

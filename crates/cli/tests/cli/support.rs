@@ -188,6 +188,30 @@ impl TestRepo {
 		}
 	}
 
+	/// Runs `source-sentry` with `args` in the working tree, with standard
+	/// output connected to a pipe whose reading end is already closed, so
+	/// that nothing it writes there can be read. The returned standard output
+	/// is empty.
+	pub fn run_without_reader(&self, args: &[&str]) -> Run {
+		let (reader, writer) = std::io::pipe().expect("pipe");
+		drop(reader);
+		let mut command = Command::new(BINARY);
+		self.isolate(&mut command);
+		let output = command
+			.args(args)
+			.current_dir(&self.path)
+			.env("NO_COLOR", "1")
+			.stdin(Stdio::null())
+			.stdout(writer)
+			.output()
+			.expect("run source-sentry");
+		Run {
+			code: output.status.code().expect("an exit code"),
+			stdout: String::new(),
+			stderr: String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+		}
+	}
+
 	/// Runs a printed command through the platform's shell, with the tested
 	/// binary on PATH and the same isolated git configuration as other runs.
 	pub fn run_shell_in(&self, directory: &str, line: &str) -> Run {

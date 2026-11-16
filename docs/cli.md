@@ -97,7 +97,7 @@ The exit code is:
 | 1 | A subject's outcome is `warn`, and the threshold is `warn` |
 | 2 | A subject's outcome is `fail` |
 | 3 | A configuration or integrity error |
-| 4 | The evaluation could not complete |
+| 4 | The evaluation could not complete, or its output could not be written |
 | 64 | Invalid command-line usage |
 
 A diagnostic of severity `warning`, such as a pattern that matches nothing,
@@ -740,7 +740,7 @@ These commands exit with:
 | 1 | Not confirmed: declined, or no terminal and no `--yes` |
 | 2 | Refused: the request does not fit the repository |
 | 3 | Refused because of a configuration or integrity error |
-| 4 | The repository could not be read or written |
+| 4 | The repository could not be read or written, or the output could not be written |
 | 64 | Invalid command-line usage |
 
 The binary is named `source-sentry` only, because `ss` is already the

@@ -4,13 +4,15 @@
 //! strips the styles when `--color never` is given, or under `--color auto`
 //! when the stream is not a terminal or `NO_COLOR` is set.
 
-use std::io::Write as _;
+use std::io::{self, Write as _};
+use std::sync::Mutex;
 
 use anstream::ColorChoice;
 use owo_colors::OwoColorize as _;
 use source_sentry_core::model::Outcome;
 
 use crate::cli::ColorWhen;
+use crate::exit::{self, Failure};
 
 /// Sets the colour choice for every stream.
 pub(crate) fn set_color(when: ColorWhen) {
@@ -80,10 +82,54 @@ pub(crate) fn error(message: &str) {
 	write_err(&format!("{} {message}", "error:".red().bold()));
 }
 
+/// The first write to standard output that failed, kept until the command
+/// ends and [`finish`] reports it.
+static FAILED_WRITE: Mutex<Option<io::Error>> = Mutex::new(None);
+
 /// Writes `text` and a newline to standard output. A failed write, such as
-/// a closed pipe, is ignored: there is nowhere left to report it.
+/// a closed pipe, is kept for [`finish`], which ends the command with exit
+/// 4.
 fn write_out(text: &str) {
-	let _ = writeln!(anstream::stdout(), "{text}");
+	if let Err(error) = writeln!(anstream::stdout(), "{text}") {
+		keep_failure(error);
+	}
+}
+
+/// Keeps `error` unless an earlier write already failed.
+fn keep_failure(error: io::Error) {
+	let mut failed = FAILED_WRITE
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner);
+	failed.get_or_insert(error);
+}
+
+/// Flushes standard output and returns the command's exit code: `code`, or
+/// a failure with exit 4 when any output could not be written.
+///
+/// # Errors
+///
+/// Exit 4, with what could not be written and why, when a write to
+/// standard output or its flush failed.
+pub(crate) fn finish(code: u8) -> Result<u8, Failure> {
+	if let Err(error) = io::stdout().flush() {
+		keep_failure(error);
+	}
+	let failed = FAILED_WRITE
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner)
+		.take();
+	match failed {
+		Some(error) => Err(write_failure(&error)),
+		None => Ok(code),
+	}
+}
+
+/// The failure of output that could not be written: exit 4.
+fn write_failure(error: &io::Error) -> Failure {
+	Failure::new(
+		exit::OPERATIONAL,
+		format!("could not write the output to standard output: {error}"),
+	)
 }
 
 /// Writes `text` and a newline to standard error, ignoring a failed write.
@@ -156,4 +202,28 @@ pub(crate) fn severity(name: &str, fatal: bool) -> String {
 pub(crate) fn pad(styled: &str, plain: &str, width: usize) -> String {
 	let padding = width.saturating_sub(plain.chars().count());
 	format!("{styled}{}", " ".repeat(padding))
+}
+
+#[cfg(test)]
+mod tests {
+	use std::io;
+
+	use super::{finish, keep_failure};
+
+	/// A failed write ends the command with exit 4 in place of its own code,
+	/// once; a command whose output was written keeps its code.
+	#[test]
+	fn a_failed_write_replaces_the_exit_code_with_4() {
+		keep_failure(io::Error::from(io::ErrorKind::BrokenPipe));
+		let failure = finish(1).unwrap_err();
+		assert_eq!(failure.code, 4);
+		assert!(
+			failure
+				.message
+				.starts_with("could not write the output to standard output: "),
+			"{}",
+			failure.message
+		);
+		assert_eq!(finish(1).unwrap(), 1);
+	}
 }
