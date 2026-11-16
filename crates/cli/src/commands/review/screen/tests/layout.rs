@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use super::super::app::{App, Area, Key, Pane};
 use super::super::draw;
-use super::{drawn, fixture, press, shows};
+use super::{Repo, drawn, fixture, json, press, shows};
 
 /// Forty-eight different ideographs, each two cells wide.
 fn ideographs() -> String {
@@ -126,4 +126,40 @@ fn the_pane_heading_keeps_within_the_pane() {
 	assert_eq!(screen[2].chars().nth(30), Some('│'), "{}", screen[2]);
 	let heading = from_column(&screen[2], 31);
 	assert_eq!(heading, format!(" warn  {}…", "x".repeat(40)));
+}
+
+/// The whole screen draws at the smallest size it supports and just below
+/// it, with long facts, a long path, no changes to show and a document of
+/// wide characters, in both panes. At the smallest size the sidebar keeps
+/// its divider on every row.
+#[test]
+fn the_screen_draws_at_its_smallest_size_and_below() {
+	let path = format!("docs/{}/{}.md", "nested".repeat(12), "name".repeat(10));
+	let repo = Repo::new(json!({
+		path.as_str(): {"sources": [{"path": "/src/a.rs"}]},
+	}));
+	repo.write(&path, &format!("{}\n\n{}\n", ideographs(), ideographs()));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let shown = Rc::make_mut(app.shown.as_mut().unwrap());
+	shown.facts = format!("{}, {}", "y".repeat(60), "z".repeat(60));
+	shown.files.clear();
+	let (columns, rows) = draw::MINIMUM;
+	for _ in ["changes", "document"] {
+		for (width, height) in [
+			(columns, rows),
+			(columns - 1, rows),
+			(columns, rows - 1),
+			(columns - 1, rows - 1),
+		] {
+			let screen = drawn(&app, width, height);
+			if (width, height) != draw::MINIMUM {
+				continue;
+			}
+			for row in &screen[2..usize::from(rows) - 3] {
+				assert_eq!(row.chars().nth(30), Some('│'), "{}", screen.join("\n"));
+			}
+		}
+		press(&mut app, &[Key::Char('v')]);
+	}
 }
