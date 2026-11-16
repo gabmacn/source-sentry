@@ -133,11 +133,21 @@ fn attest_command(
 	Ok(command)
 }
 
-/// A path selector relative to the current directory for people, or rooted
-/// for JSON; pattern selectors keep their spelling.
-/// Redundant `./` components distinguish a path from a pattern with the
-/// same rooted spelling. A finite declaration has only finitely many such
-/// spellings, so inserting them must find an unambiguous path selector.
+/// The selector for the `attest` command, which selects exactly the source
+/// that `selector` selected here when the command runs where it is meant
+/// to: the effective directory for people, the document's project root for
+/// JSON.
+///
+/// A pattern keeps the spelling it was selected by when that still selects
+/// it there; otherwise it is spelled as declared, or rooted at the project or
+/// the repository. A path is relative to the effective directory for people,
+/// and rooted for JSON; redundant `./` components after any root marker
+/// distinguish it from a pattern with the same spelling. A finite
+/// declaration has only finitely many such spellings, so inserting them
+/// finds an unambiguous path selector.
+///
+/// Each candidate is resolved as `attest` will resolve it, and only one that
+/// selects the same declared source is accepted.
 fn command_selector(
 	workspace: &Workspace,
 	inventory: &Inventory,
@@ -147,39 +157,71 @@ fn command_selector(
 ) -> Result<String, Failure> {
 	let selected =
 		workspace.selection(inventory, document, &[selector.to_owned()])?;
-	if !matches!(selected, Selection::Declared(sources) if sources.iter().any(|source| matches!(source, SourceSpec::Path(_))))
-	{
+	let Selection::Declared(sources) = &selected else {
+		// The planner has already reported a document without a declaration.
 		return Ok(selector.to_owned());
-	}
-	let path = workspace.source_path(std::path::Path::new(selector))?;
-	let mut shown = match format {
-		Format::Human => workspace.display_path(&path),
-		Format::Json => format!(
-			"{}{}",
-			if inventory.project.is_root() {
-				"/"
-			} else {
-				":/"
-			},
-			path.as_str()
-		),
 	};
-	let attempts = inventory
-		.claims
-		.iter()
-		.find(|claim| &claim.document == document)
-		.map_or(0, |claim| claim.declaration.sources.len());
-	for _ in 0..attempts {
-		if workspace
-			.selection(inventory, document, std::slice::from_ref(&shown))
-			.is_ok()
-		{
-			return Ok(shown);
+	let start = match format {
+		Format::Human => workspace.start().to_path_buf(),
+		Format::Json => workspace.project_directory(&inventory.project),
+	};
+	let selects = |candidate: &str| {
+		workspace
+			.selection_from(&start, inventory, document, &[candidate.to_owned()])
+			.is_ok_and(|resolved| resolved == selected)
+	};
+	let candidates = match sources.as_slice() {
+		[SourceSpec::Pattern(declared)] => {
+			let mut spellings = vec![selector.to_owned()];
+			spellings.extend(workspace.pattern_spellings(document, declared));
+			spellings
 		}
-		shown.insert_str(usize::from(shown.starts_with('/')), "./");
-	}
-	workspace.selection(inventory, document, std::slice::from_ref(&shown))?;
-	Ok(shown)
+		[SourceSpec::Path(_)] => {
+			let path = workspace.source_path(std::path::Path::new(selector))?;
+			let mut shown = match format {
+				Format::Human => workspace.display_path(&path),
+				Format::Json => format!(
+					"{}{}",
+					if inventory.project.is_root() {
+						"/"
+					} else {
+						":/"
+					},
+					path.as_str()
+				),
+			};
+			let attempts = inventory
+				.claims
+				.iter()
+				.find(|claim| &claim.document == document)
+				.map_or(0, |claim| claim.declaration.sources.len());
+			let mut spellings = vec![shown.clone()];
+			for _ in 0..attempts {
+				let marker = if shown.starts_with(":/") {
+					2
+				} else {
+					usize::from(shown.starts_with('/'))
+				};
+				shown.insert_str(marker, "./");
+				spellings.push(shown.clone());
+			}
+			spellings
+		}
+		_ => Vec::new(),
+	};
+	candidates
+		.into_iter()
+		.find(|candidate| selects(candidate))
+		.ok_or_else(|| {
+			Failure::new(
+				exit::OPERATIONAL,
+				format!(
+					"cannot write a `--source` for the `attest` command that selects \
+					 exactly what `{selector}` selected here; this is a bug in \
+					 Source Sentry"
+				),
+			)
+		})
 }
 
 /// Appends one option, protecting a value that begins with `-` from parsing

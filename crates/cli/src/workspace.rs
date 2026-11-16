@@ -101,7 +101,16 @@ impl Workspace {
 	/// Exit 64 when the path lies outside the working tree or cannot be a
 	/// repository path.
 	pub(crate) fn repo_path(&self, argument: &Path) -> Result<RepoPath, Failure> {
-		let absolute = normalize(&self.current.join(argument));
+		self.repo_path_from(&self.current, argument)
+	}
+
+	/// [`Workspace::repo_path`], for a command line that starts in `start`.
+	fn repo_path_from(
+		&self,
+		start: &Path,
+		argument: &Path,
+	) -> Result<RepoPath, Failure> {
+		let absolute = normalize(&start.join(argument));
 		let relative =
 			repository_relative(&absolute, &self.root).ok_or_else(|| {
 				Failure::usage(format!(
@@ -138,6 +147,16 @@ impl Workspace {
 		&self,
 		argument: &Path,
 	) -> Result<RepoPath, Failure> {
+		self.source_path_from(&self.current, argument)
+	}
+
+	/// [`Workspace::source_path`], for a command line that starts in
+	/// `start`.
+	pub(crate) fn source_path_from(
+		&self,
+		start: &Path,
+		argument: &Path,
+	) -> Result<RepoPath, Failure> {
 		let written = argument.to_string_lossy();
 		let absolute = if written.starts_with('/') || written.starts_with(":/") {
 			let project = project_of(&self.projects, &self.scope);
@@ -147,9 +166,23 @@ impl Workspace {
 			.map_err(|error| Failure::usage(error.to_string()))?;
 			self.root_shown.join(path.as_str())
 		} else {
-			source_argument_path(&self.root_shown, &self.current, argument)?
+			source_argument_path(&self.root_shown, start, argument)?
 		};
-		self.repo_path(&absolute)
+		self.repo_path_from(start, &absolute)
+	}
+
+	/// The directory that command lines typed for this invocation start in:
+	/// the effective directory.
+	pub(crate) fn start(&self) -> &Path {
+		&self.current
+	}
+
+	/// The directory of `project` in the working tree, where a command line
+	/// written to run from that project's root starts.
+	pub(crate) fn project_directory(&self, project: &RepoPath) -> PathBuf {
+		let mut directory = self.root.clone();
+		directory.extend(project.components());
+		directory
 	}
 
 	/// The identity of a document argument.

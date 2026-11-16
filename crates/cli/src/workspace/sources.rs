@@ -97,6 +97,17 @@ impl Workspace {
 		document: &DocumentId,
 		names: &[String],
 	) -> Result<Selection, Failure> {
+		self.selection_from(self.start(), inventory, document, names)
+	}
+
+	/// [`Workspace::selection`], for a command line that starts in `start`.
+	pub(crate) fn selection_from(
+		&self,
+		start: &Path,
+		inventory: &Inventory,
+		document: &DocumentId,
+		names: &[String],
+	) -> Result<Selection, Failure> {
 		if names.is_empty() {
 			return Ok(Selection::All);
 		}
@@ -110,7 +121,7 @@ impl Workspace {
 		};
 		let sources = names
 			.iter()
-			.map(|name| self.selected_source(claim, name))
+			.map(|name| self.selected_source(start, claim, name))
 			.collect::<Result<_, _>>()?;
 		Ok(Selection::Declared(sources))
 	}
@@ -118,12 +129,13 @@ impl Workspace {
 	/// Selects one path by its resolved file or one pattern by its spelling.
 	fn selected_source(
 		&self,
+		start: &Path,
 		claim: &Claim,
 		name: &str,
 	) -> Result<SourceSpec, Failure> {
 		let project =
 			source_sentry_core::config::project_of(&self.projects, &self.scope);
-		let resolved = self.source_path(Path::new(name));
+		let resolved = self.source_path_from(start, Path::new(name));
 		let path = claim
 			.declaration
 			.sources
@@ -175,6 +187,21 @@ impl Workspace {
 				))
 			}
 		}
+	}
+
+	/// Every spelling that selects the declared pattern `declared` of
+	/// `document`: as declared, then rooted at the project, then rooted at
+	/// the repository.
+	pub(crate) fn pattern_spellings(
+		&self,
+		document: &DocumentId,
+		declared: &str,
+	) -> Vec<String> {
+		let project =
+			source_sentry_core::config::project_of(&self.projects, &self.scope);
+		std::iter::once(declared.to_owned())
+			.chain(rooted_spellings(&project, document, declared))
+			.collect()
 	}
 
 	/// Converts typed removals without treating pattern spellings as paths.
@@ -284,24 +311,36 @@ fn pattern_matches(
 ) -> bool {
 	declared == name
 		|| ((name.starts_with('/') || name.starts_with(":/"))
-			&& SourceGlob::compile_project(
-				project,
-				match document {
-					DocumentId::Local(path) => Some(path),
-					DocumentId::Remote(_) => None,
-				},
-				declared,
-			)
-			.is_ok_and(|glob| {
-				let rooted = glob.rooted();
-				let absolute = format!(":{rooted}");
-				let local = if project.is_root() {
-					Some(rooted.clone())
-				} else {
-					rooted
-						.strip_prefix(&format!("/{}/", project.as_str()))
-						.map(|relative| format!("/{relative}"))
-				};
-				name == absolute || local.as_deref() == Some(name)
-			}))
+			&& rooted_spellings(project, document, declared)
+				.iter()
+				.any(|spelling| spelling == name))
+}
+
+/// The rooted spellings of a declared pattern: from the project root with
+/// `/`, when the pattern lies inside its project, and from the repository
+/// root with `:/`.
+fn rooted_spellings(
+	project: &RepoPath,
+	document: &DocumentId,
+	declared: &str,
+) -> Vec<String> {
+	let Ok(glob) = SourceGlob::compile_project(
+		project,
+		match document {
+			DocumentId::Local(path) => Some(path),
+			DocumentId::Remote(_) => None,
+		},
+		declared,
+	) else {
+		return Vec::new();
+	};
+	let rooted = glob.rooted();
+	let local = if project.is_root() {
+		Some(rooted.clone())
+	} else {
+		rooted
+			.strip_prefix(&format!("/{}/", project.as_str()))
+			.map(|relative| format!("/{relative}"))
+	};
+	local.into_iter().chain([format!(":{rooted}")]).collect()
 }
