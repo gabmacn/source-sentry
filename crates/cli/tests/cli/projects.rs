@@ -546,3 +546,74 @@ fn different_advice_is_printed_for_each_declaration() {
 	assert!(lines[0].contains("track guide.md"), "{}", run.stdout);
 	assert!(lines[1].contains("track notes.md"), "{}", run.stdout);
 }
+
+/// Of another project, `check` reports the errors that concern the cited
+/// document: its configuration errors and the errors met while hashing the
+/// cited document's sources. A fault in an unrelated document there neither
+/// reaches the report nor changes the exit code.
+#[test]
+fn a_cited_documents_errors_reach_the_citing_report() {
+	let repo = nested();
+	repo.write("app/other.md", "# Other\n");
+	repo.write("app/other.rs", "fn other() {}\n");
+	for (document, source) in
+		[("app/guide.md", "/code.rs"), ("app/other.md", "/other.rs")]
+	{
+		repo
+			.run(&["track", document, "--source", source, "--yes"])
+			.expect_code(0);
+		repo.git(&["add", "app/source-sentry.lock"]);
+		repo.run(&["attest", document, "--yes"]).expect_code(0);
+		repo.git(&["add", "app/source-sentry.lock"]);
+	}
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--source",
+			"/app/guide.md",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.git(&["add", "source-sentry.lock"]);
+	repo
+		.run(&["attest", "docs/guide.md", "--yes"])
+		.expect_code(0);
+	repo.git(&["add", "source-sentry.lock"]);
+	let check = || repo.run(&["check", "--at", AT, "--format", "json"]);
+	let codes = |json: &Value| -> Vec<String> {
+		json["diagnostics"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|diagnostic| diagnostic["code"].as_str().unwrap().to_owned())
+			.collect()
+	};
+	let healthy = check().expect_code(0).json();
+	assert_eq!(codes(&healthy), Vec::<String>::new(), "{healthy:#}");
+
+	repo.git(&["config", "filter.custom.clean", "cat"]);
+	repo.write(".gitattributes", "app/other.rs filter=custom\n");
+	let direct = repo
+		.run(&["-C", "app", "check", "--at", AT, "--format", "json"])
+		.expect_code(4)
+		.json();
+	assert_eq!(codes(&direct), ["unsupported-filter"], "{direct:#}");
+	let unrelated = check().expect_code(0).json();
+	assert_eq!(codes(&unrelated), Vec::<String>::new(), "{unrelated:#}");
+
+	repo.write(".gitattributes", "app/code.rs filter=custom\n");
+	let cited = check().expect_code(4).json();
+	assert_eq!(codes(&cited), ["unsupported-filter"], "{cited:#}");
+	assert_eq!(cited["diagnostics"][0]["location"]["project"], "app");
+	assert_eq!(cited["diagnostics"][0]["location"]["file"], "code.rs");
+
+	repo.write(".gitattributes", "");
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1\ntime-zone: Not/AZone\n",
+	);
+	let zone = check().expect_code(3).json();
+	assert_eq!(codes(&zone), ["invalid-time-zone"], "{zone:#}");
+	assert_eq!(zone["diagnostics"][0]["location"]["project"], "app");
+}

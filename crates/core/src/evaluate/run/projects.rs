@@ -5,16 +5,33 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, Utc};
 
 use super::{
-	Evaluation, SubjectKind, check_local, judge_all, propagate, unloadable,
+	Coverage, Evaluation, SubjectKind, check_local, judge_all, propagate,
+	unloadable,
 };
 use crate::claims::{Inventory, discover, graph};
 use crate::config::{ConfigSet, LoadError, project_of};
 use crate::model::{DocumentId, RepoPath};
 use crate::ports::{BackendError, History, Snapshot};
 
+/// Another project that the checked project cites, with the documents of it
+/// that are cited.
+struct Cited {
+	configs: ConfigSet,
+	found: Inventory,
+	documents: BTreeSet<DocumentId>,
+}
+
 /// Evaluates one project, including the freshness of source documents in other
 /// projects. Foreign contexts are never applied, and foreign subjects are not
-/// reported. Only referenced foreign declarations contribute diagnostics.
+/// reported.
+///
+/// Of another project, only the cited documents are evaluated, with the
+/// documents of that project that they cite in turn: their own sources are
+/// hashed and their own clocks read, and nothing else of that project. Every
+/// diagnostic of that evaluation is reported, among them the project's
+/// configuration errors and the errors met while hashing the cited
+/// documents' sources, as are the configuration errors of a project that
+/// cannot be loaded.
 ///
 /// # Errors
 ///
@@ -27,12 +44,17 @@ pub fn check<S: Snapshot, H: History>(
 	at: DateTime<Utc>,
 	context: Option<&str>,
 ) -> Result<Evaluation, BackendError> {
-	let mut result =
-		check_local(snapshot, history, configs, inventory, at, context, true)?;
+	let mut result = check_local(
+		snapshot,
+		history,
+		configs,
+		inventory,
+		at,
+		Coverage::Project(context),
+	)?;
 	let mut combined = inventory.clone();
-	let mut loaded = BTreeMap::new();
+	let mut loaded: BTreeMap<RepoPath, Option<Cited>> = BTreeMap::new();
 	let mut visited = BTreeSet::new();
-	let mut foreign = Vec::new();
 	loop {
 		let needed: BTreeSet<RepoPath> = combined
 			.claims
@@ -60,25 +82,49 @@ pub fn check<S: Snapshot, H: History>(
 					}
 				};
 				let found = discover(snapshot, &other)?;
-				let evaluated =
-					check_local(snapshot, history, &other, &found, at, None, false)?;
-				loaded.insert(project.clone(), Some((found, evaluated)));
+				loaded.insert(
+					project.clone(),
+					Some(Cited {
+						configs: other,
+						found,
+						documents: BTreeSet::new(),
+					}),
+				);
 			}
-			let Some(Some((found, evaluated))) = loaded.get(&project) else {
+			let Some(Some(cited)) = loaded.get_mut(&project) else {
 				continue;
 			};
 			let document = DocumentId::Local(path);
-			combined.claims.extend(found.claims_of(&document).cloned());
-			foreign.extend(evaluated.subjects.iter().filter(|subject| matches!(&subject.kind, SubjectKind::Document(found) if found.document == document)).cloned());
-			result.diagnostics.extend(
-				evaluated
-					.diagnostics
-					.iter()
-					.filter(|diagnostic| diagnostic.document.as_ref() == Some(&document))
-					.cloned(),
-			);
+			let before = combined.claims.len();
+			combined
+				.claims
+				.extend(cited.found.claims_of(&document).cloned());
+			if combined.claims.len() > before {
+				cited.documents.insert(document);
+			}
 		}
 	}
+
+	let mut foreign = Vec::new();
+	for cited in loaded.values().flatten() {
+		if cited.documents.is_empty() {
+			continue;
+		}
+		let evaluated = check_local(
+			snapshot,
+			history,
+			&cited.configs,
+			&narrowed(&cited.found, &cited.documents),
+			at,
+			Coverage::Cited(&cited.documents),
+		)?;
+		foreign.extend(evaluated.subjects.into_iter().filter(|subject| {
+			matches!(&subject.kind, SubjectKind::Document(document)
+				if cited.documents.contains(&document.document))
+		}));
+		result.diagnostics.extend(evaluated.diagnostics);
+	}
+
 	combined
 		.claims
 		.sort_by(|left, right| left.document.cmp(&right.document));
@@ -98,4 +144,40 @@ pub fn check<S: Snapshot, H: History>(
 		&result.diagnostics,
 	);
 	Ok(result)
+}
+
+/// `found` narrowed to the claims of `cited` documents: no other claim and
+/// no unclaimed file, and of discovery's diagnostics only those about a cited
+/// document. Lockfiles, tombstones, dependencies and series stay whole,
+/// because the cited documents' declaration sites, upstreams and series
+/// membership are read from them.
+pub(super) fn narrowed(
+	found: &Inventory,
+	cited: &BTreeSet<DocumentId>,
+) -> Inventory {
+	let is_cited = |document: Option<&DocumentId>| {
+		document.is_some_and(|document| cited.contains(document))
+	};
+	Inventory {
+		project: found.project.clone(),
+		projects: found.projects.clone(),
+		revision: found.revision.clone(),
+		lockfiles: found.lockfiles.clone(),
+		tombstones: found.tombstones.clone(),
+		dependencies: found.dependencies.clone(),
+		series: found.series.clone(),
+		claims: found
+			.claims
+			.iter()
+			.filter(|claim| is_cited(Some(&claim.document)))
+			.cloned()
+			.collect(),
+		unclaimed: Vec::new(),
+		diagnostics: found
+			.diagnostics
+			.iter()
+			.filter(|diagnostic| is_cited(diagnostic.document.as_ref()))
+			.cloned()
+			.collect(),
+	}
 }

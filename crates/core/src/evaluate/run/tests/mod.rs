@@ -3,6 +3,7 @@
 
 mod documents;
 mod policy;
+mod projects;
 mod records;
 mod series;
 

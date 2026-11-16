@@ -73,7 +73,8 @@ use crate::ports::{BackendError, History, Revision, Snapshot};
 ///   are reported once, here.
 /// - `at`: the evaluation instant, which every deadline and cadence window
 ///   is measured against.
-/// - `context`: the context the caller selected.
+/// - `coverage`: the whole project under the context the caller selected,
+///   or only the documents another project cites.
 ///
 /// Every claim is evaluated, even one in a double claim: each becomes a
 /// subject of its own, and the diagnostics decide the exit code. Documents
@@ -95,14 +96,16 @@ fn check_local<S: Snapshot, H: History>(
 	configs: &ConfigSet,
 	inventory: &Inventory,
 	at: DateTime<Utc>,
-	context: Option<&str>,
-	apply_policy: bool,
+	coverage: Coverage<'_>,
 ) -> Result<Evaluation, BackendError> {
 	let revision = snapshot.revision();
 	let mut diagnostics = inventory.diagnostics.clone();
-	let applied = apply_policy
-		.then(|| scopes::context(configs, context, &mut diagnostics))
-		.flatten();
+	let applied = match coverage {
+		Coverage::Project(context) => {
+			scopes::context(configs, context, &mut diagnostics)
+		}
+		Coverage::Cited(_) => None,
+	};
 	let zone = scopes::time_zone(configs, &mut diagnostics);
 	let hashes = hashing::hash(snapshot, inventory, &mut diagnostics)?;
 
@@ -134,19 +137,16 @@ fn check_local<S: Snapshot, H: History>(
 			.map(|claim| planner.document(claim))
 			.collect()
 	};
-	let series: Vec<_> = inventory
-		.series
-		.iter()
-		.map(|members| {
-			series::plan(
-				members,
-				inventory,
-				&mut scopes,
-				&mut requests,
-				&mut diagnostics,
-			)
-		})
-		.collect();
+	let (series, awaiting) = match coverage {
+		Coverage::Project(_) => (
+			series_plans(inventory, &mut scopes, &mut requests, &mut diagnostics),
+			Vec::new(),
+		),
+		Coverage::Cited(cited) => (
+			Vec::new(),
+			awaiting_in_series(inventory, cited, &mut scopes, &mut diagnostics),
+		),
+	};
 
 	let answers = requests.answer(history, revision, at)?;
 
@@ -164,6 +164,9 @@ fn check_local<S: Snapshot, H: History>(
 	for plan in &series {
 		let (key, members) = series::awaiting(plan);
 		mark_awaiting_seal(&mut subjects, &key, members);
+	}
+	for (key, members) in &awaiting {
+		mark_awaiting_seal(&mut subjects, key, members);
 	}
 	let series: Vec<Subject> = series
 		.into_iter()
@@ -201,6 +204,71 @@ fn check_local<S: Snapshot, H: History>(
 		diagnostics,
 		summary,
 	})
+}
+
+/// What one evaluation covers.
+#[derive(Clone, Copy, Debug)]
+enum Coverage<'a> {
+	/// Every claim, series and unclaimed file of the project, judged under
+	/// the named context, or the default one when it is `None`.
+	Project(Option<&'a str>),
+	/// Only these documents of another project, which a project being
+	/// checked cites, with no context: the inventory holds their claims
+	/// alone, and their series supply membership, which marks
+	/// `awaiting-seal`, but no cadence.
+	Cited(&'a BTreeSet<DocumentId>),
+}
+
+/// Plans every series of `inventory`, with the completion clocks that each
+/// cadence needs.
+fn series_plans<'i>(
+	inventory: &'i Inventory,
+	scopes: &mut Scopes<'_>,
+	requests: &mut Requests,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<series::SeriesPlan<'i>> {
+	inventory
+		.series
+		.iter()
+		.map(|members| {
+			series::plan(members, inventory, scopes, requests, diagnostics)
+		})
+		.collect()
+}
+
+/// The members that carry `awaiting-seal` in each series with a member
+/// among `cited`. A series is planned for its membership alone: the
+/// completion clocks that its cadence would need are never answered, and
+/// of its diagnostics, only those about a cited document are kept.
+fn awaiting_in_series(
+	inventory: &Inventory,
+	cited: &BTreeSet<DocumentId>,
+	scopes: &mut Scopes<'_>,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<(SeriesKey, Vec<RepoPath>)> {
+	let mut unanswered = Requests::default();
+	let mut found = Vec::new();
+	let mut awaiting = Vec::new();
+	for members in &inventory.series {
+		if !members
+			.members
+			.iter()
+			.any(|member| cited.contains(&DocumentId::Local(member.path.clone())))
+		{
+			continue;
+		}
+		let plan =
+			series::plan(members, inventory, scopes, &mut unanswered, &mut found);
+		let (key, members) = series::awaiting(&plan);
+		awaiting.push((key, members.to_vec()));
+	}
+	diagnostics.extend(found.into_iter().filter(|diagnostic| {
+		diagnostic
+			.document
+			.as_ref()
+			.is_some_and(|document| cited.contains(document))
+	}));
+	awaiting
 }
 
 /// The evaluation of a snapshot whose configs cannot be loaded: nothing is
