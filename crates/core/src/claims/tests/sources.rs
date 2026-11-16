@@ -611,12 +611,98 @@ fn documents_that_are_sources_of_each_other_form_a_cycle() {
 		"{}",
 		diagnostic.message
 	);
+	assert!(
+		!diagnostic.message.contains("Other cycles"),
+		"{}",
+		diagnostic.message
+	);
 	assert_eq!(diagnostic.related.len(), 2);
 	assert_eq!(inventory.dependencies.len(), 4);
 	assert!(inventory.dependencies.contains(&Dependency {
 		dependent: local("docs/d.md"),
 		upstream: path("docs/a.md"),
 	}));
+}
+
+/// The cycle message of a lockfile in `docs` whose documents have the given
+/// sources, all of them also in that lockfile.
+fn cycle_message(documents: &[(&str, &[&str])]) -> String {
+	let entries: Vec<(String, String)> = documents
+		.iter()
+		.map(|(name, sources)| {
+			let sources: Vec<String> = sources
+				.iter()
+				.map(|source| format!(r#"{{"path": "{source}"}}"#))
+				.collect();
+			(
+				(*name).to_owned(),
+				format!(r#"{{"sources": [{}]}}"#, sources.join(", ")),
+			)
+		})
+		.collect();
+	let entries: Vec<(&str, &str)> = entries
+		.iter()
+		.map(|(name, declaration)| (name.as_str(), declaration.as_str()))
+		.collect();
+	let mut files = vec![(
+		"docs/source-sentry.lock".to_owned(),
+		lockfile(&entries, &[]),
+	)];
+	files.extend(
+		documents
+			.iter()
+			.map(|(name, _)| (format!("docs/{name}"), String::new())),
+	);
+	let files: Vec<(&str, &str)> = files
+		.iter()
+		.map(|(path, contents)| (path.as_str(), contents.as_str()))
+		.collect();
+	only(&inventory(&files), DiagnosticKind::DependencyCycle)
+		.message
+		.clone()
+}
+
+#[test]
+fn a_group_with_more_than_one_cycle_says_that_others_may_remain() {
+	let message = cycle_message(&[
+		("a.md", &["b.md", "c.md"]),
+		("b.md", &["a.md"]),
+		("c.md", &["a.md"]),
+	]);
+	assert_eq!(
+		message,
+		"documents are sources of each other in a cycle: `docs/a.md` → \
+		 `docs/b.md` → `docs/a.md`. Remove one of these sources to break it. \
+		 Other cycles may remain among these documents, and will be reported \
+		 once this one is broken"
+	);
+}
+
+#[test]
+fn a_group_that_is_a_single_cycle_names_it_alone() {
+	let message = cycle_message(&[("a.md", &["b.md"]), ("b.md", &["a.md"])]);
+	assert_eq!(
+		message,
+		"documents are sources of each other in a cycle: `docs/a.md` → \
+		 `docs/b.md` → `docs/a.md`. Remove one of these sources to break it"
+	);
+}
+
+#[test]
+fn a_document_that_is_its_own_source_is_not_a_cycle() {
+	let inventory = inventory(&[
+		(
+			"docs/source-sentry.lock",
+			&lockfile(&[("a.md", &with_source("a.md"))], &[]),
+		),
+		("docs/a.md", ""),
+	]);
+	assert_eq!(kinds(&inventory), [DiagnosticKind::SelfDependency]);
+	assert_eq!(
+		inventory.diagnostics[0].message,
+		"`a.md` resolves to `docs/a.md` itself, and a document cannot be its \
+		 own source. Remove the source, or narrow the pattern"
+	);
 }
 
 #[test]

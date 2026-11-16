@@ -110,14 +110,19 @@ fn on_file_source(
 	.about(DocumentId::Local(upstream.clone()))
 }
 
-/// Reports one cycle for each group of documents that depend on each other.
+/// Reports one cycle for each group of documents that depend on each other,
+/// and says so when the group holds other cycles too.
 fn report_cycles(
 	claims: &[Claim],
 	edges: &BTreeSet<Dependency>,
 	diagnostics: &mut Vec<Diagnostic>,
 ) {
 	let graph = Graph::new(edges);
-	for cycle in graph.cycles() {
+	for Cycle {
+		documents: cycle,
+		more,
+	} in graph.cycles()
+	{
 		let Some(first) = cycle.first() else {
 			continue;
 		};
@@ -136,20 +141,34 @@ fn report_cycles(
 			.iter()
 			.map(|document| format!("`{document}`"))
 			.collect();
+		let mut message = format!(
+			"documents are sources of each other in a cycle: {} → `{first}`. \
+			 Remove one of these sources to break it",
+			names.join(" → ")
+		);
+		if more {
+			message.push_str(
+				". Other cycles may remain among these documents, and will be \
+				 reported once this one is broken",
+			);
+		}
 		diagnostics.push(
-			Diagnostic::new(
-				DiagnosticKind::DependencyCycle,
-				first_location,
-				format!(
-					"documents are sources of each other in a cycle: {} → `{first}`. \
-					 Remove one of these sources to break it",
-					names.join(" → ")
-				),
-			)
-			.with_related(related)
-			.about(first.clone()),
+			Diagnostic::new(DiagnosticKind::DependencyCycle, first_location, message)
+				.with_related(related)
+				.about(first.clone()),
 		);
 	}
+}
+
+/// One cycle of a group of documents that depend on each other.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Cycle {
+	/// The cycle's documents, starting at the group's smallest document,
+	/// which is listed once.
+	documents: Vec<DocumentId>,
+	/// Whether the group holds more dependencies than the cycle uses, so
+	/// that at least one other cycle runs through it.
+	more: bool,
 }
 
 /// The dependency graph, with documents numbered in sorted order.
@@ -197,7 +216,11 @@ impl Graph {
 	/// documents, starting and ending at its smallest document, which is
 	/// listed once. Found with Kosaraju's algorithm, iteratively, so that a
 	/// long chain of documents cannot overflow the stack.
-	fn cycles(&self) -> Vec<Vec<DocumentId>> {
+	///
+	/// A component whose only cycle is the one found has as many edges
+	/// among its members as the cycle has documents; any further edge closes
+	/// another cycle.
+	fn cycles(&self) -> Vec<Cycle> {
 		let mut cycles = Vec::new();
 		for component in self.components() {
 			if component.len() < 2 {
@@ -208,12 +231,22 @@ impl Graph {
 				continue;
 			};
 			let cycle = self.cycle_through(start, &members);
-			cycles.push(
-				cycle
+			let edges: usize = members
+				.iter()
+				.map(|&node| {
+					self.successors[node]
+						.iter()
+						.filter(|next| members.contains(next))
+						.count()
+				})
+				.sum();
+			cycles.push(Cycle {
+				more: edges > cycle.len(),
+				documents: cycle
 					.into_iter()
 					.map(|node| self.documents[node].clone())
 					.collect(),
-			);
+			});
 		}
 		cycles.sort();
 		cycles
