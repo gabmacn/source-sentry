@@ -1,10 +1,12 @@
 //! Checks that span files: declarations, imports and paired configs.
 
 use super::{
-	BASE, REPOSITORY, directory_error, errors, load, only_error, repository_error,
+	BASE, REPOSITORY, directory_error, errors, load, only_error,
+	repository_error, snapshot,
 };
 use crate::config::{
-	ConfigErrorKind, ConfigKind, DEFAULT_CONTEXT, IMPLICIT_VERSION,
+	ConfigErrorKind, ConfigKind, ConfigSet, DEFAULT_CONTEXT, IMPLICIT_VERSION,
+	LoadError, MAX_EXPANDED_IMPORTS, MAX_IMPORT_DEPTH,
 };
 use crate::testing::path;
 
@@ -285,6 +287,150 @@ fn a_repeated_import_is_not_a_cycle() {
 		),
 		("docs/source-sentry.yaml", "imports: ['a', 'common', 'a']\n"),
 	]);
+}
+
+#[test]
+fn a_repeated_import_is_expanded_every_time_in_order() {
+	let configs = load(&[
+		(REPOSITORY, BASE),
+		(".source-sentry/presets/common.yaml", ""),
+		(
+			".source-sentry/presets/a.yaml",
+			"imports: ['common', 'common']\n",
+		),
+		("docs/source-sentry.yaml", "imports: ['a', 'common', 'a']\n"),
+	]);
+	let docs = &configs.directories[&path("docs")];
+	let expanded: Vec<(&str, usize)> = docs
+		.imports
+		.iter()
+		.map(|import| {
+			let name = import.preset.path.file_name().unwrap_or_default();
+			(name, import.chain.len())
+		})
+		.collect();
+	assert_eq!(
+		expanded,
+		[
+			("common.yaml", 2),
+			("common.yaml", 2),
+			("a.yaml", 1),
+			("common.yaml", 1),
+			("common.yaml", 2),
+			("common.yaml", 2),
+			("a.yaml", 1),
+		]
+	);
+}
+
+/// Presets `p1` to `p{count}`, each importing the next one `times` times,
+/// and a repository config that imports `p1`.
+fn preset_chain(count: usize, times: usize) -> Vec<(String, String)> {
+	let mut files =
+		vec![(REPOSITORY.to_owned(), format!("{BASE}imports: ['p1']\n"))];
+	for number in 1..=count {
+		let imports = if number == count {
+			String::new()
+		} else {
+			format!(
+				"imports: [{}]\n",
+				vec![format!("'p{}'", number + 1); times].join(", ")
+			)
+		};
+		files.push((format!(".source-sentry/presets/p{number}.yaml"), imports));
+	}
+	files
+}
+
+/// Loads `files`, given as owned strings.
+fn load_owned(files: &[(String, String)]) -> Result<ConfigSet, LoadError> {
+	let files: Vec<(&str, &str)> = files
+		.iter()
+		.map(|(file, contents)| (file.as_str(), contents.as_str()))
+		.collect();
+	ConfigSet::load(&snapshot(&files))
+}
+
+#[test]
+fn imports_nested_up_to_the_limit_load() {
+	let files = preset_chain(MAX_IMPORT_DEPTH, 1);
+	let Ok(configs) = load_owned(&files) else {
+		panic!("a chain of {MAX_IMPORT_DEPTH} presets loads");
+	};
+	let repository = configs.repository.as_ref().expect("a repository config");
+	assert_eq!(repository.imports.len(), MAX_IMPORT_DEPTH);
+	assert_eq!(repository.imports[0].chain.len(), MAX_IMPORT_DEPTH);
+}
+
+#[test]
+fn an_import_nested_past_the_limit_is_an_error() {
+	let files = preset_chain(MAX_IMPORT_DEPTH + 1, 1);
+	let Err(LoadError::Invalid(found)) = load_owned(&files) else {
+		panic!("a chain one preset deeper than the limit is refused");
+	};
+	assert_eq!(found.len(), 1, "{found:#?}");
+	let error = &found[0];
+	assert_eq!(
+		error.kind,
+		ConfigErrorKind::ImportTooDeep {
+			limit: MAX_IMPORT_DEPTH
+		}
+	);
+	assert_eq!(
+		error.file,
+		path(&format!(".source-sentry/presets/p{MAX_IMPORT_DEPTH}.yaml"))
+	);
+	assert_eq!(error.setting.as_deref(), Some("imports[0]"));
+	assert_eq!(error.import_chain.len(), MAX_IMPORT_DEPTH);
+	assert_eq!(error.import_chain[0], path(REPOSITORY));
+	assert!(
+		error
+			.to_string()
+			.contains(&format!("the limit of {MAX_IMPORT_DEPTH} nested imports")),
+		"{error}"
+	);
+}
+
+#[test]
+fn a_very_long_chain_of_presets_is_an_error_not_a_crash() {
+	let files = preset_chain(2048, 1);
+	let Err(LoadError::Invalid(found)) = load_owned(&files) else {
+		panic!("a chain of 2048 presets is refused");
+	};
+	assert!(
+		found.iter().all(|error| error.kind
+			== ConfigErrorKind::ImportTooDeep {
+				limit: MAX_IMPORT_DEPTH
+			}),
+		"{found:#?}"
+	);
+}
+
+#[test]
+fn imports_that_expand_past_the_limit_are_an_error() {
+	// Each preset imports the next twice, so the expansion doubles with each
+	// level, past the limit well before the chain ends.
+	let levels = usize::try_from(MAX_EXPANDED_IMPORTS.ilog2()).unwrap_or(0) + 1;
+	assert!(levels <= MAX_IMPORT_DEPTH);
+	let files = preset_chain(levels, 2);
+	let Err(LoadError::Invalid(found)) = load_owned(&files) else {
+		panic!("an expansion past the limit is refused");
+	};
+	assert_eq!(found.len(), 1, "{found:#?}");
+	let error = &found[0];
+	assert_eq!(
+		error.kind,
+		ConfigErrorKind::TooManyImports {
+			limit: MAX_EXPANDED_IMPORTS
+		}
+	);
+	assert_eq!(error.import_chain[0], path(REPOSITORY));
+	assert!(
+		error.to_string().contains(&format!(
+			"the limit of {MAX_EXPANDED_IMPORTS} expanded imports for one config"
+		)),
+		"{error}"
+	);
 }
 
 #[test]

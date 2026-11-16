@@ -257,6 +257,23 @@ pub enum ConfigErrorKind {
 		/// The presets on the cycle, starting and ending with the same one.
 		cycle: Vec<String>,
 	},
+	/// An import nested deeper than
+	/// [`MAX_IMPORT_DEPTH`](super::MAX_IMPORT_DEPTH).
+	#[error("the import passes the limit of {limit} nested imports")]
+	ImportTooDeep {
+		/// The limit.
+		limit: usize,
+	},
+	/// An import that would take its config past
+	/// [`MAX_EXPANDED_IMPORTS`](super::MAX_EXPANDED_IMPORTS) expanded imports.
+	#[error(
+		"the import passes the limit of {limit} expanded imports for one \
+		 config, where each repeated import counts every time"
+	)]
+	TooManyImports {
+		/// The limit.
+		limit: usize,
+	},
 	/// A class that the repository config does not declare.
 	#[error("class `{class}` is not declared")]
 	UndeclaredClass {

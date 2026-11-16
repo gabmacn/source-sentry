@@ -12,7 +12,10 @@ use super::pattern::quote;
 use super::resolve::{
 	BuiltIn, ClassDefinition, ContextDefinition, Origin, Resolved, Scope,
 };
-use super::{DEFAULT_CONTEXT, DEFAULT_TIME_ZONE, IMPLICIT_VERSION};
+use super::{
+	DEFAULT_CONTEXT, DEFAULT_TIME_ZONE, IMPLICIT_VERSION, MAX_EXPANDED_IMPORTS,
+	MAX_IMPORT_DEPTH,
+};
 use crate::model::{ClassName, RepoPath};
 use crate::ports::{BackendError, Revision, Snapshot};
 use crate::{
@@ -295,7 +298,7 @@ impl ConfigSet {
 		let mut errors = Vec::new();
 		let files = Files::read(snapshot, &found, &mut errors)?;
 
-		let definitions = sharing::definitions(&files);
+		let definitions = sharing::definitions(&files, &mut errors);
 		sharing::validate(&files, &definitions, &mut errors);
 
 		// Without a valid repository config, declarations are unknown, and
@@ -308,11 +311,11 @@ impl ConfigSet {
 		}
 		check_imports(&files, &found, &mut errors);
 
-		let node = |file: &Arc<Parsed>| Node {
+		let mut node = |file: &Arc<Parsed>| Node {
 			file: Arc::clone(file),
-			imports: expand(file, &files.presets, &mut Vec::new()),
+			imports: expand(file, &files.presets, &mut errors),
 		};
-		let repository = files.repository.as_ref().map(node);
+		let repository = files.repository.as_ref().map(&mut node);
 		let directories: BTreeMap<_, _> = files
 			.directories
 			.iter()
@@ -525,16 +528,18 @@ fn check_imports(files: &Files, found: &Found, errors: &mut Vec<ConfigError>) {
 	}
 	let mut finished = BTreeSet::new();
 	for name in files.presets.keys() {
-		find_cycles(name, &files.presets, &mut Vec::new(), &mut finished, errors);
+		find_cycles(name, &files.presets, &mut finished, errors);
 	}
 }
 
 /// Walks the imports of the preset `name` depth-first, reporting every
 /// import that closes a cycle on the active stack.
+///
+/// The walk keeps its own stack rather than recursing, so that no chain of
+/// presets, however long, can exhaust the program's stack.
 fn find_cycles<'p>(
 	name: &'p str,
 	presets: &'p BTreeMap<String, Arc<Parsed>>,
-	active: &mut Vec<&'p str>,
 	finished: &mut BTreeSet<&'p str>,
 	errors: &mut Vec<ConfigError>,
 ) {
@@ -544,13 +549,22 @@ fn find_cycles<'p>(
 	if finished.contains(name) {
 		return;
 	}
-	active.push(name);
-	for (index, import) in preset.imports.iter().enumerate() {
+	// The presets being walked, each with the index of its next import.
+	let mut active: Vec<(&'p str, &'p Parsed, usize)> = vec![(name, preset, 0)];
+	while let Some(frame) = active.last_mut() {
+		let (name, preset, index) = *frame;
+		frame.2 += 1;
+		let Some(import) = preset.imports.get(index) else {
+			active.pop();
+			finished.insert(name);
+			continue;
+		};
 		let imported = import.value.as_str();
-		if let Some(start) = active.iter().position(|open| *open == imported) {
+		if let Some(start) = active.iter().position(|(open, ..)| *open == imported)
+		{
 			let mut cycle: Vec<String> = active[start..]
 				.iter()
-				.map(|open| (*open).to_owned())
+				.map(|(open, ..)| (*open).to_owned())
 				.collect();
 			cycle.push(imported.to_owned());
 			errors.push(
@@ -559,49 +573,117 @@ fn find_cycles<'p>(
 					.in_setting(format!("imports[{index}]"))
 					.correct("Remove one of the imports on the cycle"),
 			);
-		} else {
-			find_cycles(imported, presets, active, finished, errors);
+		} else if !finished.contains(imported)
+			&& let Some(next) = presets.get(imported)
+		{
+			active.push((imported, next, 0));
 		}
 	}
-	active.pop();
-	finished.insert(name);
 }
 
 /// Expands `file`'s imports depth-first, in the order listed, keeping
-/// repetitions. `active` holds the presets being expanded.
+/// repetitions.
 ///
 /// Unknown presets and imports that close a cycle are skipped here, because
-/// [`check_imports`] reports them and loading then fails.
+/// [`check_imports`] reports them and loading then fails. An import nested
+/// deeper than [`MAX_IMPORT_DEPTH`], or one that would take the expansion
+/// past [`MAX_EXPANDED_IMPORTS`], stops the expansion and is reported in
+/// `errors`, so that loading fails too.
 fn expand(
 	file: &Parsed,
 	presets: &BTreeMap<String, Arc<Parsed>>,
-	active: &mut Vec<String>,
+	errors: &mut Vec<ConfigError>,
 ) -> Vec<Expanded> {
-	let mut expanded = Vec::new();
-	for import in &file.imports {
-		let Some(preset) = presets.get(&import.value) else {
-			continue;
-		};
-		if active.contains(&import.value) {
-			continue;
-		}
-		active.push(import.value.clone());
-		for inner in expand(preset, presets, active) {
-			let mut chain = Vec::with_capacity(inner.chain.len() + 1);
-			chain.push(file.path.clone());
-			chain.extend(inner.chain);
-			expanded.push(Expanded {
-				preset: inner.preset,
-				chain,
+	let mut expansion = Expansion {
+		presets,
+		active: Vec::new(),
+		chain: Vec::new(),
+		expanded: Vec::new(),
+	};
+	if let Err(error) = expansion.visit(file) {
+		errors.push(*error);
+	}
+	expansion.expanded
+}
+
+/// The state of one config's import expansion.
+struct Expansion<'p> {
+	presets: &'p BTreeMap<String, Arc<Parsed>>,
+	/// The names of the presets being expanded, outermost first.
+	active: Vec<&'p str>,
+	/// The config, then every preset being expanded, outermost first.
+	chain: Vec<RepoPath>,
+	/// The presets expanded so far.
+	expanded: Vec<Expanded>,
+}
+
+impl<'p> Expansion<'p> {
+	/// Expands the imports of `file`, the config or a preset being expanded.
+	/// It recurses no deeper than [`MAX_IMPORT_DEPTH`].
+	///
+	/// # Errors
+	///
+	/// Fails with the error of the import that passes a limit.
+	fn visit(&mut self, file: &'p Parsed) -> Result<(), Box<ConfigError>> {
+		self.chain.push(file.path.clone());
+		for (index, import) in file.imports.iter().enumerate() {
+			let Some(preset) = self.presets.get(&import.value) else {
+				continue;
+			};
+			if self.active.contains(&import.value.as_str()) {
+				continue;
+			}
+			if self.active.len() >= MAX_IMPORT_DEPTH {
+				return Err(self.passed(
+					file,
+					index,
+					ConfigErrorKind::ImportTooDeep {
+						limit: MAX_IMPORT_DEPTH,
+					},
+					"Import some of these presets directly, instead of through one \
+					 another",
+				));
+			}
+			self.active.push(&import.value);
+			self.visit(preset)?;
+			self.active.pop();
+			if self.expanded.len() >= MAX_EXPANDED_IMPORTS {
+				return Err(self.passed(
+					file,
+					index,
+					ConfigErrorKind::TooManyImports {
+						limit: MAX_EXPANDED_IMPORTS,
+					},
+					"Remove repeated imports",
+				));
+			}
+			self.expanded.push(Expanded {
+				preset: Arc::clone(preset),
+				chain: self.chain.clone(),
 			});
 		}
-		expanded.push(Expanded {
-			preset: Arc::clone(preset),
-			chain: vec![file.path.clone()],
-		});
-		active.pop();
+		self.chain.pop();
+		Ok(())
 	}
-	expanded
+
+	/// The error of `file`'s import at `index`, which passes a limit, with
+	/// the chain that brought `file` in.
+	fn passed(
+		&self,
+		file: &Parsed,
+		index: usize,
+		kind: ConfigErrorKind,
+		correction: &str,
+	) -> Box<ConfigError> {
+		let through = self.chain[..self.chain.len() - 1].to_vec();
+		Box::new(
+			ConfigError::new(&file.path, kind)
+				.at(file.imports.get(index).map(|import| import.position))
+				.in_setting(format!("imports[{index}]"))
+				.through(through)
+				.correct(correction),
+		)
+	}
 }
 
 /// Reports settings that a paired config may not have, but brings in through

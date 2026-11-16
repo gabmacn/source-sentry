@@ -78,6 +78,16 @@ pub const DEFAULT_TIME_ZONE: &str = "UTC";
 /// context of this name replaces it.
 pub const DEFAULT_CONTEXT: &str = "default";
 
+/// How deeply imports may nest: a config's own imports are at depth 1, the
+/// presets they import at depth 2, and so on. An import deeper than this is a
+/// configuration error.
+pub const MAX_IMPORT_DEPTH: usize = 32;
+
+/// How many presets one config's imports may expand to, each repeated import
+/// counted every time it is expanded. An import that would pass this is a
+/// configuration error.
+pub const MAX_EXPANDED_IMPORTS: usize = 4096;
+
 /// The document types and adapters that the built-in defaults set, as
 /// `(pattern, adapter)` pairs. The patterns are also the built-in `include`
 /// list.

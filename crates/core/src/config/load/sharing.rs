@@ -35,12 +35,16 @@ pub(super) fn find_presets(
 	}
 }
 
-/// The project's explicit imports and own file, in resolution order.
-pub(super) fn definitions(files: &Files) -> Vec<Expanded> {
+/// The project's explicit imports and own file, in resolution order. An
+/// import that passes a limit on imports is reported in `errors`.
+pub(super) fn definitions(
+	files: &Files,
+	errors: &mut Vec<ConfigError>,
+) -> Vec<Expanded> {
 	let Some(repository) = &files.repository else {
 		return Vec::new();
 	};
-	let mut definitions = expand(repository, &files.presets, &mut Vec::new());
+	let mut definitions = expand(repository, &files.presets, errors);
 	definitions.push(Expanded {
 		preset: std::sync::Arc::clone(repository),
 		chain: Vec::new(),

@@ -626,7 +626,10 @@ directory configs above.
 > and override every choice above it.
 
 **Presets hold settings shared by documents of one nature,** and are
-brought in by name with `imports`.
+brought in by name with `imports`. Presets may import presets, nested at
+most 32 deep, and one config's imports may expand to at most 4,096 presets,
+each repeated import counted every time; passing either limit is a
+configuration error.
 
 **Classes and contexts are declared in one place,** the project's config.
 
