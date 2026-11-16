@@ -1,9 +1,12 @@
 //! Path patterns, which are gitignore-style globs, and series patterns, which
 //! are regular expressions.
 
+use std::collections::BTreeSet;
 use std::fmt;
+use std::iter::Peekable;
+use std::str::Chars;
 
-use globset::{GlobBuilder, GlobMatcher};
+use globset::{ErrorKind, GlobBuilder, GlobMatcher};
 use regex::Regex;
 
 use crate::model::RepoPath;
@@ -113,7 +116,7 @@ impl PathPattern {
 		if glob.ends_with("/**") {
 			glob.push_str("/*");
 		}
-		let glob = literal_braces(&glob);
+		let glob = translate(&glob)?;
 		let matcher = GlobBuilder::new(&glob)
 			.literal_separator(true)
 			.backslash_escape(true)
@@ -201,43 +204,191 @@ fn trim_trailing_spaces(pattern: &str) -> &str {
 	&pattern[..end]
 }
 
-/// `glob` with every brace outside a character class escaped, so that the
-/// matcher reads braces, and the commas between them, as literal characters,
-/// as `.gitignore` does. Escapes and classes are copied as they are: inside a
-/// class, the matcher already takes a brace literally.
-fn literal_braces(glob: &str) -> String {
-	let mut escaped = String::with_capacity(glob.len());
-	let mut chars = glob.chars().peekable();
-	while let Some(character) = chars.next() {
+/// The characters of a glob still to be read.
+type Characters<'g> = Peekable<Chars<'g>>;
+
+/// `glob`, read as `.gitignore` reads it, in the syntax of the glob library.
+/// Every brace outside a character class is escaped, so that the matcher
+/// reads braces, and the commas between them, as literal characters. Every
+/// character class is rewritten so that the matcher reads the members that
+/// `.gitignore` does. Escapes outside classes are copied as they are.
+fn translate(glob: &str) -> Result<String, PatternError> {
+	let mut translated = String::with_capacity(glob.len());
+	let mut characters = glob.chars().peekable();
+	while let Some(character) = characters.next() {
 		match character {
 			'\\' => {
-				escaped.push(character);
-				escaped.extend(chars.next());
+				translated.push(character);
+				translated.extend(characters.next());
 			}
-			'[' => {
-				escaped.push(character);
-				// A leading `!` or `^` negates the class, and a `]` right
-				// after the opening (or after the negation) is a member.
-				if let Some(negation) = chars.next_if(|next| matches!(next, '!' | '^'))
-				{
-					escaped.push(negation);
-				}
-				escaped.extend(chars.next_if_eq(&']'));
-				for member in chars.by_ref() {
-					escaped.push(member);
-					if member == ']' {
-						break;
-					}
-				}
-			}
+			'[' => read_class(&mut characters)?.write(&mut translated),
 			'{' | '}' => {
-				escaped.push('\\');
-				escaped.push(character);
+				translated.push('\\');
+				translated.push(character);
 			}
-			_ => escaped.push(character),
+			_ => translated.push(character),
 		}
 	}
-	escaped
+	Ok(translated)
+}
+
+/// A character class: the ranges of characters it matches, or, when
+/// negated, does not match.
+struct Class {
+	negated: bool,
+	/// Inclusive ranges; a single character is a range from itself to itself.
+	ranges: Vec<(char, char)>,
+}
+
+/// Reads the character class whose `[` was just read, as `.gitignore` reads
+/// it. A leading `!` or `^` negates the class. A backslash makes the next
+/// character a member, whatever it is. A `]` right after the opening, or
+/// after the negation, is a member, and any other unescaped `]` closes the
+/// class. Braces are members like any other character.
+///
+/// An unescaped `-` between two members makes a range, and a `-` that starts
+/// or ends the class is a member. A `-` right after a range extends that
+/// range, and a range whose end comes before its start is an error, as the
+/// glob library reads them. A named class such as `[:alpha:]` is no
+/// special spelling: `[[:alpha:]]` is a class of `[`, `:` and some letters,
+/// followed by a literal `]`.
+fn read_class(characters: &mut Characters<'_>) -> Result<Class, PatternError> {
+	let unclosed = || PatternError::new(ErrorKind::UnclosedClass.to_string());
+	let negated = characters
+		.next_if(|next| matches!(next, '!' | '^'))
+		.is_some();
+	let mut ranges: Vec<(char, char)> = Vec::new();
+	let mut first = true;
+	let mut in_range = false;
+	loop {
+		let character = characters.next().ok_or_else(unclosed)?;
+		let member = match character {
+			'\\' => characters.next().ok_or_else(unclosed)?,
+			']' if !first => break,
+			'-' if !first && !in_range => {
+				in_range = true;
+				continue;
+			}
+			member => member,
+		};
+		first = false;
+		match ranges.last_mut() {
+			Some(range) if in_range => {
+				range.1 = member;
+				if range.1 < range.0 {
+					return Err(PatternError::new(
+						ErrorKind::InvalidRange(range.0, range.1).to_string(),
+					));
+				}
+				in_range = false;
+			}
+			_ => ranges.push((member, member)),
+		}
+	}
+	if in_range {
+		ranges.push(('-', '-'));
+	}
+	Ok(Class { negated, ranges })
+}
+
+impl Class {
+	/// Writes the class in the glob library's syntax, which has no escapes
+	/// inside a class: there, `]` is a member only first, `-` only first or
+	/// last, and a leading `!` or `^` negates. So `]` and `-` are each taken
+	/// out of any range that covers it, `]` is written first, `-` first
+	/// without a `]` and last with one, and a class that is not negated never
+	/// starts with `!` or `^`.
+	fn write(&self, glob: &mut String) {
+		/// The characters that only some positions of a class can hold, with
+		/// the characters just before and after them.
+		const PLACED: [(char, char, char); 2] = [(']', '\\', '^'), ('-', ',', '.')];
+		let mut ranges = self.ranges.clone();
+		let mut placed = [false; 2];
+		for (index, &(character, before, after)) in PLACED.iter().enumerate() {
+			let mut split = Vec::with_capacity(ranges.len());
+			for (start, end) in ranges {
+				if !(start..=end).contains(&character) {
+					split.push((start, end));
+					continue;
+				}
+				placed[index] = true;
+				if start < character {
+					split.push((start, before));
+				}
+				if character < end {
+					split.push((after, end));
+				}
+			}
+			ranges = split;
+		}
+		let [close, dash] = placed;
+		if !self.negated && !close && !dash && !lead_with_a_plain_range(&mut ranges)
+		{
+			// Every member is `!` or `^`, and no class can say so.
+			write_alternatives(&ranges, glob);
+			return;
+		}
+		glob.push('[');
+		if self.negated {
+			glob.push('!');
+		}
+		if close {
+			glob.push(']');
+		} else if dash {
+			glob.push('-');
+		}
+		for &(start, end) in &ranges {
+			glob.push(start);
+			if start < end {
+				glob.push('-');
+				glob.push(end);
+			}
+		}
+		if close && dash {
+			glob.push('-');
+		}
+		glob.push(']');
+	}
+}
+
+/// Moves to the front of `ranges` one that starts with neither `!` nor `^`,
+/// splitting off the first character of a range when that is needed. Returns
+/// false when every range is a single `!` or `^`.
+fn lead_with_a_plain_range(ranges: &mut Vec<(char, char)>) -> bool {
+	let negates = |character: char| matches!(character, '!' | '^');
+	if let Some(index) = ranges.iter().position(|&(start, _)| !negates(start)) {
+		ranges.swap(0, index);
+		return true;
+	}
+	let Some(index) = ranges.iter().position(|&(start, end)| start < end) else {
+		return false;
+	};
+	let (start, end) = ranges[index];
+	// The characters just after `!` and `^`.
+	let next = if start == '!' { '"' } else { '_' };
+	ranges[index] = (start, start);
+	ranges.insert(0, (next, end));
+	true
+}
+
+/// Writes `ranges`, each a single `!` or `^`, as escaped literals: one
+/// alone, or the alternatives between both.
+fn write_alternatives(ranges: &[(char, char)], glob: &mut String) {
+	let members: BTreeSet<char> =
+		ranges.iter().map(|&(start, _)| start).collect();
+	if members.len() > 1 {
+		glob.push('{');
+	}
+	for (index, member) in members.iter().enumerate() {
+		if index > 0 {
+			glob.push(',');
+		}
+		glob.push('\\');
+		glob.push(*member);
+	}
+	if members.len() > 1 {
+		glob.push('}');
+	}
 }
 
 impl PartialEq for PathPattern {
@@ -344,6 +495,169 @@ mod tests {
 			.iter()
 			.map(|name| pattern.matches(&path(name)))
 			.collect()
+	}
+
+	/// Whether the glob library, configured as for path patterns, compiles
+	/// `glob` and matches each of `names`, or the error it gives.
+	fn library(glob: &str, names: &[&str]) -> Result<Vec<bool>, String> {
+		let matcher = GlobBuilder::new(glob)
+			.literal_separator(true)
+			.backslash_escape(true)
+			.build()
+			.map_err(|error| error.kind().to_string())?
+			.compile_matcher();
+		Ok(names.iter().map(|name| matcher.is_match(name)).collect())
+	}
+
+	/// The glob library's own reading of a class, which the translation
+	/// relies on: no escapes inside a class, `]` a member only first, `-` a
+	/// member only first or last, a leading `!` or `^` negating, braces and
+	/// commas plain members.
+	#[test]
+	fn the_glob_library_reads_classes_as_the_translation_expects() {
+		for (glob, names, expected) in [
+			(r"[\x]", &["x", "\\x"][..], &[true, false][..]),
+			(r"[\-a]", &["-", "]", "a", "b"], &[false, true, true, false]),
+			("[]]", &["]"], &[true]),
+			("[]a]", &["]", "a"], &[true, true]),
+			("[a]]", &["a", "a]", "]"], &[false, true, false]),
+			("[-a]", &["-", "a"], &[true, true]),
+			("[a-]", &["-", "a"], &[true, true]),
+			("[]-a]", &["]", "^", "a", "-"], &[true, true, true, false]),
+			("[]-]", &["]", "-", "^"], &[true, true, false]),
+			("[!a]", &["!", "a", "b"], &[true, false, true]),
+			("[^a]", &["^", "a", "b"], &[true, false, true]),
+			("[!!]", &["!", "a"], &[false, true]),
+			("[!]a]", &["]", "a", "b"], &[false, false, true]),
+			("[!-a]", &["-", "a", "b"], &[false, false, true]),
+			("[{},]", &["{", "}", ","], &[true, true, true]),
+			("[a-c-e]", &["a", "d", "e", "-"], &[true, true, true, false]),
+			("[a-c-]", &["a", "-", "d"], &[true, true, false]),
+			(r"\!", &["!"], &[true]),
+			(r"{\!,\^}", &["!", "^", "a"], &[true, true, false]),
+		] {
+			assert_eq!(library(glob, names), Ok(expected.to_vec()), "{glob}");
+		}
+		assert_eq!(
+			library("[ab", &[]),
+			Err("unclosed character class; missing ']'".to_owned())
+		);
+		assert_eq!(
+			library("[c-a]", &[]),
+			Err("invalid range; 'c' > 'a'".to_owned())
+		);
+	}
+
+	/// Each pattern's answers are what `git check-ignore --no-index` gives
+	/// for the same line in a `.gitignore`.
+	#[test]
+	fn character_classes_match_as_in_gitignore() {
+		for (pattern, names, expected) in [
+			(
+				r"[\]{]x.md",
+				&["]x.md", "{x.md", "x.md", "[x.md", "bx.md"][..],
+				&[true, true, false, false, false][..],
+			),
+			(
+				"[]]",
+				&["]", "a", "[]]", "]]"],
+				&[true, false, false, false],
+			),
+			("[!]]", &["]", "a", "!", "^"], &[false, true, true, true]),
+			(
+				r"[\\]",
+				&["a", "]", "[", "b"],
+				&[false, false, false, false],
+			),
+			(
+				r"[a\-z]",
+				&["a", "-", "z", "b", "]", "^", "_"],
+				&[true, true, true, false, false, false, false],
+			),
+			("[{}]", &["{", "}", "{}", ","], &[true, true, false, false]),
+			(
+				"{a,b}",
+				&["{a,b}", "a", "b", "{a", "a,b"],
+				&[true, false, false, false, false],
+			),
+			("a{b", &["a{b"], &[true]),
+			(r"[\!a]", &["!", "a", "b"], &[true, true, false]),
+			(r"[\^]", &["^", "a"], &[true, false]),
+			(r"[\!\^]", &["!", "^", "a"], &[true, true, false]),
+			(
+				"[]-a]",
+				&["]", "^", "a", "b", "-"],
+				&[true, true, true, false, false],
+			),
+			(
+				r"[\]-a]",
+				&["]", "^", "a", "b", "-"],
+				&[true, true, true, false, false],
+			),
+			("[x-]", &["x", "-", "y"], &[true, true, false]),
+			(r"[a-\z]", &["a", "m", "z", "-"], &[true, true, true, false]),
+			(r"[!\-]", &["-", "a"], &[false, true]),
+			("[!-a]", &["-", "a", "b", "!"], &[false, false, true, true]),
+			(
+				"[a-c]",
+				&["a", "b", "c", "d", "-"],
+				&[true, true, true, false, false],
+			),
+		] {
+			assert_eq!(matches(pattern, names), expected, "{pattern}");
+		}
+	}
+
+	#[test]
+	fn classes_are_translated_into_the_glob_library_s_spelling() {
+		for (pattern, glob) in [
+			(r"[\]{]x.md", "[]{]x.md"),
+			(r"[\\]", r"[\]"),
+			(r"[a\-z]", "[-az]"),
+			(r"[\!a]", "[a!]"),
+			(r"[\!-#]", "[\"-#!]"),
+			(r"[\^]", r"\^"),
+			(r"[\!\^]", r"{\!,\^}"),
+			(r"[\]-a]", "[]^-a]"),
+			(r"[]\-]", "[]-]"),
+			(r"[!\-]", "[!-]"),
+			("[{}]{a,b}", r"[{}]\{a,b\}"),
+			("[a-c]", "[a-c]"),
+		] {
+			assert_eq!(translate(pattern), Ok(glob.to_owned()), "{pattern}");
+		}
+	}
+
+	/// Git matches no path with an unclosed class; the pattern is rejected
+	/// instead, so that the mistake is seen. A `\]` does not close a class.
+	#[test]
+	fn an_unclosed_class_is_rejected() {
+		for pattern in ["[ab", r"[a\]", r"[a\"] {
+			let error = PathPattern::compile(pattern, true)
+				.expect_err("an unclosed class is rejected");
+			assert_eq!(
+				error.reason, "unclosed character class; missing ']'",
+				"{pattern}"
+			);
+		}
+	}
+
+	/// A named class such as `[:alpha:]` is no special spelling, a `-` right
+	/// after a range extends that range, and a range that ends before it
+	/// starts is rejected.
+	#[test]
+	fn named_classes_and_ranges_keep_the_glob_library_s_reading() {
+		assert_eq!(
+			matches("[[:alpha:]]", &["a", "a]", ":]", "[]", "b]"]),
+			[false, true, true, true, false]
+		);
+		assert_eq!(
+			matches("[a-c-e]", &["a", "d", "e", "-"]),
+			[true, true, true, false]
+		);
+		let error = PathPattern::compile("[c-a]", true)
+			.expect_err("a reversed range is rejected");
+		assert_eq!(error.reason, "invalid range; 'c' > 'a'");
 	}
 
 	#[test]
