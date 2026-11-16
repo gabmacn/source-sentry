@@ -660,10 +660,15 @@ settings only by importing a preset by name.
 
 **A document belongs to the project its path lies in,** and its declaration
 lives there. When a source is a document of another project, only that
-document's freshness is read, never the other project's contexts.
+document's freshness is read, never the other project's contexts. Of that
+project, `check` evaluates only the cited document and what it depends on.
+Its report includes that project's configuration errors and the errors met
+while hashing the cited document's own sources. A fault in an unrelated
+document of that project is not reported and does not stop the check.
 
 > **Why.** Freshness is a fact and depends on no policy, so it can cross a
-> project boundary. Outcomes are policy, and stay inside.
+> project boundary. Outcomes are policy, and stay inside. Evaluating the
+> whole other project would search more than the citation needs.
 
 ## Remote documents
 

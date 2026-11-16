@@ -88,6 +88,11 @@ using its own configs and contexts. Nested projects are excluded, and human
 output names them in a note. Run `source-sentry -C <project> check` for each.
 A source document in another project contributes its freshness under that
 project's own declarations and schedules, without applying its contexts.
+Only that document and what it depends on are evaluated. The report
+includes that project's configuration errors, such as an invalid time zone,
+and the errors met while hashing the document's own sources; a fault in an
+unrelated document of that project is not reported and does not stop the
+check.
 
 The exit code is:
 
