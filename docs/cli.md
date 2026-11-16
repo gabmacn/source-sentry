@@ -231,9 +231,9 @@ whether or not anything changed.
   named by `project`. The document uses
   its project-relative path; source and expectation arguments use rooted
   spellings, with `:/` for repository paths outside a nested project.
-  A declared pattern selector keeps its spelling, unless that spelling
-  would select another declared source as well when read from the project
-  root; a rooted spelling is then used. The array omits `-C`
+  A pattern selector keeps its spelling when it selects the same source
+  from the project root; otherwise a declared or rooted spelling is used.
+  The array omits `-C`
   because its starting directory is explicit. Other paths are relative to
   the document's project.
   Each source also carries its own `reviewed` (`at` and `by`) when present;
@@ -378,9 +378,9 @@ the file was never reviewed, its latest commits are listed instead. At most
 
 A range adds to the rows already picked, so that several ranges can follow
 one another; going back within a range lets go of its rows alone. With the
-mouse, a drag picks a range. A click made with `Ctrl` or `Shift` held does
-nothing, so that it keeps the meaning a terminal gives it, such as opening
-a path or selecting text.
+mouse, a drag picks a range. A click or a drag made with `Ctrl` or `Shift`
+held does nothing, so that it keeps the meaning a terminal gives it, such as
+opening a path or selecting text.
 
 `y` and `r` only hold an answer: nothing is written until Enter. A recorded
 review is bound to the source versions shown, exactly as in the line mode,
@@ -681,8 +681,9 @@ source-sentry migrate [--dry-run] [--yes]
 
   The plan shows every source rewrite, effective setting change and change
   to series membership or version. A rename that would introduce configuration or integrity errors
-  is refused. Use `--dry-run` to preview, or `--yes` to confirm without a
-  terminal, as for other changes.
+  is refused. Moving the only entry of a living series out of it requires a
+  successor or removal of the series from its config first. Use `--dry-run`
+  to preview, or `--yes` to confirm without a terminal, as for other changes.
 - **A placement** is written `on-file`, `lockfile:<directory>`,
   `remote:<owner>` or `remote:<owner>@<project-directory>`. Directories are
   filesystem paths resolved from the effective starting directory, or

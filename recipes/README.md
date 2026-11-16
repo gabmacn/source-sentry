@@ -63,7 +63,7 @@ The exit codes, and how each gate treats them:
 | 1 | A warning, at the threshold | fails | does not occur |
 | 2 | A failure | fails | fails |
 | 3 | A configuration or integrity error | fails | fails |
-| 4 | The evaluation could not complete | fails | fails |
+| 4 | The evaluation could not complete, or its output could not be written | fails | fails |
 | 64 | Invalid command-line usage | fails | fails |
 
 A notice always exits 0, so it never fails either gate.

@@ -58,16 +58,16 @@
           "oid": "sha1:4320bd8685c253e8b20ee57b47079482804b031f",
           "path": ".cargo/config.toml",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:d646e69e403f3b8e1718491c5194f88c9a6246ce",
           "path": "Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         },
         {
@@ -76,55 +76,55 @@
               "oid": "sha1:5e7a415e1213d96765643e7c93e72610d0e03f6e",
               "path": "crates/cli/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T21:19:25Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:47:00Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:2fbbc1c7c50cd3d9f3c795e84e638f247137a17c",
               "path": "crates/core/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T21:19:25Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:47:00Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:14c001e458e630536df99cf6f7abcad69c2fbb5d",
               "path": "crates/git/Cargo.toml",
               "reviewed": {
-                "at": "2026-11-14T21:19:25Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:47:00Z",
+                "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "crates/*/Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         },
         {
-          "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
+          "oid": "sha1:544ddde0ec85b65bd46dc4541d25a336f8e64f4d",
           "path": "crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:8d6424216efb659f5dd3a98e5ef0773e5e8e41cc",
           "path": "crates/git/src/lib.rs",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:35440c48c9e69d34a72a2882f2cdd7bf9ba631f3",
           "path": "rust-toolchain.toml",
           "reviewed": {
-            "at": "2026-11-14T21:19:25Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:47:00Z",
+            "by": "Terra (Codex)"
           }
         }
       ]
@@ -139,48 +139,48 @@
           "oid": "sha1:5e7a415e1213d96765643e7c93e72610d0e03f6e",
           "path": "../crates/cli/Cargo.toml",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         },
         {
-          "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
+          "oid": "sha1:544ddde0ec85b65bd46dc4541d25a336f8e64f4d",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:6283c89443dee890ae20496c24ed0f8809827cf8",
           "path": "install.ps1",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         },
         {
-          "oid": "sha1:a54dc536e4e4de9ebb4404f96a9b99d424f32b03",
+          "oid": "sha1:1971f418580df99403f1726fb99f25ad42b34c46",
           "path": "install.sh",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         },
         {
-          "oid": "sha1:fce824ed656b83da23c87554c9fd7678296d67cf",
+          "oid": "sha1:cd468dd357789df0b294e2808e8bf1a9ef17bf58",
           "path": "moon.yml",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:e9813fa9aebf45631b8f0590dfa9e564b57344b3",
           "path": "proto-plugin.toml",
           "reviewed": {
-            "at": "2026-11-14T20:14:06Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:36Z",
+            "by": "Terra (Codex)"
           }
         }
       ]
@@ -192,293 +192,293 @@
       },
       "sources": [
         {
-          "oid": "sha1:452eec655bce9351b6301972397c686dcfd66de8",
+          "oid": "sha1:544ddde0ec85b65bd46dc4541d25a336f8e64f4d",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:30Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:35Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "members": [
             {
-              "oid": "sha1:6f2248e850ce1eaf2c31d39b2d109de4ccc2ebb4",
+              "oid": "sha1:e86d5a2c9fbce0c61141dbbe221521188b9e772b",
               "path": "../../crates/cli/src/commands/apply.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:1422291d0b15f2ce7b1e8babe55cac1a9e039a53",
               "path": "../../crates/cli/src/commands/attest.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:1ac95f4048efcbebf7728bd6133d39e60f0d7342",
+              "oid": "sha1:cbbd5367a5a6f60cdd5e27bc50af6fadec90a7a3",
               "path": "../../crates/cli/src/commands/check.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:2fbba235cbb572d2ffe7280ba95c7c25d6466064",
               "path": "../../crates/cli/src/commands/completions.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:4091b07652c91a750bfddc26eb3ff356be36c097",
+              "oid": "sha1:1d67c63f3e3db6b415967a66216e7738095d9a9e",
               "path": "../../crates/cli/src/commands/diff.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:91b3592b255023782a49be62a0a778997286a46f",
+              "oid": "sha1:b433e57e99b667c3c67916600c1672a9e3bdea05",
               "path": "../../crates/cli/src/commands/explain.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:19601e308c245127fdd0ceae1e5ca342cbfff1c4",
               "path": "../../crates/cli/src/commands/init.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:c147747f3723cd795af9bf691946a44a54c43a19",
               "path": "../../crates/cli/src/commands/migrate.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:48a3ad9ecb3cca3fe87924809c06384d7a4a8084",
+              "oid": "sha1:cae0ceec4087f4f8477fb391851d498b69bb8ade",
               "path": "../../crates/cli/src/commands/records.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:80a70cb5df2c4c07a8729b5f0ca093f73a16e3ca",
+              "oid": "sha1:52b5583eafe0671a4dd48082496759fcfb9de56c",
               "path": "../../crates/cli/src/commands/rename.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:b3ba18469a43672c51d5ba8318e9e36c1995b5fd",
               "path": "../../crates/cli/src/commands/track.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:ab4f5be7e6259afeedbd7d08acc2fb2ba29f0f57",
               "path": "../../crates/cli/src/commands/untrack.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../../crates/cli/src/commands/*.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:30Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:35Z",
+            "by": "Terra (Codex)"
           }
         },
         {
-          "oid": "sha1:2e1894d36c28982fed9dc9861efe3247ebdea9a9",
+          "oid": "sha1:42ad1418aa375a78881ac58981b3347b0c2a4f7a",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:30Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:35Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "oid": "sha1:0760554214369924ad0ddb9521ba0b997e6744b1",
           "path": "../../crates/core/src/claims/diagnostic.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:30Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:35Z",
+            "by": "Terra (Codex)"
           }
         },
         {
           "members": [
             {
-              "oid": "sha1:ba910757d7227e83306731907eb2d7d15d3a3fcc",
+              "oid": "sha1:2a82bc43957e1c7dc4f3445a1d25250b655e37de",
               "path": "../../crates/core/src/mutate/attest.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:7976d5895deacb65f84ce9c33b4be439c571dfe8",
               "path": "../../crates/core/src/mutate/diff.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:804846704a89a765ca3ec1bc6d789b796d538490",
               "path": "../../crates/core/src/mutate/edits.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:8e1278664f1cd89d5f9e5531ee980fe3aa780005",
               "path": "../../crates/core/src/mutate/error.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:0ea1d21b0915bcb2f449e960400138617ef41d64",
               "path": "../../crates/core/src/mutate/expectation.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:bf4c87f8cd7501f93ca20afbdc95d9d5a58061ed",
               "path": "../../crates/core/src/mutate/init.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:983f4331f23150c1cdddaaa4792f3c3f9581cc8f",
               "path": "../../crates/core/src/mutate/migrate.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:9b10344798f1378d8b5ed83a03b3641c54107ad8",
+              "oid": "sha1:ca561b1dfbb77699e7e750fd32de488cfc1dcea5",
               "path": "../../crates/core/src/mutate/mod.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:61df70595f2d15ed68f51b8230ca0cf9d5d737d2",
               "path": "../../crates/core/src/mutate/relocate.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:353201a50cb60165bcb182df8a1c517abd5db51f",
               "path": "../../crates/core/src/mutate/rename.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:afac540ad3789bf6cb9273599d843e4ef9b3e50e",
+              "oid": "sha1:6129b11636cb1c6bfddfc7a9d64c17211db01f3c",
               "path": "../../crates/core/src/mutate/repo.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:5ca384b2da09cada8eef992b096c804f068fb91d",
               "path": "../../crates/core/src/mutate/retire.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:a053a7d0a04ea08daab1f796a0b542e54fb73ebf",
               "path": "../../crates/core/src/mutate/seal.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:ffadace31b3a8bcfd72e2244a5f9dd4aee40ffe7",
               "path": "../../crates/core/src/mutate/select.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:533f73691be6984e0453403d9b6a6f324490c749",
               "path": "../../crates/core/src/mutate/settings.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:78a9a466b00a2e57c8fc7423f0c52e746113ad08",
               "path": "../../crates/core/src/mutate/succession.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:732e978e19cc646ec6a134ac09712c73fc611a99",
               "path": "../../crates/core/src/mutate/track.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:3169ca85c1e88ca1ef13ac596d5f437bc1b088d4",
               "path": "../../crates/core/src/mutate/untrack.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             },
             {
               "oid": "sha1:eb711e5a362ff4888d7fbc1063bd2b7afb314d34",
               "path": "../../crates/core/src/mutate/verify.rs",
               "reviewed": {
-                "at": "2026-11-14T19:58:30Z",
-                "by": "Claude"
+                "at": "2026-11-16T06:46:35Z",
+                "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../../crates/core/src/mutate/*.rs",
           "reviewed": {
-            "at": "2026-11-14T19:58:30Z",
-            "by": "Claude"
+            "at": "2026-11-16T06:46:35Z",
+            "by": "Terra (Codex)"
           }
         }
       ]
