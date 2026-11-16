@@ -199,6 +199,80 @@ fn a_nested_projects_owner_lockfiles_belong_to_it() {
 	);
 }
 
+/// The files of a nested project `app` holding `app/guide.md`, under a
+/// repository-root lockfile holding `outer`.
+fn under_an_enclosing_lockfile(outer: &str) -> Vec<(&'static str, String)> {
+	vec![
+		("source-sentry.lock", outer.to_owned()),
+		(
+			"app/.source-sentry/source-sentry.yaml",
+			"version: 1\n".to_owned(),
+		),
+		("app/source-sentry.lock", lockfile(&[], &[])),
+		("app/guide.md", "# Guide\n".to_owned()),
+		("other.md", "# Other\n".to_owned()),
+	]
+}
+
+/// Discovers the project containing `start` among `files`.
+fn discover_owned(files: &[(&str, String)], start: &str) -> Inventory {
+	let files: Vec<(&str, &str)> = files
+		.iter()
+		.map(|(file, contents)| (*file, contents.as_str()))
+		.collect();
+	project_inventory(&files, start)
+}
+
+/// An enclosing lockfile that does not parse could hide declarations
+/// stranded by a nested project, so the nested project reports it, as the
+/// enclosing project does.
+#[test]
+fn a_nested_project_reports_an_enclosing_lockfile_that_does_not_parse() {
+	let mut outer = lockfile(&[("app/guide.md", "{}")], &[]);
+	outer.pop();
+	let files = under_an_enclosing_lockfile(&outer);
+	let parent = discover_owned(&files, "");
+	let expected = only(&parent, DiagnosticKind::InvalidLockfile);
+	assert_eq!(expected.location.file, path("source-sentry.lock"));
+	let app = discover_owned(&files, "app");
+	assert_eq!(only(&app, DiagnosticKind::InvalidLockfile), expected);
+}
+
+/// A readable enclosing lockfile adds only the declarations it strands in
+/// the nested project, and none of its own problems.
+#[test]
+fn a_nested_project_reports_only_stranded_declarations_of_an_enclosing_lockfile()
+ {
+	let stranded = under_an_enclosing_lockfile(&lockfile(
+		&[("app/guide.md", "{}"), ("missing.md", "{}")],
+		&[],
+	));
+	let app = discover_owned(&stranded, "app");
+	assert_eq!(
+		kinds(&app),
+		[
+			DiagnosticKind::OutsideAuthority,
+			DiagnosticKind::OutsideAuthority
+		]
+	);
+	for diagnostic in &app.diagnostics {
+		assert_eq!(diagnostic.location.file, path("source-sentry.lock"));
+		assert_eq!(
+			diagnostic.location.field.as_deref(),
+			Some(r#"documents["app/guide.md"]"#)
+		);
+	}
+	let unrelated = under_an_enclosing_lockfile(&lockfile(
+		&[("other.md", "{}"), ("missing.md", "{}")],
+		&[],
+	));
+	assert_eq!(
+		kinds(&discover_owned(&unrelated, "")),
+		[DiagnosticKind::MissingDocument]
+	);
+	assert_clean(&discover_owned(&unrelated, "app"));
+}
+
 /// Each claim's document and the file that declares it.
 fn owner_lockfile_claims(inventory: &Inventory) -> Vec<(String, String)> {
 	inventory

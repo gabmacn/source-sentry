@@ -130,7 +130,7 @@ pub fn discover<S: Snapshot>(
 		&mut found,
 		&mut diagnostics,
 	)?;
-	stranded::read(snapshot, configs, &tracked, &mut found)?;
+	stranded::read(snapshot, configs, &tracked, &mut found, &mut diagnostics)?;
 	let read::Found {
 		lockfiles,
 		mut claims,
