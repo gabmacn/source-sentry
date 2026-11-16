@@ -7,8 +7,8 @@ use std::rc::Rc;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use super::super::app::{App, Area, Key, Overlay, Target};
-use super::{fixture, press, show};
+use super::super::app::{App, Area, Cursor, Field, Key, Overlay, Target};
+use super::{Repo, fixture, json, press, show};
 
 /// The keys and turns of the wheel that scroll a box and never close it.
 const SCROLLING: [Key; 6] = [
@@ -209,4 +209,76 @@ fn a_whole_value_that_fits_neither_scrolls_nor_closes_on_the_arrows() {
 	}
 	press(&mut app, &[Key::Escape]);
 	assert!(app.overlay.is_none());
+}
+
+/// Thirteen projects: the root and twelve nested ones. The box lists them
+/// all; on the smallest screen the thirteenth is reached by scrolling, and
+/// on a tall one every project fits, with no scrollbar.
+#[test]
+fn every_project_is_listed_and_the_thirteenth_is_reached_by_scrolling() {
+	let repo = Repo::new(json!({"docs/a.md": {}}));
+	for index in 1..=12 {
+		repo.write(
+			&format!("project{index:02}/.source-sentry/source-sentry.yaml"),
+			"version: 1
+",
+		);
+	}
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Twelve nested projects"]);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.session.state.projects.len(), 13);
+	app.click(Target::Field(Field::Projects)).unwrap();
+	assert_eq!(app.overlay, Some(Overlay::Projects));
+
+	let positions = scroll_through(&mut app, 80, 20);
+	assert!(!positions[0].inside().concat().contains("project12"));
+	assert!(positions[0].scrollbar());
+	let last = positions.last().unwrap();
+	assert!(
+		last.inside().concat().contains("project12"),
+		"{:#?}",
+		last.rows
+	);
+	for index in 1..=12 {
+		let project = format!("project{index:02}");
+		assert!(
+			positions
+				.iter()
+				.any(|drawn| drawn.inside().concat().contains(&project)),
+			"{project} is never shown"
+		);
+	}
+	press(&mut app, &SCROLLING);
+	assert_eq!(app.overlay, Some(Overlay::Projects));
+
+	let tall = boxed(&mut app, 120, 40);
+	assert!(tall.inside().concat().contains("project12"));
+	assert!(tall.inside().concat().contains("project01"));
+	assert!(!tall.scrollbar());
+
+	press(&mut app, &[Key::Escape]);
+	assert!(app.overlay.is_none(), "Escape closes it");
+}
+
+/// A list of projects that fits draws no scrollbar, and the keys and the
+/// wheel that would scroll it leave it open. Escape closes it, and Down
+/// then returns from the header to the documents, as before.
+#[test]
+fn a_list_of_projects_that_fits_neither_scrolls_nor_closes_on_the_arrows() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Up, Key::Right, Key::Right, Key::Enter]);
+	assert_eq!(app.overlay, Some(Overlay::Projects));
+	let before = boxed(&mut app, 80, 20);
+	assert!(!before.scrollbar());
+	for key in SCROLLING {
+		press(&mut app, &[key]);
+		assert_eq!(app.overlay, Some(Overlay::Projects), "{key:?} closed it");
+		assert_eq!(boxed(&mut app, 80, 20).rows, before.rows, "{key:?}");
+	}
+	press(&mut app, &[Key::Escape, Key::Down]);
+	assert_eq!((app.overlay.is_none(), app.cursor), (true, Cursor::Open(0)));
 }

@@ -1595,18 +1595,24 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 			);
 		}
 		Overlay::Projects => {
-			let projects = &app.session.state.projects;
-			let inside =
-				frame(pen, area, 60, count(projects.len().min(12)) + 6, "Projects");
-			for (y, project) in (inside.y..).zip(projects.iter().take(12)) {
-				pen.text(
-					inside.x + 1,
-					y,
-					&app.workspace().display_path(project),
-					text(),
-					inside.width.saturating_sub(1),
-				);
-			}
+			// Every project, a path too long for its row wrapped onto the next.
+			let rows: Vec<String> = app
+				.session
+				.state
+				.projects
+				.iter()
+				.flat_map(|project| wrap(&app.workspace().display_path(project), 53))
+				.collect();
+			let inside = frame(pen, area, 60, count(rows.len()) + 6, "Projects");
+			let list = Rect::new(
+				inside.x + 1,
+				inside.y,
+				inside.width.saturating_sub(1),
+				inside.height.saturating_sub(3),
+			);
+			scrolled(app, pen, list, &rows, |pen, project, row| {
+				pen.text(row.x, row.y, project, text(), row.width);
+			});
 			pen.keys(inside.x, inside.bottom() - 1, &[("Esc", "close")]);
 		}
 	}
