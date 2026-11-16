@@ -8,7 +8,9 @@ use source_sentry_core::evaluate::SourceState;
 
 use super::super::super::session::CHANGED;
 use super::super::super::tests::support::Repo;
-use super::super::app::{App, Cursor, Field, Focus, Kept, Key, Target};
+use super::super::app::{
+	App, Cursor, Field, Focus, Kept, Key, Overlay, Target,
+};
 use super::{drawn, press, shows};
 
 /// A source changed on disk after its changes were shown refuses a review
@@ -203,4 +205,35 @@ fn a_document_whose_review_changed_outside_the_screen_is_compared_again() {
 	let rows = app.every_source();
 	assert_eq!(rows[0].kept, Some(Kept::New));
 	assert_eq!(rows[1].kept, Some(Kept::Changed));
+}
+
+/// A picked document that needs review is recorded when its confirmation
+/// lists it, even when it is among the other documents of a session started
+/// for named documents.
+#[test]
+fn a_confirmed_document_outside_the_named_ones_is_recorded() {
+	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&["docs/a.md"]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(
+		&mut app,
+		&[
+			Key::Char('o'),
+			Key::Down,
+			Key::Down,
+			Key::Char(' '),
+			Key::Char('y'),
+		],
+	);
+	let Some(Overlay::Picked(comparisons, _, false)) = &app.overlay else {
+		panic!("expected the confirmation");
+	};
+	assert_eq!(comparisons.len(), 1);
+	assert_eq!(comparisons[0].0.document.to_string(), "docs/b.md");
+
+	press(&mut app, &[Key::Char('y')]);
+	assert!(repo.entry("docs/b.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/a.md")["reviewed"].is_null());
+	assert_eq!(app.session.recorded.len(), 1);
+	assert_eq!(app.notice.as_deref(), Some("Recorded 1 review."));
 }

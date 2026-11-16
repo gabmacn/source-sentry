@@ -2068,9 +2068,8 @@ impl<'a> App<'a> {
 		let comparisons: Vec<_> = picked
 			.into_iter()
 			.filter_map(|id| {
-				let shown = self.cached(&id);
-				let compared = shown.compared.clone()?;
-				(reread || shown.pending).then_some((id, compared))
+				let compared = self.cached(&id).compared.clone()?;
+				self.takes(&id, reread).then_some((id, compared))
 			})
 			.collect();
 		if comparisons.is_empty() {
@@ -2084,9 +2083,24 @@ impl<'a> App<'a> {
 		self.overlay = Some(Overlay::Picked(comparisons, unseen, reread));
 	}
 
-	/// Records every confirmed comparison. Without a reread, one that no
-	/// longer needs review is passed over. A source that changed since the
-	/// confirmation stops the batch.
+	/// Whether a document takes an answer given to several at once, by the
+	/// latest evaluation: a reread takes every live document, and a plain yes
+	/// one that needs review, whether or not it was named when the session
+	/// started. The confirmation lists what this takes, and the batch records
+	/// what it still takes when its turn comes.
+	fn takes(&self, id: &Id, reread: bool) -> bool {
+		self
+			.session
+			.state
+			.documents
+			.get(id)
+			.is_some_and(|document| reread || document.pending)
+	}
+
+	/// Records every confirmed comparison. One that no longer takes the
+	/// answer, such as one that no longer needs review after an earlier
+	/// write, is passed over. A source that changed since the confirmation
+	/// stops the batch.
 	fn record_all(
 		&mut self,
 		comparisons: Vec<(Id, DocumentDiff)>,
@@ -2097,7 +2111,7 @@ impl<'a> App<'a> {
 		// One answer records them all, so they are taken back together.
 		let from = self.session.steps().len();
 		for (id, compared) in comparisons {
-			if !reread && !self.session.pending()?.contains(&id) {
+			if !self.takes(&id, reread) {
 				continue;
 			}
 			self.cache.remove(&id);
