@@ -441,11 +441,17 @@ since: the refusal names the file, and nothing is restored.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been seen. `y` records the due ones; `i` includes the
-documents not due yet, which the list tags. Any other key goes back. A source that changes during the batch stops it, and a
+documents not due yet, which the list tags. The arrow keys, `PgUp`, `PgDn`
+and the wheel scroll the list; any other key goes back. A source that changes during the batch stops it, and a
 document that cannot be compared is left out. A document counts as seen
 once the cursor stops on it: moved there by a key or a click, or acted on
 while it is shown. The wheel over the sidebar passes over documents
 without seeing them, and a document read ahead is not seen either.
+
+The confirmations of `a` and of picked rows, a path or a name shown whole,
+and the list of projects scroll inside their box when they do not fit, so
+that everything they cover can be read. In these boxes the arrow keys,
+`PgUp`, `PgDn` and the wheel scroll, and never close the box.
 
 In the header, `←` and `→` select a field and Enter changes it. The
 reviewer's name applies to the reviews recorded from then on, and is

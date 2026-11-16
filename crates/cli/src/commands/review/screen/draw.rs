@@ -1603,7 +1603,8 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 				.iter()
 				.flat_map(|project| wrap(&app.workspace().display_path(project), 53))
 				.collect();
-			let inside = frame(pen, area, 60, count(rows.len()) + 6, "Projects");
+			let height = count(rows.len()).saturating_add(6);
+			let inside = frame(pen, area, 60, height, "Projects");
 			let list = Rect::new(
 				inside.x + 1,
 				inside.y,
@@ -1652,7 +1653,8 @@ fn batch_box(app: &App, batch: &Batch, pen: &mut Pen, area: Rect) {
 /// and scrolled when its rows do not all fit above its keys.
 fn whole_box(app: &App, pen: &mut Pen, area: Rect, title: &str, whole: &str) {
 	let lines = wrap(whole, 66);
-	let inside = frame(pen, area, 72, count(lines.len()) + 6, title);
+	let rows = count(lines.len()).saturating_add(6);
+	let inside = frame(pen, area, 72, rows, title);
 	let list = Rect::new(
 		inside.x,
 		inside.y,
@@ -2011,7 +2013,8 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 }
 
 /// The confirmation before several documents are recorded: each one with
-/// its outcome, and whether its comparison has been seen.
+/// its outcome, and whether its comparison has been seen, in the order they
+/// are recorded. The list scrolls when they do not all fit.
 fn all_box(
 	app: &App,
 	comparisons: &[(Id, source_sentry_core::mutate::DocumentDiff)],
@@ -2021,16 +2024,25 @@ fn all_box(
 	pen: &mut Pen,
 	area: Rect,
 ) {
-	let inside =
-		frame(pen, area, 76, count(comparisons.len().min(10)) + 8, title);
+	let rows = count(comparisons.len()).saturating_add(8);
+	let inside = frame(pen, area, 76, rows, title);
 	pen.text(inside.x, inside.y, ask, strong(), inside.width);
-	for (y, (id, compared)) in (inside.y + 2..).zip(comparisons.iter().take(10)) {
+	// Only the list scrolls: the question above it and the keys below it
+	// stay in place.
+	let list = Rect::new(
+		inside.x,
+		inside.y + 2,
+		inside.width,
+		inside.height.saturating_sub(5),
+	);
+	scrolled(app, pen, list, comparisons, |pen, (id, compared), line| {
+		let y = line.y;
 		if let Some(document) = app.session.state.documents.get(id) {
 			let label = Style::new()
 				.fg(outcome_color(document.outcome()))
 				.add_modifier(Modifier::BOLD);
 			pen.text(
-				inside.x + 2,
+				line.x + 2,
 				y,
 				output::outcome_name(document.outcome()),
 				label,
@@ -2040,17 +2052,14 @@ fn all_box(
 		let seen = app.session.has_seen(id, compared);
 		let later = !app.session.is_due(id);
 		pen.text(
-			inside.x + 8,
+			line.x + 8,
 			y,
-			&fit_path(
-				&id.display(app.workspace()),
-				inside.width.saturating_sub(30),
-			),
+			&fit_path(&id.display(app.workspace()), line.width.saturating_sub(30)),
 			text(),
-			inside.width,
+			line.width.saturating_sub(8),
 		);
 		let end = pen.right(
-			inside.right(),
+			line.right(),
 			y,
 			if seen { "seen" } else { "not seen" },
 			if seen {
@@ -2062,6 +2071,6 @@ fn all_box(
 		if later {
 			pen.right(end.saturating_sub(2), y, NOT_DUE, not_due());
 		}
-	}
+	});
 	pen.keys(inside.x, inside.bottom() - 1, keys);
 }

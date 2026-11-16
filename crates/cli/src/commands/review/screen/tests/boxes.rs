@@ -282,3 +282,197 @@ fn a_list_of_projects_that_fits_neither_scrolls_nor_closes_on_the_arrows() {
 	press(&mut app, &[Key::Escape, Key::Down]);
 	assert_eq!((app.overlay.is_none(), app.cursor), (true, Cursor::Open(0)));
 }
+
+/// A repository with `count` documents that need review, `docs/d00.md`
+/// onwards, which is the order of the queue.
+fn many(count: usize) -> Repo {
+	let entries: serde_json::Map<String, serde_json::Value> = (0..count)
+		.map(|index| (format!("docs/d{index:02}.md"), json!({})))
+		.collect();
+	Repo::new(entries.into())
+}
+
+/// The documents a drawing of the confirmation lists, in its rows' order.
+fn listed(drawn: &Drawn) -> Vec<String> {
+	drawn
+		.inside()
+		.iter()
+		.filter_map(|row| {
+			let at = row.find("docs/d")?;
+			row.get(at..at + 11).map(str::to_owned)
+		})
+		.collect()
+}
+
+/// Scrolls a confirmation from its top to its end at a size, and checks
+/// what every position shows: the question and the keys, a window of the
+/// documents in the order they will be recorded, and over the whole scroll
+/// every document exactly once, the last included.
+fn confirmation_lists_each_once(
+	app: &mut App,
+	(columns, rows): (u16, u16),
+	(ask, key): (&str, &str),
+	count: usize,
+) {
+	let order: Vec<String> = (0..count)
+		.map(|index| format!("docs/d{index:02}.md"))
+		.collect();
+	let positions = scroll_through(app, columns, rows);
+	let mut seen: Vec<String> = Vec::new();
+	for drawn in &positions {
+		let inside = drawn.inside().join("\n");
+		assert!(inside.contains(ask), "the question stays:\n{inside}");
+		assert!(inside.contains(key), "the keys stay:\n{inside}");
+		let window = listed(drawn);
+		assert!(window.len() >= 3, "{inside}");
+		let start = order.iter().position(|name| *name == window[0]).unwrap();
+		assert_eq!(window, order[start..start + window.len()], "{inside}");
+		for name in window {
+			if !seen.contains(&name) {
+				seen.push(name);
+			}
+		}
+	}
+	assert_eq!(seen, order, "every document, each once, in order");
+	let last = positions.last().unwrap();
+	assert_eq!(listed(last).last(), order.last());
+	assert_eq!(last.scrollbar(), positions.len() > 1);
+}
+
+/// `a` lists every document it covers, eleven or twenty-five, scrolled
+/// inside its box on the smallest screen and on a comfortable one. The
+/// question and its keys stay in sight at every position, and `y` records
+/// every document, the last ones included.
+#[test]
+fn the_confirmation_of_a_lists_every_document_and_records_them_all() {
+	for count in [11, 25] {
+		let repo = many(count);
+		let (workspace, args) = (repo.workspace(), repo.args(&[]));
+		let mut app = App::new(&workspace, &args).unwrap();
+		press(&mut app, &[Key::Char('a')]);
+		assert!(
+			matches!(&app.overlay, Some(Overlay::All(batch)) if batch.due.len() == count)
+		);
+		let ask = format!("Record the {count} documents that are due");
+		for size in [(80, 20), (120, 30)] {
+			confirmation_lists_each_once(&mut app, size, (&ask, "n  go back"), count);
+		}
+		// Ten rows on the smallest screen hold neither list; twenty-three on
+		// the comfortable one hold the shorter.
+		press(&mut app, &[Key::PageUp; 10]);
+		assert!(boxed(&mut app, 80, 20).scrollbar());
+		assert_eq!(boxed(&mut app, 120, 30).scrollbar(), count > 23);
+		press(&mut app, &SCROLLING);
+		press(&mut app, &[Key::PageDown; 10]);
+		assert!(matches!(app.overlay, Some(Overlay::All(_))));
+		press(&mut app, &[Key::Char('y')]);
+		assert!(app.overlay.is_none());
+		assert_eq!(app.session.recorded.len(), count);
+		let last = format!("docs/d{:02}.md", count - 1);
+		assert!(repo.entry(&last)["reviewed"].is_object());
+	}
+}
+
+/// The keys that leave the confirmation of `a` do as before: `n`, Escape
+/// and Enter go back without recording; the arrows, the page keys and the
+/// wheel only scroll.
+#[test]
+fn the_confirmation_of_a_still_goes_back_on_its_keys() {
+	let repo = many(11);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	for leave in [Key::Char('n'), Key::Escape, Key::Enter] {
+		press(&mut app, &[Key::Char('a')]);
+		boxed(&mut app, 80, 20);
+		for key in SCROLLING {
+			press(&mut app, &[key]);
+			assert!(
+				matches!(app.overlay, Some(Overlay::All(_))),
+				"{key:?} closed it"
+			);
+		}
+		press(&mut app, &[leave]);
+		assert!(app.overlay.is_none(), "{leave:?} goes back");
+		assert_eq!(app.session.recorded, Vec::new());
+	}
+}
+
+/// Picked documents are confirmed in the same box: it lists all of them,
+/// scrolls on the same keys, and `y` records each one.
+#[test]
+fn the_confirmation_of_picked_documents_lists_and_records_them_all() {
+	let repo = many(11);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Extend(true); 10]);
+	assert_eq!(app.picked.len(), 11);
+	press(&mut app, &[Key::Char('y')]);
+	assert!(matches!(app.overlay, Some(Overlay::Picked(..))));
+	confirmation_lists_each_once(
+		&mut app,
+		(80, 20),
+		("Record the 11 picked documents", "n  go back"),
+		11,
+	);
+	press(&mut app, &[Key::Escape]);
+	assert!(app.overlay.is_none());
+	assert_eq!(app.session.recorded, Vec::new());
+	press(&mut app, &[Key::Char('y')]);
+	press(&mut app, &SCROLLING);
+	press(&mut app, &[Key::Char('y')]);
+	assert_eq!(app.session.recorded.len(), 11);
+	assert!(repo.entry("docs/d10.md")["reviewed"].is_object());
+}
+
+/// A confirmation that fits draws no scrollbar, and the keys and the wheel
+/// that would scroll it leave it open and as it was.
+#[test]
+fn a_confirmation_that_fits_neither_scrolls_nor_closes_on_the_arrows() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('a')]);
+	let before = boxed(&mut app, 80, 20);
+	assert!(!before.scrollbar());
+	for key in SCROLLING {
+		press(&mut app, &[key]);
+		assert!(matches!(app.overlay, Some(Overlay::All(_))), "{key:?}");
+		assert_eq!(boxed(&mut app, 80, 20).rows, before.rows, "{key:?}");
+	}
+}
+
+/// The box of contexts is not one that scrolls inside itself, and keeps
+/// its keys: the arrows move its cursor, the wheel does nothing, and the
+/// page keys and Escape close it.
+#[test]
+fn the_context_choices_keep_their_keys() {
+	let repo = fixture();
+	repo.write(
+		".source-sentry/source-sentry.yaml",
+		"version: 1\ndefine:\n  contexts:\n    production:\n      fallback: warn\n    staging:\n      fallback: warn\n    testing:\n      fallback: warn\n",
+	);
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Contexts"]);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert!(app.contexts().len() >= 3, "{:?}", app.contexts());
+	let open = |app: &mut App| {
+		app.click(Target::Field(Field::Context)).unwrap();
+		assert!(matches!(app.overlay, Some(Overlay::Contexts(_))));
+	};
+	open(&mut app);
+	let Some(Overlay::Contexts(at)) = app.overlay else {
+		panic!("expected the contexts");
+	};
+	press(&mut app, &[Key::Down]);
+	assert_eq!(app.overlay, Some(Overlay::Contexts(at + 1)));
+	press(&mut app, &[Key::Wheel(true, Area::Pane)]);
+	assert_eq!(app.overlay, Some(Overlay::Contexts(at + 1)));
+	press(&mut app, &[Key::Up]);
+	assert_eq!(app.overlay, Some(Overlay::Contexts(at)));
+	for leave in [Key::PageDown, Key::PageUp, Key::Escape] {
+		press(&mut app, &[leave]);
+		assert!(app.overlay.is_none(), "{leave:?} closes it");
+		open(&mut app);
+	}
+}

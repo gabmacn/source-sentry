@@ -332,9 +332,17 @@ pub(super) enum Overlay {
 
 impl Overlay {
 	/// Whether the box scrolls inside itself when its content does not fit:
-	/// a whole path or name, and the projects.
+	/// the confirmations before several documents are recorded, a whole path
+	/// or name, and the projects.
 	pub(super) fn scrolls(&self) -> bool {
-		matches!(self, Self::Path(_) | Self::Name(_) | Self::Projects)
+		matches!(
+			self,
+			Self::All(_)
+				| Self::Picked(..)
+				| Self::Path(_)
+				| Self::Name(_)
+				| Self::Projects
+		)
 	}
 }
 
