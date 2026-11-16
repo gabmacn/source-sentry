@@ -19,7 +19,7 @@ use crate::cli::{CheckArgs, EvaluationArgs, Format};
 use crate::describe;
 use crate::exit::{self, Failure};
 use crate::output::{self, Printer};
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, valid_contexts};
 
 /// Runs `check`. The exit code is the evaluation's under `--fail-on`.
 /// `--no-cache` changes nothing yet, because no cache exists.
@@ -95,18 +95,22 @@ pub(super) fn run(
 }
 
 /// Evaluates the snapshot that `args` selects, at `--at` or now, under
-/// `--context`.
+/// `--context`, for a command that is not a gate: an invalid context stops
+/// it, as any other configuration error does.
 ///
 /// # Errors
 ///
-/// Exit 3 when the configs cannot load, and 4 when the repository cannot be
-/// read.
+/// Exit 3 when the configs cannot load or a context is invalid, and 4 when
+/// the repository cannot be read.
 pub(super) fn evaluate(
 	workspace: &Workspace,
 	args: &EvaluationArgs,
 ) -> Result<Evaluation, Failure> {
-	evaluate_with_configs(workspace, args, false)
-		.map(|(evaluation, _)| evaluation)
+	let (evaluation, configs) = evaluate_with_configs(workspace, args, false)?;
+	if let Some(configs) = &configs {
+		valid_contexts(workspace, configs)?;
+	}
+	Ok(evaluation)
 }
 
 /// [`evaluate`], also returning the configs it loaded. With
@@ -328,7 +332,7 @@ fn outside_note(
 /// the same place with the same message, such as two authority failures
 /// that lead to the same advice, share one line. The summary still counts
 /// each of them.
-pub(super) fn diagnostic_lines<'a>(
+pub(crate) fn diagnostic_lines<'a>(
 	workspace: &Workspace,
 	diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> Vec<String> {

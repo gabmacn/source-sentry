@@ -29,6 +29,7 @@ mod model;
 mod projects;
 pub use projects::check;
 mod scopes;
+pub use scopes::context_errors;
 mod series;
 
 #[cfg(test)]

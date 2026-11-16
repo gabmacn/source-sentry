@@ -16,6 +16,7 @@ mod review;
 mod track;
 mod untrack;
 
+pub(crate) use check::diagnostic_lines;
 pub(crate) use diff::shell_word;
 
 use chrono::{DateTime, SubsecRound as _, Utc};

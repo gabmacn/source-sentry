@@ -6,12 +6,13 @@ use std::path::{Component, Path, PathBuf};
 
 use source_sentry_core::claims::{Inventory, discover};
 use source_sentry_core::config::{ConfigSet, project_of, project_roots};
+use source_sentry_core::evaluate::context_errors;
 use source_sentry_core::model::{DocumentId, RepoPath};
 use source_sentry_core::ports::Snapshot;
 use source_sentry_git::GitRepository;
 
 use crate::cli::DocumentArg;
-use crate::exit::Failure;
+use crate::exit::{self, Failure};
 
 mod sources;
 
@@ -349,7 +350,8 @@ fn source_argument_path(
 ///
 /// # Errors
 ///
-/// Exit 3 for invalid configs, and 4 when the snapshot cannot be read.
+/// Exit 3 for invalid configs, including an invalid context, and 4 when the
+/// snapshot cannot be read.
 pub(crate) fn load<S: Snapshot>(
 	workspace: &Workspace,
 	snapshot: &S,
@@ -357,7 +359,13 @@ pub(crate) fn load<S: Snapshot>(
 	load_project(workspace, snapshot, &workspace.scope)
 }
 
-/// Loads a particular project for a document or placement operation.
+/// Loads a particular project for a document or placement operation, and
+/// refuses an invalid context of it as [`valid_contexts`] does.
+///
+/// # Errors
+///
+/// Exit 3 for invalid configs, including an invalid context, and 4 when the
+/// snapshot cannot be read.
 pub(crate) fn load_project<S: Snapshot>(
 	workspace: &Workspace,
 	snapshot: &S,
@@ -365,9 +373,35 @@ pub(crate) fn load_project<S: Snapshot>(
 ) -> Result<(ConfigSet, Inventory), Failure> {
 	let configs = ConfigSet::load_project(snapshot, project)
 		.map_err(|error| Failure::load(workspace, &error))?;
+	valid_contexts(workspace, &configs)?;
 	let inventory =
 		discover(snapshot, &configs).map_err(|error| Failure::backend(&error))?;
 	Ok((configs, inventory))
+}
+
+/// Refuses `configs` when a context of its project is invalid: the command
+/// stops, as for any other configuration error, with the diagnostics that
+/// `check` prints for it. A command works in this project, so its contexts
+/// are its own, unlike those of a project that a document only cites,
+/// which are never validated for the citing project.
+///
+/// # Errors
+///
+/// Exit 3, listing every invalid context.
+pub(crate) fn valid_contexts(
+	workspace: &Workspace,
+	configs: &ConfigSet,
+) -> Result<(), Failure> {
+	let invalid = context_errors(configs);
+	if invalid.is_empty() {
+		return Ok(());
+	}
+	let mut message = String::from("the configs are invalid:");
+	for line in crate::commands::diagnostic_lines(workspace, &invalid) {
+		message.push_str("\n  - ");
+		message.push_str(&line);
+	}
+	Err(Failure::new(exit::CONFIGURATION, message))
 }
 
 /// Resolves `.` and `..` lexically, as git does for pathspecs.

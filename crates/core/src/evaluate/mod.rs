@@ -24,5 +24,6 @@ pub use run::{
 	AppliedContext, AppliedRule, CompletionState, DocumentState, DocumentSubject,
 	Evaluation, Gates, LiveDocument, MemberCompletion, RecordCheck, RecordState,
 	RuleOrigin, SeriesCadence, SeriesKey, SeriesSubject, SourceReport,
-	SourceState, StartedClock, Subject, SubjectKind, Timing, check, unloadable,
+	SourceState, StartedClock, Subject, SubjectKind, Timing, check,
+	context_errors, unloadable,
 };

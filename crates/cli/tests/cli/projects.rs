@@ -697,6 +697,59 @@ fn different_advice_is_printed_for_each_declaration() {
 	assert!(lines[1].contains("track notes.md"), "{}", run.stdout);
 }
 
+/// An invalid context of a project whose document is only cited is never
+/// reported to the citing project, whose commands go on; in that project
+/// itself, it stops `check` and the commands that write alike.
+#[test]
+fn an_invalid_context_of_a_cited_project_does_not_reach_the_citing_one() {
+	let repo = nested();
+	repo
+		.run(&["track", "app/guide.md", "--source", "/code.rs", "--yes"])
+		.expect_code(0);
+	repo
+		.run(&["attest", "app/guide.md", "--yes"])
+		.expect_code(0);
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--source",
+			"/app/guide.md",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.write(
+		"app/.source-sentry/presets/unused.yaml",
+		"define:\n  contexts:\n    broken:\n      fallback: warn\n      rules:\n        \
+		 - facts: []\n          outcome: fail\n",
+	);
+	repo.write("docs/notes.md", "# Notes\n");
+	repo.write("app/notes.md", "# Notes\n");
+	repo.commit_at("2026-11-01T12:00:00Z");
+
+	let citing = repo.run(&["check", "--at", AT, "--format", "json"]);
+	citing.expect_code(1);
+	assert!(
+		!citing.stdout.contains("invalid-context"),
+		"{}",
+		citing.stdout
+	);
+	repo
+		.run(&["attest", "docs/guide.md", "--dry-run"])
+		.expect_code(0);
+	repo
+		.run(&["track", "docs/notes.md", "--on-file", "--dry-run"])
+		.expect_code(0);
+
+	let cited = repo.run(&["-C", "app", "check", "--at", AT]);
+	cited.expect_code(3);
+	assert!(cited.stdout.contains("invalid-context"), "{}", cited.stdout);
+	let track =
+		repo.run(&["-C", "app", "track", "notes.md", "--on-file", "--yes"]);
+	track.expect_code(3);
+	assert!(track.stderr.contains("invalid-context"), "{}", track.stderr);
+}
+
 /// Of another project, `check` reports the errors that concern the cited
 /// document: its configuration errors and the errors met while hashing the
 /// cited document's sources. A fault in an unrelated document there neither

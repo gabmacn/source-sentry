@@ -78,6 +78,21 @@ fn located(
 	)
 }
 
+/// The configuration errors in the contexts of `configs`' project: every
+/// context it declares, and every one that a preset defines without being
+/// imported, is validated against the classes declared beside it.
+///
+/// [`check`](super::check) reports these errors among the diagnostics of
+/// the project it evaluates, and never for a project whose documents it
+/// only cites. A command that does not evaluate a project, but works in it,
+/// calls this to refuse as `check` would.
+#[must_use]
+pub fn context_errors(configs: &ConfigSet) -> Vec<Diagnostic> {
+	let mut diagnostics = Vec::new();
+	validate_contexts(configs, &mut diagnostics);
+	diagnostics
+}
+
 /// Selects the context, and validates every declared one, and every one
 /// that a preset defines without being imported. Every problem is a
 /// configuration error. Returns `None` when no context can be selected.
@@ -86,27 +101,7 @@ pub(super) fn context(
 	requested: Option<&str>,
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<AppliedContext> {
-	let declared_classes: BTreeSet<ClassName> =
-		configs.classes().keys().cloned().collect();
-	for (name, definition) in configs.contexts() {
-		validate_definition(
-			configs,
-			name,
-			definition,
-			&declared_classes,
-			diagnostics,
-		);
-	}
-	for unimported in configs.unimported_definitions() {
-		let declared: BTreeSet<ClassName> = declared_classes
-			.iter()
-			.chain(&unimported.classes)
-			.cloned()
-			.collect();
-		for (name, definition) in &unimported.contexts {
-			validate_definition(configs, name, definition, &declared, diagnostics);
-		}
-	}
+	validate_contexts(configs, diagnostics);
 	let declared: BTreeMap<String, Context> = configs
 		.contexts()
 		.iter()
@@ -137,6 +132,33 @@ pub(super) fn context(
 			};
 			diagnostics.push(policy_diagnostic(&error, location));
 			None
+		}
+	}
+}
+
+/// Validates every context that `configs` declares, and every one that a
+/// preset defines without being imported. Every problem is a configuration
+/// error.
+fn validate_contexts(configs: &ConfigSet, diagnostics: &mut Vec<Diagnostic>) {
+	let declared_classes: BTreeSet<ClassName> =
+		configs.classes().keys().cloned().collect();
+	for (name, definition) in configs.contexts() {
+		validate_definition(
+			configs,
+			name,
+			definition,
+			&declared_classes,
+			diagnostics,
+		);
+	}
+	for unimported in configs.unimported_definitions() {
+		let declared: BTreeSet<ClassName> = declared_classes
+			.iter()
+			.chain(&unimported.classes)
+			.cloned()
+			.collect();
+		for (name, definition) in &unimported.contexts {
+			validate_definition(configs, name, definition, &declared, diagnostics);
 		}
 	}
 }

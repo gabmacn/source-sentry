@@ -655,6 +655,123 @@ fn an_invalid_context_rule_points_at_its_own_line() {
 	);
 }
 
+/// A preset that defines a context whose only rule has an empty `facts`
+/// list, and that nothing imports.
+const BROKEN_CONTEXT_PRESET: &str = "define:\n  contexts:\n    broken:\n      \
+                                     fallback: warn\n      rules:\n        - \
+                                     facts: []\n          outcome: fail\n";
+
+/// The line `check` prints for [`BROKEN_CONTEXT_PRESET`].
+const BROKEN_CONTEXT_LINE: &str = "configuration-error  invalid-context  \
+                                   .source-sentry/presets/unused.yaml:6:11  \
+                                   context `broken` is invalid: rule 1 has an \
+                                   empty `facts` list; name at least one fact";
+
+/// What a command could have changed: the status, the staged and the
+/// unstaged changes.
+fn working_tree(repo: &TestRepo) -> String {
+	[
+		repo.git(&["status", "--porcelain", "--untracked-files=all"]),
+		repo.git(&["diff"]),
+		repo.git(&["diff", "--cached"]),
+	]
+	.join("\n")
+}
+
+/// An invalid context stops every command that works in its project, as an
+/// unknown setting does: exit 3, the line `check` prints for it, and
+/// nothing written, with or without `--dry-run`.
+#[test]
+fn an_invalid_context_stops_every_command_as_check_reports_it() {
+	let repo = TestRepo::init();
+	repo.write(
+		".source-sentry/source-sentry.yaml",
+		"version: 1\nseries:\n  audits:\n    pattern: \
+		 'audits/audit-(?P<version>\\d+)\\.md'\n    version-kind: integer\n    \
+		 lifecycle: records-only\n",
+	);
+	repo.write("audits/audit-1.md", "# Audit\n");
+	repo.write("docs/notes.md", "# Notes\n");
+	repo.reviewed_guide();
+	for track in [
+		&[
+			"track",
+			"audits/audit-1.md",
+			"--source",
+			"/src/a.rs",
+			"--yes",
+		][..],
+		&[
+			"track",
+			"docs/notes.md",
+			"--on-file",
+			"--source",
+			"/src/a.rs",
+			"--yes",
+		],
+	] {
+		repo.run(track).expect_code(0);
+		repo.run(&["attest", track[1], "--yes"]).expect_code(0);
+	}
+	repo.write("docs/new.md", "# New\n");
+	repo.write("docs/other.md", "# Other\n");
+	repo.write("src/a.rs", "fn a() {}\nfn b() {}\n");
+	repo.write(".source-sentry/presets/unused.yaml", BROKEN_CONTEXT_PRESET);
+	repo.commit_at("2026-10-03T10:00:00Z");
+
+	let check = repo.run(&["check", "--at", AT]);
+	check.expect_code(3);
+	assert!(
+		check.stdout.contains(BROKEN_CONTEXT_LINE),
+		"{}",
+		check.stdout
+	);
+
+	let commands: &[&[&str]] = &[
+		&["explain", "docs/guide.md"],
+		&["diff", "docs/guide.md"],
+		&["attest", "docs/guide.md"],
+		&["seal", "audits/audit-1.md"],
+		&["retire", "audits/audit-1.md"],
+		&["track", "docs/new.md", "--on-file"],
+		&[
+			"track",
+			"docs/notes.md",
+			"--from",
+			"on-file",
+			"--to",
+			"lockfile:docs",
+		],
+		&["untrack", "docs/guide.md", "--source", "/src/a.rs"],
+		&["init", "docs/other.md"],
+		&["migrate"],
+		&["rename", "docs/guide.md", "docs/moved.md"],
+	];
+	for command in commands {
+		let writes = !matches!(command[0], "explain" | "diff");
+		let modes: &[&[&str]] = if writes {
+			&[&["--dry-run"], &["--yes"]]
+		} else {
+			&[&[]]
+		};
+		if command[0] == "rename" {
+			repo.git(&["mv", "docs/guide.md", "docs/moved.md"]);
+		}
+		for mode in modes {
+			let args = [*command, *mode].concat();
+			let before = working_tree(&repo);
+			let run = repo.run(&args);
+			run.expect_code(3);
+			assert!(
+				run.stderr.contains(&format!("  - {BROKEN_CONTEXT_LINE}")),
+				"{args:?}: {}",
+				run.stderr
+			);
+			assert_eq!(working_tree(&repo), before, "{args:?}");
+		}
+	}
+}
+
 #[test]
 fn an_undeclared_class_on_file_points_at_its_line() {
 	let repo = TestRepo::init();
