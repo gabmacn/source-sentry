@@ -1544,12 +1544,17 @@ impl<'a> App<'a> {
 				self.cursor = Cursor::Header(fields[(at + 1).min(fields.len() - 1)]);
 			}
 			Key::Down | Key::Escape => {
-				let back = self
-					.shown
+				// The cursor returns to the document on display. Where that one
+				// is no longer listed, the cursor goes elsewhere, and the pane
+				// and the answer follow it there.
+				let shown = self.shown.as_ref().map(|shown| shown.id.clone());
+				let back = shown
 					.as_ref()
-					.map(|shown| shown.id.clone())
-					.map_or_else(|| self.first(), |id| self.place(&id));
+					.map_or_else(|| self.first(), |id| self.place(id));
 				self.cursor = back;
+				if self.current() != shown.as_ref() {
+					self.select(back);
+				}
 			}
 			Key::Enter => {
 				self.overlay = Some(match field {

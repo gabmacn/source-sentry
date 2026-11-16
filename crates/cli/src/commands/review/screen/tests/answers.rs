@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::super::super::session::CHANGED;
 use super::super::super::tests::support::Repo;
-use super::super::app::{App, Cursor, Focus, Key, Target};
+use super::super::app::{App, Cursor, Field, Focus, Key, Target};
 use super::{drawn, press, shows};
 
 /// A source changed on disk after its changes were shown refuses a review
@@ -98,5 +98,30 @@ fn a_drag_onto_another_document_withdraws_a_held_answer() {
 	press(&mut app, &[Key::Enter]);
 	assert_eq!(app.session.recorded, Vec::new());
 	assert!(repo.entry("docs/a.md")["reviewed"].is_null());
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
+}
+
+/// Leaving the header returns the cursor to the document on display. When
+/// that document is in the other documents and their list is closed, the
+/// cursor goes to the first in the queue, and the pane and the next answer
+/// go with it.
+#[test]
+fn leaving_the_header_keeps_the_cursor_and_the_pane_on_one_document() {
+	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&["docs/a.md"]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(
+		&mut app,
+		&[Key::Char('o'), Key::Down, Key::Down, Key::Char('o')],
+	);
+	assert!(!app.expanded);
+	assert!(app.shown.as_ref().unwrap().name.ends_with("b.md"));
+	app.click(Target::Field(Field::Projects)).unwrap();
+	press(&mut app, &[Key::Escape, Key::Down]);
+	assert_eq!(app.cursor, Cursor::Open(0));
+	assert!(app.shown.as_ref().unwrap().name.ends_with("a.md"));
+
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
 	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
 }
