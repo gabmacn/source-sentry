@@ -668,8 +668,8 @@ source-sentry migrate [--dry-run] [--yes]
   their reviews. A reviewed pattern member follows only when the pattern
   also matches the new path; otherwise the pattern stays unchanged and
   `check` reports the membership change. A source or member that follows
-  keeps its clock when the document that cites it is in the same project as
-  the renamed document. Conflicting destination member
+  keeps its clock, including when the document that cites it is in another
+  project. Conflicting destination member
   reviews are refused. A changed sealed record is refused; other content
   changes are reported against the retained review oids by `check`.
 
