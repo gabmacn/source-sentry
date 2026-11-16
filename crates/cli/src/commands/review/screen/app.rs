@@ -8,8 +8,10 @@ use std::rc::Rc;
 
 use ratatui::layout::{Position, Rect};
 
-use source_sentry_core::evaluate::Timing;
-use source_sentry_core::model::{DocumentId, Outcome};
+use source_sentry_core::evaluate::{SourceState as State, Timing};
+use source_sentry_core::model::{
+	Declaration, DocumentId, ObjectId, Outcome, RepoPath,
+};
 use source_sentry_core::mutate::{
 	Baseline, Current, DocumentDiff, Expectation, Selection, SourceSpec,
 };
@@ -18,7 +20,7 @@ use super::super::Batch;
 use super::super::changes::{self, Entry, Row};
 use super::super::closing::Closing;
 use super::super::session::{CHANGED, Session, Undone, Written};
-use super::super::state::{Key as Id, Stamp};
+use super::super::state::{Document, Key as Id, Stamp, State as Evaluated};
 use crate::cli::ReviewArgs;
 use crate::describe;
 use crate::exit::Failure;
@@ -363,8 +365,59 @@ pub(super) struct Shown {
 	/// The evidence of the evaluation it was read under, which tells whether
 	/// a later evaluation leaves it as it is.
 	pub(super) stamp: Option<Stamp>,
+	/// Each source file as that evaluation reported it: its baseline, its
+	/// current oid and how the two compare.
+	pub(super) reports: Vec<Report>,
+	/// Its declaration in that evaluation, with every source's baseline and
+	/// review.
+	pub(super) record: Option<Declaration>,
 	/// Its lines, or why they cannot be shown.
 	pub(super) text: Result<Vec<String>, String>,
+}
+
+/// What an evaluation reports of one source file, apart from its clock,
+/// which the screen always reads from the latest evaluation: its path, the
+/// oid it was attested at, its current oid, and how the two compare.
+pub(super) type Report = (RepoPath, Option<ObjectId>, Option<ObjectId>, State);
+
+/// What the evaluation reports of each source file of `document`; see
+/// [`Report`].
+fn reports(document: &Document) -> Vec<Report> {
+	document
+		.reports
+		.iter()
+		.map(|report| {
+			(
+				report.path.clone(),
+				report.attested.clone(),
+				report.current.clone(),
+				report.state,
+			)
+		})
+		.collect()
+}
+
+/// The declaration of `id` in an evaluation's inventory.
+fn declaration<'s>(state: &'s Evaluated, id: &Id) -> Option<&'s Declaration> {
+	state
+		.inventories
+		.get(&id.project)?
+		.claims
+		.iter()
+		.find(|claim| claim.document == id.document)
+		.map(|claim| &claim.declaration)
+}
+
+/// A document's lines as the pane shows them, or why they cannot be shown.
+fn text(workspace: &Workspace, id: &Id) -> Result<Vec<String>, String> {
+	match &id.document {
+		DocumentId::Local(path) => fs::read_to_string(workspace.file(path))
+			.map(|text| text.lines().map(changes::expand_tabs).collect())
+			.map_err(|error| format!("The document cannot be read: {error}.")),
+		DocumentId::Remote(_) => {
+			Err("A remote document is read in its source application.".to_owned())
+		}
+	}
 }
 
 /// A session on the full screen.
@@ -572,21 +625,30 @@ impl<'a> App<'a> {
 
 	/// Rebuilds both lists from the latest evaluation. A document read under
 	/// an earlier one stays loaded while this one finds the same evidence
-	/// for it; a caller drops what was written or edited beforehand.
+	/// for it, so that everything its pane shows and an answer would record
+	/// is unchanged: its sources and what they were attested at, its facts,
+	/// its declaration with each source's review, and its own text, which no
+	/// evaluation reads, so it is read again. A caller drops what was written
+	/// or edited beforehand.
 	fn rebuild(&mut self) -> Result<(), Failure> {
 		self.open = self.session.pending()?;
+		let workspace = self.session.workspace;
 		let state = &self.session.state;
-		self
-			.cache
-			.retain(|id, shown| match state.documents.get(id) {
+		self.cache.retain(|id, shown| {
+			let evaluated = match state.documents.get(id) {
 				Some(document) => {
 					shown.stamp.as_ref() == Some(&document.stamp)
 						&& shown.outcome == Some(document.outcome())
 						&& shown.pending == document.pending
 						&& shown.facts == document.facts
+						&& shown.reports == reports(document)
 				}
 				None => shown.outcome.is_none() && state.tracked.contains(id),
-			});
+			};
+			evaluated
+				&& shown.record.as_ref() == declaration(state, id)
+				&& shown.text == text(workspace, id)
+		});
 		let mut listed: BTreeSet<&Id> = self.open.iter().collect();
 		let mut others = Vec::new();
 		for (id, _) in &self.session.recorded {
@@ -706,14 +768,6 @@ impl<'a> App<'a> {
 	/// Loads a document: its comparison, its changed files and its text.
 	fn read(&self, id: &Id) -> Shown {
 		let workspace = self.workspace();
-		let text = match &id.document {
-			DocumentId::Local(path) => fs::read_to_string(workspace.file(path))
-				.map(|text| text.lines().map(changes::expand_tabs).collect())
-				.map_err(|error| format!("The document cannot be read: {error}.")),
-			DocumentId::Remote(_) => {
-				Err("A remote document is read in its source application.".to_owned())
-			}
-		};
 		let mut shown = Shown {
 			id: id.clone(),
 			name: id.display(workspace),
@@ -729,7 +783,9 @@ impl<'a> App<'a> {
 			reason: self.session.reasons.get(id).cloned(),
 			failure: None,
 			stamp: None,
-			text,
+			reports: Vec::new(),
+			record: declaration(&self.session.state, id).cloned(),
+			text: text(workspace, id),
 		};
 		let Some(document) = self.session.state.documents.get(id) else {
 			return shown;
@@ -738,6 +794,7 @@ impl<'a> App<'a> {
 		shown.facts.clone_from(&document.facts);
 		shown.pending = document.pending;
 		shown.stamp = Some(document.stamp.clone());
+		shown.reports = reports(document);
 		shown.upstreams = document
 			.stamp
 			.upstreams

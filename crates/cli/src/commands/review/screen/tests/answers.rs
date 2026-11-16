@@ -1,11 +1,14 @@
 //! What an answer records: exactly what the reviewer was shown, for the
 //! document on display.
 
+use std::rc::Rc;
+
 use serde_json::json;
+use source_sentry_core::evaluate::SourceState;
 
 use super::super::super::session::CHANGED;
 use super::super::super::tests::support::Repo;
-use super::super::app::{App, Cursor, Field, Focus, Key, Target};
+use super::super::app::{App, Cursor, Field, Focus, Kept, Key, Target};
 use super::{drawn, press, shows};
 
 /// A source changed on disk after its changes were shown refuses a review
@@ -124,4 +127,80 @@ fn leaving_the_header_keeps_the_cursor_and_the_pane_on_one_document() {
 	press(&mut app, &[Key::Char('y'), Key::Enter]);
 	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
 	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
+}
+
+/// A document whose text changed on disk is read again after the next
+/// evaluation, so that the pane shows its current text before a reread is
+/// recorded for it.
+#[test]
+fn a_document_edited_outside_the_screen_is_shown_as_it_is_now() {
+	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	repo.write("docs/b.md", "Old text\n");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	while app.prefetch() {}
+	repo.write("docs/b.md", "Current text\n");
+	press(&mut app, &[Key::Char('y'), Key::Enter, Key::Char('v')]);
+	assert!(app.shown.as_ref().unwrap().name.ends_with("b.md"));
+	let rows = drawn(&app, 120, 30);
+	assert!(shows(&rows, "Current text"), "{rows:#?}");
+	assert!(!shows(&rows, "Old text"));
+}
+
+/// A document whose stored review of a source was removed is compared
+/// again after the next evaluation, although its sources and facts are
+/// unchanged: the pane shows that source as never reviewed, not as
+/// changed since the review that is gone.
+#[test]
+fn a_document_whose_review_changed_outside_the_screen_is_compared_again() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/b.md": {"sources": [{"path": "/src/a.rs"}, {"path": "/src/b.rs"}]},
+	}));
+	repo.attest("docs/b.md");
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Reviewed"]);
+	repo.write("src/a.rs", "new a\n");
+	repo.write("src/b.rs", "new b\n");
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Changed"]);
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	while app.prefetch() {}
+	let b = app
+		.open
+		.iter()
+		.position(|id| id.document.to_string() == "docs/b.md")
+		.unwrap();
+	let id = app.open[b].clone();
+	let before = Rc::clone(&app.cache[&id]);
+	assert_eq!(before.reports[0].3, SourceState::Drifted);
+
+	let mut lock: serde_json::Value =
+		serde_json::from_str(&repo.read("source-sentry.lock")).unwrap();
+	let source = lock["documents"]["docs/b.md"]["sources"][0]
+		.as_object_mut()
+		.unwrap();
+	source.remove("oid");
+	source.remove("reviewed");
+	repo.write("source-sentry.lock", &lock.to_string());
+	let a = app
+		.open
+		.iter()
+		.position(|id| id.document.to_string() == "docs/a.md")
+		.unwrap();
+	app.click(Target::Row(Cursor::Open(a))).unwrap();
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert!(
+		app
+			.cache
+			.get(&id)
+			.is_none_or(|now| !Rc::ptr_eq(&before, now))
+	);
+
+	let b = app.open.iter().position(|open| open == &id).unwrap();
+	app.click(Target::Row(Cursor::Open(b))).unwrap();
+	let rows = app.every_source();
+	assert_eq!(rows[0].kept, Some(Kept::New));
+	assert_eq!(rows[1].kept, Some(Kept::Changed));
 }
