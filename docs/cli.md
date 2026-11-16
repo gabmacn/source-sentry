@@ -226,7 +226,9 @@ whether or not anything changed.
   named by `project`. The document uses
   its project-relative path; source and expectation arguments use rooted
   spellings, with `:/` for repository paths outside a nested project.
-  Declared pattern selectors keep their spelling. The array omits `-C`
+  A declared pattern selector keeps its spelling, unless that spelling
+  would select another declared source as well when read from the project
+  root; a rooted spelling is then used. The array omits `-C`
   because its starting directory is explicit. Other paths are relative to
   the document's project.
   Each source also carries its own `reviewed` (`at` and `by`) when present;

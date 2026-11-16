@@ -23,6 +23,98 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+### Fixed
+
+- A relative source pattern now matches files in its document's own
+  directory even when that directory's name contains `*`, `?`, `[`, `]`, `{`
+  or `}`. Before, the name was read as glob syntax, so the pattern matched
+  other directories or was rejected as invalid.
+- A `.lock` file is no longer taken for an owner lockfile merely because its
+  directory's path ends in `.source-sentry/remotes`, as in
+  `archive/not.source-sentry/remotes/data.lock`. It can be a source and is
+  matched by patterns.
+- A `.source-sentry/remotes/<owner>.lock` file in a directory that is not a
+  project root is no longer read as an owner lockfile of the enclosing
+  project.
+- A nested project's check now reports an enclosing lockfile that cannot be
+  read, instead of passing without knowing whether declarations were
+  stranded there.
+- Diagnostics about a whole declaration, such as `missing-document` and
+  `double-claim`, now give the line where the declaration begins.
+- A preset that defines a context with an empty `facts` list is now an
+  `invalid-context` configuration error even when no config imports it.
+- A multi-line quoted or flow value in a document's frontmatter keeps track
+  of its own lines when a later value is left unclosed, so a `source-sentry:`
+  line inside a multi-line title is no longer mistaken for the declaration
+  and rewritten.
+- `rename` no longer lets you move the only entry of a `living` series out
+  of the series, which left the series with no head while `check` still
+  passed. It refuses, as `retire` does, and asks for a successor or for the
+  series to be removed from its config first.
+- `check` is fast again for series and documents on a cadence that started
+  long ago, or that has a long backlog of missed windows. It no longer
+  recomputes the cadence from its start for every search, or compares every
+  entry and window with every other.
+- In a nested project's JSON report, a source pattern outside the project is
+  written `../src/*.txt` instead of `/../src/*.txt`, and a local path spelled
+  like a remote identity, such as `abstract:guide`, is made relative to the
+  project.
+- Commands that messages suggest now run when pasted into the shell you
+  started in. `rename`'s `git mv`, the `git add --renormalize` advice for
+  CRLF line endings and the `track --from` advice of the on-file `seal`
+  refusal honour `-C`, name their files after `--`, and carry every
+  required argument.
+- `diff --format json` writes an `attest` array that selects exactly the
+  source it showed when run from the document's project root. Before, the
+  array could be refused as ambiguous, and in a nested project the command
+  could fail outright. `diff --help` now names that directory correctly.
+- A file saved by another program while a write is being applied now fails
+  the write and is kept, instead of being overwritten. A short window right
+  before the replacement remains.
+- A regular file that replaces a tracked symbolic link is now hashed as git
+  would add it, unless `core.symlinks` is false.
+- A file whose filter driver the attribute files cannot rule out is now
+  refused as an unsupported filter, so the driver never runs.
+- Files whose names are close to the file system's 255-character limit can
+  now be written and deleted.
+- Reading history reports an unreadable tree as an error instead of treating
+  the directory as absent, and an author name containing control characters
+  no longer spills into the commit subject.
+- The full-screen review records only what it showed:
+  - a review of picked sources is refused when one of them changed on disk
+    after its changes were shown, and the new changes are shown;
+  - a document is read again when its text, or a stored review of one of its
+    sources, changed outside the screen;
+  - dragging onto another document's row withdraws an answer held with `y`
+    or `r`, instead of recording it for that document on Enter;
+  - leaving the header shows the document the cursor returns to, so the next
+    answer is recorded for the highlighted document.
+- In a full-screen review started for named documents, a picked document
+  from the other documents that the confirmation listed is now recorded,
+  instead of the batch reporting "Recorded 0 reviews."
+- When one write of an answer given to several documents fails, the
+  full-screen review says how many reviews were recorded and which document
+  was not, and prints its closing before it ends.
+- In the full-screen review, a reviewer name typed in the header is checked
+  before it is remembered, so an email address is refused there and not at
+  the next review.
+- In the full-screen review, the mouse wheel over the sidebar ends a range of
+  picked rows, and a drag made with Shift or Control held is left to the
+  terminal, as such a click is.
+- When the full-screen review finds nothing to review, its closing follows a
+  final evaluation, so a change made meanwhile is reported.
+- The full-screen review no longer cuts off the end of rows of wide
+  characters, such as CJK text, and a line too long to fit in the pane can
+  be scrolled to its end.
+- In the full-screen review, the facts at the top of the pane no longer draw
+  over the sidebar, and very long facts no longer crash the screen; they are
+  cut with an ellipsis.
+- `install.sh` quotes the install directory in the `fish_add_path` line it
+  prints, so a directory containing a space is passed as one argument.
+- The recipes' guide protects the installed Forgejo workflow file, every
+  `.source-sentry/` directory including those of nested projects, and
+  GitLab's own CODEOWNERS file in its CODEOWNERS examples.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added
