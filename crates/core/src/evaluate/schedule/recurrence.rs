@@ -4,9 +4,23 @@
 //! each rule is expanded from DTSTART at midnight UTC, and only the dates of
 //! its occurrences are used; the configured time zone applies afterwards,
 //! when dates become instants.
+//!
+//! A recurrence and its clones share one expansion, which grows as searches
+//! need it. Each search replays the occurrences already found, in the order
+//! the evaluator yielded them, before it asks the evaluator for more, so it
+//! sees exactly the dates a new expansion from DTSTART would yield, without
+//! computing them again.
+
+#[cfg(test)]
+mod tests;
+
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use chrono::{Days, NaiveDate, NaiveTime, TimeZone as _};
-use rrule::{Frequency, NWeekday, RRule, RRuleSet, Tz, Unvalidated};
+use rrule::{
+	Frequency, NWeekday, RRule, RRuleSet, RRuleSetIter, Tz, Unvalidated,
+};
 
 use super::ScheduleError;
 use crate::model::Cadence;
@@ -20,11 +34,93 @@ pub const HORIZON_DAYS: u64 = 146_097;
 /// the first occurrence.
 ///
 /// Occurrences are dates. The first is DTSTART, and none falls before it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Clones share the occurrences found so far; two recurrences are equal when
+/// their DTSTART and rule are.
+#[derive(Clone)]
 pub struct Recurrence {
 	dtstart: NaiveDate,
 	rule: String,
 	set: RRuleSet,
+	expansion: Arc<Mutex<Expansion>>,
+}
+
+impl PartialEq for Recurrence {
+	fn eq(&self, other: &Self) -> bool {
+		self.dtstart == other.dtstart
+			&& self.rule == other.rule
+			&& self.set == other.set
+	}
+}
+
+impl Eq for Recurrence {}
+
+#[expect(
+	clippy::missing_fields_in_debug,
+	reason = "the expansion only saves work; printing it would make equal \
+	          recurrences print differently"
+)]
+impl fmt::Debug for Recurrence {
+	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		formatter
+			.debug_struct("Recurrence")
+			.field("dtstart", &self.dtstart)
+			.field("rule", &self.rule)
+			.field("set", &self.set)
+			.finish()
+	}
+}
+
+/// The rule's occurrences from DTSTART, expanded as far as searches have
+/// needed.
+struct Expansion {
+	/// Every occurrence the evaluator has yielded, in the order it yielded
+	/// them.
+	found: Vec<NaiveDate>,
+	/// The evaluator, positioned after the last occurrence in `found`, or
+	/// `None` once it has yielded its last.
+	rest: Option<RRuleSetIter>,
+}
+
+/// Every occurrence of a rule from DTSTART on, in order.
+enum Dates<'e> {
+	/// The occurrences of the shared expansion: those already found, then new
+	/// ones, which it records as it yields them.
+	Replay {
+		expansion: &'e mut Expansion,
+		/// The position in `found` of the next occurrence to yield.
+		next: usize,
+	},
+	/// The occurrences of a new expansion, which nothing records.
+	Fresh(RRuleSetIter),
+}
+
+impl Iterator for Dates<'_> {
+	type Item = NaiveDate;
+
+	fn next(&mut self) -> Option<NaiveDate> {
+		match self {
+			Self::Replay { expansion, next } => {
+				if let Some(&date) = expansion.found.get(*next) {
+					*next += 1;
+					return Some(date);
+				}
+				let rest = expansion.rest.as_mut()?;
+				if let Some(occurrence) = rest.next() {
+					let date = occurrence.date_naive();
+					expansion.found.push(date);
+					*next += 1;
+					Some(date)
+				} else {
+					expansion.rest = None;
+					None
+				}
+			}
+			Self::Fresh(rest) => {
+				rest.next().map(|occurrence| occurrence.date_naive())
+			}
+		}
+	}
 }
 
 impl Recurrence {
@@ -58,10 +154,15 @@ impl Recurrence {
 			// Bounds every internal search, so a rule without occurrences ends
 			// instead of looping to the end of the calendar.
 			.limit();
+		let expansion = Expansion {
+			found: Vec::new(),
+			rest: Some((&set).into_iter()),
+		};
 		let recurrence = Self {
 			dtstart: cadence.dtstart,
 			rule: rule.to_owned(),
 			set,
+			expansion: Arc::new(Mutex::new(expansion)),
 		};
 		let first = recurrence.next_on_or_after(cadence.dtstart)?;
 		if first != cadence.dtstart {
@@ -100,7 +201,9 @@ impl Recurrence {
 		let limit = date
 			.checked_add_days(Days::new(HORIZON_DAYS))
 			.unwrap_or(NaiveDate::MAX);
-		match self.dates().find(|&occurrence| occurrence >= date) {
+		let found =
+			self.with_dates(|mut dates| dates.find(|&occurrence| occurrence >= date));
+		match found {
 			Some(occurrence) if occurrence <= limit => Ok(occurrence),
 			_ => Err(ScheduleError::NoOccurrence {
 				rule: self.rule.clone(),
@@ -117,18 +220,29 @@ impl Recurrence {
 		first: NaiveDate,
 		last: NaiveDate,
 	) -> Vec<NaiveDate> {
-		self
-			.dates()
-			.skip_while(|&occurrence| occurrence < first)
-			.take_while(|&occurrence| occurrence <= last)
-			.collect()
+		self.with_dates(|dates| {
+			dates
+				.skip_while(|&occurrence| occurrence < first)
+				.take_while(|&occurrence| occurrence <= last)
+				.collect()
+		})
 	}
 
-	/// Every occurrence from DTSTART on, in order.
-	fn dates(&self) -> impl Iterator<Item = NaiveDate> + '_ {
-		(&self.set)
-			.into_iter()
-			.map(|occurrence| occurrence.date_naive())
+	/// Runs `search` over every occurrence from DTSTART on, in order. The
+	/// occurrences come from the shared expansion, which grows as `search`
+	/// reads past what earlier searches found.
+	fn with_dates<R>(&self, search: impl FnOnce(Dates<'_>) -> R) -> R {
+		if let Ok(mut expansion) = self.expansion.lock() {
+			search(Dates::Replay {
+				expansion: &mut expansion,
+				next: 0,
+			})
+		} else {
+			// A search panicked while it held the expansion, which may have
+			// stopped between taking an occurrence and recording it. Expand
+			// afresh instead.
+			search(Dates::Fresh((&self.set).into_iter()))
+		}
 	}
 }
 

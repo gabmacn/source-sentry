@@ -119,8 +119,17 @@ pub fn evaluate<E: Clone + PartialEq>(
 		.fold(today, NaiveDate::max);
 	let mut windows = cadence_windows(cadence, grace, latest, today)?;
 
+	// With due dates in ascending order, the windows that contain a date are
+	// consecutive, so each completion searches only those.
+	let ascending =
+		windows.is_sorted_by(|earlier, later| earlier.due < later.due);
 	for &(date, completion) in &completions {
-		if let Some(window) = windows
+		let candidates = if ascending {
+			containing(&windows, date)
+		} else {
+			0..windows.len()
+		};
+		if let Some(window) = windows[candidates]
 			.iter_mut()
 			.find(|window| window.credit.is_none() && window.contains(date))
 		{
@@ -151,6 +160,21 @@ pub fn evaluate<E: Clone + PartialEq>(
 		overdue,
 		missed,
 	})
+}
+
+/// The positions of the windows that contain `date`, given windows whose due
+/// dates ascend. Each window's lower bound is the previous due date and its
+/// last day is its due date plus the same grace period, so both ascend too:
+/// the windows that end on or after `date` are a suffix, and those that start
+/// before it are a prefix.
+fn containing<E>(
+	windows: &[Window<E>],
+	date: NaiveDate,
+) -> std::ops::Range<usize> {
+	let first = windows.partition_point(|window| window.last_day < date);
+	let end = windows
+		.partition_point(|window| window.after.is_none_or(|after| after < date));
+	first..end.max(first)
 }
 
 /// Each entry's earliest completion with its local date, sorted by instant.

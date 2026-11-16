@@ -1,10 +1,13 @@
 //! Tests for series cadence windows, credits, overdue and missed.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Days, NaiveDate, Utc};
 
-use super::{CadenceStatus, Completion, Window, evaluate};
+use super::{
+	CadenceStatus, Completion, Window, cadence_windows, evaluate,
+	in_completion_order,
+};
 use crate::{
-	evaluate::schedule::{Recurrence, TimeZone},
+	evaluate::schedule::{Recurrence, ScheduleError, TimeZone},
 	model::Cadence,
 };
 
@@ -260,4 +263,138 @@ fn a_completion_after_the_evaluation_instant_still_counts() {
 	assert_eq!(credits(&early), [None, None, Some("audit")]);
 	assert!(!early.overdue);
 	assert_eq!(early.missed, [0, 1]);
+}
+
+/// [`evaluate`], crediting each completion by searching every window from
+/// the first.
+fn evaluate_by_scanning<E: Clone + PartialEq>(
+	cadence: &Recurrence,
+	grace: u32,
+	zone: &TimeZone,
+	completions: &[Completion<E>],
+	at: DateTime<Utc>,
+) -> Result<CadenceStatus<E>, ScheduleError> {
+	let today = zone.local_date(at)?;
+	let completions = in_completion_order(completions, zone)?;
+	let latest = completions
+		.iter()
+		.map(|&(date, _)| date)
+		.fold(today, NaiveDate::max);
+	let mut windows = cadence_windows(cadence, grace, latest, today)?;
+	for &(date, completion) in &completions {
+		if let Some(window) = windows
+			.iter_mut()
+			.find(|window| window.credit.is_none() && window.contains(date))
+		{
+			window.credit = Some(completion.clone());
+		}
+	}
+	let newest_closed = windows.iter().rposition(|window| window.closed);
+	let overdue = newest_closed.is_some_and(|newest| {
+		let window = &windows[newest];
+		window.credit.is_none()
+			&& completions.iter().all(|&(date, _)| date <= window.last_day)
+	});
+	let missed = windows
+		.iter()
+		.enumerate()
+		.filter(|&(index, window)| {
+			window.closed
+				&& window.credit.is_none()
+				&& !(overdue && Some(index) == newest_closed)
+		})
+		.map(|(index, _)| index)
+		.collect();
+	Ok(CadenceStatus {
+		windows,
+		overdue,
+		missed,
+	})
+}
+
+/// A fixed sequence of pseudo-random numbers below `bound`.
+struct Numbers(u64);
+
+impl Numbers {
+	fn below(&mut self, bound: u64) -> u64 {
+		self.0 = self
+			.0
+			.wrapping_mul(6_364_136_223_846_793_005)
+			.wrapping_add(1_442_695_040_888_963_407);
+		(self.0 >> 33) % bound
+	}
+}
+
+/// For many rules, start dates, grace periods, time zones and sets of
+/// completions, including repeated entries, entries completed before DTSTART
+/// or after the evaluation instant, and overlapping windows, evaluation
+/// credits the same windows as a search of every window from the first.
+#[test]
+fn credits_match_a_search_from_the_first_window() {
+	const RULES: [&str; 6] = [
+		"FREQ=DAILY",
+		"FREQ=DAILY;INTERVAL=3",
+		"FREQ=WEEKLY;BYDAY=MO,WE,FR",
+		"FREQ=MONTHLY;BYMONTHDAY=-1",
+		"FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1",
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29",
+	];
+	const STARTS: [&str; 3] = ["1904-02-29", "2011-12-28", "2028-02-29"];
+	let zones = [
+		TimeZone::utc(),
+		TimeZone::new("Europe/Madrid").unwrap(),
+		// Skipped 30 December 2011.
+		TimeZone::new("Pacific/Apia").unwrap(),
+	];
+	let mut numbers = Numbers(11);
+	for rule in RULES {
+		for start in STARTS {
+			let cadence = match Recurrence::new(&Cadence {
+				dtstart: date(start),
+				rrule: rule.to_owned(),
+			}) {
+				Ok(cadence) => cadence,
+				Err(ScheduleError::DtstartNotOccurrence { first, .. }) => {
+					Recurrence::new(&Cadence {
+						dtstart: first,
+						rrule: rule.to_owned(),
+					})
+					.unwrap()
+				}
+				Err(error) => panic!("{rule} from {start}: {error}"),
+			};
+			for grace in [0, 1, 3, 40] {
+				for zone in &zones {
+					for _ in 0..4 {
+						let span = numbers.below(3_000);
+						let today =
+							cadence.dtstart().checked_add_days(Days::new(span)).unwrap();
+						let at = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
+						let count = numbers.below(40);
+						let completions: Vec<Completion<String>> = (0..count)
+							.map(|_| {
+								let day = cadence
+									.dtstart()
+									.checked_sub_days(Days::new(30))
+									.unwrap()
+									.checked_add_days(Days::new(numbers.below(span + 90)))
+									.unwrap();
+								let hour = u32::try_from(numbers.below(24)).unwrap();
+								Completion {
+									entry: format!("entry-{}", numbers.below(count)),
+									at: day.and_hms_opt(hour, 0, 0).unwrap().and_utc(),
+								}
+							})
+							.collect();
+						assert_eq!(
+							evaluate(&cadence, grace, zone, &completions, at),
+							evaluate_by_scanning(&cadence, grace, zone, &completions, at),
+							"{rule} from {}, grace {grace}, at {at}",
+							cadence.dtstart()
+						);
+					}
+				}
+			}
+		}
+	}
 }
