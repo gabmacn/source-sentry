@@ -9,7 +9,7 @@ use source_sentry_core::evaluate::SourceState;
 use super::super::super::session::CHANGED;
 use super::super::super::tests::support::Repo;
 use super::super::app::{
-	App, Cursor, Field, Focus, Kept, Key, Overlay, Target,
+	App, Area, Cursor, Field, Focus, Kept, Key, Overlay, Target,
 };
 use super::{drawn, press, shows};
 
@@ -295,4 +295,38 @@ fn a_batch_that_fails_partway_accounts_for_what_it_recorded() {
 		closing.starts_with("Recorded 1 review.\n  docs/a.md (reread)\n"),
 		"{closing}"
 	);
+}
+
+/// The wheel over the sidebar ends a range of picked rows, as moving the
+/// cursor with a key does: the next range starts where the wheel left the
+/// cursor, and the rows it passed over stay unpicked.
+#[test]
+fn the_wheel_ends_a_range_of_picked_rows() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/b.md": {},
+		"docs/c.md": {},
+		"docs/d.md": {},
+		"docs/e.md": {},
+	}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Extend(true)]);
+	assert_eq!(app.picked.len(), 2);
+	press(
+		&mut app,
+		&[
+			Key::Wheel(true, Area::Sidebar),
+			Key::Wheel(true, Area::Sidebar),
+		],
+	);
+	assert_eq!(app.cursor, Cursor::Open(3));
+
+	press(&mut app, &[Key::Extend(true)]);
+	let picked: Vec<_> = app
+		.picked
+		.iter()
+		.map(|id| id.document.to_string())
+		.collect();
+	assert_eq!(picked, ["docs/a.md", "docs/b.md", "docs/d.md", "docs/e.md"]);
 }

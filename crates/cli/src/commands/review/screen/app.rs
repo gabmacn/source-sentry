@@ -1910,6 +1910,8 @@ impl<'a> App<'a> {
 		match area {
 			Area::Sidebar => {
 				self.armed = None;
+				// Moving the cursor ends a range of picked rows, as a key does.
+				self.anchor = None;
 				self.step(down, false);
 			}
 			Area::Pane => self.scroll_rows(self.pane, down, WHEEL),
