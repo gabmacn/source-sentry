@@ -6,6 +6,7 @@ mod policy;
 mod projects;
 mod records;
 mod renames;
+mod schedules;
 mod series;
 
 use chrono::{DateTime, TimeDelta, TimeZone as _, Utc};

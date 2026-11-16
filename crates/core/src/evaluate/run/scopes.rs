@@ -10,7 +10,9 @@ use crate::config::{
 	ConfigSet, ContextDefinition, DirectorySettings, DocumentDefaults, Origin,
 	RemoteSettings, Resolved, Series,
 };
-use crate::evaluate::schedule::{EffectiveSchedule, ScheduleError, TimeZone};
+use crate::evaluate::schedule::{
+	EffectiveSchedule, Recurrence, ScheduleError, TimeZone,
+};
 use crate::evaluate::settings::{
 	DeclarationSite, Effective, EffectiveSettings, SettingOrigin,
 };
@@ -177,10 +179,10 @@ pub(super) fn time_zone(
 	}
 }
 
-/// A schedule's identity, for the cache: its grace and its cadence.
-type ScheduleKey = (u32, Option<(NaiveDate, String)>);
+/// A cadence's identity, for the cache: its DTSTART and its rule.
+type CadenceKey = (NaiveDate, String);
 
-/// Each scope's settings and rules, and each distinct schedule's validation,
+/// Each scope's settings and rules, and each distinct cadence's validation,
 /// computed once per evaluation.
 pub(super) struct Scopes<'c> {
 	configs: &'c ConfigSet,
@@ -188,7 +190,10 @@ pub(super) struct Scopes<'c> {
 	context: Option<String>,
 	directories: BTreeMap<RepoPath, DirectorySettings>,
 	remotes: BTreeMap<String, RemoteSettings>,
-	schedules: BTreeMap<ScheduleKey, Result<EffectiveSchedule, ScheduleError>>,
+	/// Each distinct cadence, validated once. Every schedule on a cadence
+	/// shares its recurrence, and so the dates expanded from it, whatever
+	/// the schedule's grace.
+	cadences: BTreeMap<CadenceKey, Result<Recurrence, ScheduleError>>,
 }
 
 impl<'c> Scopes<'c> {
@@ -198,8 +203,15 @@ impl<'c> Scopes<'c> {
 			context,
 			directories: BTreeMap::new(),
 			remotes: BTreeMap::new(),
-			schedules: BTreeMap::new(),
+			cadences: BTreeMap::new(),
 		}
+	}
+
+	/// How many cadences this evaluation has expanded: one for each distinct
+	/// cadence, which every schedule on it shares.
+	#[cfg(test)]
+	pub(super) fn expansions(&self) -> usize {
+		self.cadences.len()
 	}
 
 	/// The settings of `directory`.
@@ -306,25 +318,29 @@ impl<'c> Scopes<'c> {
 	/// invalid. Config loading and discovery have already reported every
 	/// invalid written cadence at its own location, so resolving a schedule
 	/// does not report it again for each document or series that uses it.
+	///
+	/// Schedules on one cadence share its recurrence, whatever their grace,
+	/// so the cadence is expanded once for all of them.
 	pub(super) fn schedule(
 		&mut self,
 		settings: &EffectiveSettings,
 	) -> Option<EffectiveSchedule> {
-		let key: ScheduleKey = (
-			settings.grace.value,
-			settings
-				.cadence
-				.value
-				.as_ref()
-				.map(|cadence| (cadence.dtstart, cadence.rrule.clone())),
-		);
-		self
-			.schedules
-			.entry(key)
-			.or_insert_with(|| EffectiveSchedule::new(&settings.schedule()))
-			.as_ref()
-			.ok()
-			.cloned()
+		let cadence = match &settings.cadence.value {
+			Some(cadence) => Some(
+				self
+					.cadences
+					.entry((cadence.dtstart, cadence.rrule.clone()))
+					.or_insert_with(|| Recurrence::new(cadence))
+					.as_ref()
+					.ok()?
+					.clone(),
+			),
+			None => None,
+		};
+		Some(EffectiveSchedule {
+			grace: settings.grace.value,
+			cadence,
+		})
 	}
 }
 
