@@ -18,8 +18,8 @@ use crate::model::{ClassName, Context, DocumentId, RepoPath, Rule};
 use crate::policy::{PolicyError, select_context, validate_context};
 use crate::{CONFIG_NAME, DIR_NAME};
 
-/// The repository config's path, which diagnostics about the context and the
-/// time zone point at.
+/// The repository config's path, which diagnostics point at when a setting
+/// has no config file of its own.
 pub(super) fn repository_config() -> RepoPath {
 	#[expect(
 		clippy::expect_used,
@@ -28,6 +28,20 @@ pub(super) fn repository_config() -> RepoPath {
 	)]
 	RepoPath::new(&format!("{DIR_NAME}/{CONFIG_NAME}"))
 		.expect("the repository config's path is valid")
+}
+
+/// The path of the config at the root of `configs`' project, which
+/// diagnostics about the project's contexts point at.
+fn project_config(configs: &ConfigSet) -> RepoPath {
+	#[expect(
+		clippy::expect_used,
+		reason = "a project root is a canonical repository path, and the config \
+		          name below it is a constant, canonical relative path"
+	)]
+	configs
+		.project()
+		.join(&format!("{DIR_NAME}/{CONFIG_NAME}"))
+		.expect("a project's config path is valid")
 }
 
 /// Where a config origin points, at `field`.
@@ -82,7 +96,7 @@ pub(super) fn context(
 		Err(error) => {
 			let location = match &error {
 				PolicyError::UnknownContext { .. } => {
-					Location::field(repository_config(), "define.contexts")
+					Location::field(project_config(configs), "define.contexts")
 				}
 				PolicyError::UnsupportedDefaultsVersion { .. }
 				| PolicyError::BrokenDefaults { .. }

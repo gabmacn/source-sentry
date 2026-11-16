@@ -207,6 +207,44 @@ fn diagnostics_carry_project_locations() {
 	);
 }
 
+/// An unknown context in a nested project points at that project's own
+/// config, in both formats.
+#[test]
+fn an_unknown_context_points_at_the_nested_projects_config() {
+	let repo = nested();
+	let check = |format: &str| {
+		repo.run(&[
+			"-C",
+			"app",
+			"check",
+			"--at",
+			AT,
+			"--context",
+			"nonexistent",
+			"--format",
+			format,
+		])
+	};
+	let json = check("json").expect_code(3).json();
+	let location = &json["diagnostics"][0]["location"];
+	assert_eq!(
+		json["diagnostics"][0]["code"], "unknown-context",
+		"{json:#}"
+	);
+	assert_eq!(location["project"], "app", "{json:#}");
+	assert_eq!(location["file"], ".source-sentry/source-sentry.yaml");
+	assert_eq!(location["field"], "define.contexts");
+	let human = check("human");
+	human.expect_code(3);
+	assert!(
+		human.stdout.contains(
+			"unknown-context  .source-sentry/source-sentry.yaml `define.contexts`"
+		),
+		"{}",
+		human.stdout
+	);
+}
+
 /// Cross-project renames preserve reviews while rewriting both rooted source kinds.
 #[test]
 fn rename_across_projects_previews_sources_and_settings() {

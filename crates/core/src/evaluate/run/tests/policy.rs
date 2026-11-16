@@ -6,12 +6,14 @@ use super::{
 	CONFIG, DOCS_LOCK, REPOSITORY, Repo, assert_clean, attested, day, document,
 	evaluate, facts, gates, kinds, lockfile, outcome, timing,
 };
-use crate::claims::{DiagnosticKind, Severity};
-use crate::evaluate::run::{RuleOrigin, SubjectKind, Timing};
+use crate::claims::{DiagnosticKind, Severity, discover};
+use crate::config::ConfigSet;
+use crate::evaluate::run::{RuleOrigin, SubjectKind, Timing, check};
 use crate::evaluate::settings::SettingOrigin;
 use crate::model::{Fact, Outcome};
 use crate::policy::{Basis, ContextOrigin, ExitCode, RuleRef, Threshold};
 use crate::ports::Canonical;
+use crate::testing::path;
 
 /// A repository whose privacy policy, `docs/privacy.md`, has a week of grace
 /// and a source that changed on day 2.
@@ -138,6 +140,38 @@ fn an_unknown_context_is_a_configuration_error() {
 			ExitCode::ConfigurationOrIntegrity
 		)
 	);
+}
+
+/// An unknown context points at the config of the project being checked:
+/// a nested project's own config, not the repository's.
+#[test]
+fn an_unknown_context_points_at_its_projects_config() {
+	let repo = Repo::new(&[
+		(REPOSITORY, CONFIG),
+		("child/.source-sentry/source-sentry.yaml", "version: 1\n"),
+		("child/doc.md", "# Doc\n"),
+	]);
+	let snapshot = repo.checkout();
+	for (start, config) in [
+		("child", "child/.source-sentry/source-sentry.yaml"),
+		("", REPOSITORY),
+	] {
+		let configs = ConfigSet::load_project(&snapshot, &path(start)).unwrap();
+		let inventory = discover(&snapshot, &configs).unwrap();
+		let evaluation = check(
+			&snapshot,
+			&repo.history,
+			&configs,
+			&inventory,
+			day(1),
+			Some("nonexistent"),
+		)
+		.unwrap();
+		assert_eq!(kinds(&evaluation), [DiagnosticKind::UnknownContext]);
+		let location = &evaluation.diagnostics[0].location;
+		assert_eq!(location.file, path(config), "{start:?}");
+		assert_eq!(location.field.as_deref(), Some("define.contexts"));
+	}
 }
 
 /// A preset that defines a context whose only rule has an empty `facts`
