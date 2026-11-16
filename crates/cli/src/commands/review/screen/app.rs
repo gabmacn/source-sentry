@@ -645,7 +645,10 @@ impl<'a> App<'a> {
 	/// Moves the cursor and loads the document under it, without counting
 	/// it as seen: the wheel passes over documents. The header and the label
 	/// of the other documents keep the last document on display. The focus
-	/// returns to the sidebar.
+	/// returns to the sidebar. Every way of changing the document on display
+	/// comes here, and a held answer belongs to the document it was given
+	/// for, so it is withdrawn when another document, or another reading of
+	/// it, takes its place.
 	fn load(&mut self, cursor: Cursor) {
 		self.cursor = cursor;
 		self.focus = Focus::Sidebar;
@@ -655,7 +658,15 @@ impl<'a> App<'a> {
 		self.file = 0;
 		self.scroll = (0, 0);
 		self.picked_sources.clear();
-		self.shown = self.current().cloned().map(|id| self.cached(&id));
+		let shown = self.current().cloned().map(|id| self.cached(&id));
+		let same = match (&self.shown, &shown) {
+			(Some(before), Some(now)) => Rc::ptr_eq(before, now),
+			(before, now) => before.is_none() && now.is_none(),
+		};
+		if !same {
+			self.armed = None;
+		}
+		self.shown = shown;
 		if let Some(failure) =
 			self.shown.as_ref().and_then(|shown| shown.failure.clone())
 		{

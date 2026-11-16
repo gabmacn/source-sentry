@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::super::super::session::CHANGED;
 use super::super::super::tests::support::Repo;
-use super::super::app::{App, Focus, Key};
+use super::super::app::{App, Cursor, Focus, Key, Target};
 use super::{drawn, press, shows};
 
 /// A source changed on disk after its changes were shown refuses a review
@@ -78,4 +78,25 @@ fn a_picked_pattern_is_recorded_as_it_was_shown() {
 			.contains("1 picked source alone")
 	);
 	assert_eq!(app.open.len(), 1, "its other source still waits");
+}
+
+/// A held answer belongs to the document it was given for: dragging onto
+/// another document's row withdraws it, as moving there with a key does,
+/// so Enter then records nothing.
+#[test]
+fn a_drag_onto_another_document_withdraws_a_held_answer() {
+	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	press(&mut app, &[Key::Char('y')]);
+	assert_eq!(app.armed, Some(false));
+
+	app.drag(Target::Row(Cursor::Open(1)));
+	assert!(app.shown.as_ref().unwrap().name.ends_with("b.md"));
+	assert_eq!((app.armed, app.picked.len()), (None, 2));
+	press(&mut app, &[Key::Enter]);
+	assert_eq!(app.session.recorded, Vec::new());
+	assert!(repo.entry("docs/a.md")["reviewed"].is_null());
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
 }
