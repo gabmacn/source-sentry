@@ -102,7 +102,9 @@ const TOLERATED: &[DiagnosticKind] = &[DiagnosticKind::MissingSource];
 /// When the document is an entry of a `living` series, has no `completed`
 /// yet, and every source is attested at
 /// its current oid once this attestation is recorded, `completed` is set to
-/// the same review.
+/// the same review. An unselected pattern that matches nothing, has no
+/// members and was never reviewed withholds completion, as it would refuse
+/// an attestation of every source.
 ///
 /// An on-file declaration is rewritten in the document's frontmatter, and a
 /// lockfile entry in its lockfile.
@@ -202,11 +204,11 @@ fn refuse_new_empty_patterns(
 ) -> Result<(), MutateError> {
 	for source in &observed.sources {
 		if let SourceState::Pattern { matches, members } = &source.state
-			&& matches.is_empty()
-			&& members.is_empty()
-			&& !matches!(
-				claim.declaration.sources.get(source.index),
-				Some(SourceDecl::Pattern(pattern)) if pattern.reviewed.is_some()
+			&& is_unrecorded_empty_pattern(
+				claim,
+				source.index,
+				matches.is_empty(),
+				members.is_empty(),
 			) {
 			return Err(MutateError::EmptyPattern {
 				document: claim.document.clone(),
@@ -215,6 +217,24 @@ fn refuse_new_empty_patterns(
 		}
 	}
 	Ok(())
+}
+
+/// Whether the source at `index` is a pattern that was never recorded and
+/// matches nothing: it has no members and no review of its own. Attesting it
+/// is refused, and while it stays unselected it keeps a `living` series entry
+/// from completing.
+fn is_unrecorded_empty_pattern(
+	claim: &Claim,
+	index: usize,
+	matches_nothing: bool,
+	has_no_members: bool,
+) -> bool {
+	matches_nothing
+		&& has_no_members
+		&& !matches!(
+			claim.declaration.sources.get(index),
+			Some(SourceDecl::Pattern(pattern)) if pattern.reviewed.is_some()
+		)
 }
 
 /// Records the observed state of each selected source in `declaration`, and
@@ -350,7 +370,8 @@ fn member_spelling(
 /// has no `completed` yet, is a member of a `living` series, and once the
 /// selected sources are recorded, every source is attested at its current
 /// oid, every current match of a pattern included and no former member
-/// outstanding.
+/// outstanding. A pattern that matches nothing, has no members and was never
+/// reviewed is not attested, so it withholds completion.
 ///
 /// # Errors
 ///
@@ -403,11 +424,13 @@ fn completes<S: Snapshot>(
 			_ => None,
 		})
 		.collect();
-	Ok(rest.iter().all(|source| is_fresh(source, &current)))
+	Ok(rest.iter().all(|source| is_fresh(claim, source, &current)))
 }
 
-/// Whether an unselected source is attested at its current oid.
+/// Whether an unselected source is attested at its current oid. A pattern
+/// that matches nothing and was never recorded is not.
 fn is_fresh(
+	claim: &Claim,
 	source: &ResolvedSource,
 	current: &BTreeMap<RepoPath, ObjectId>,
 ) -> bool {
@@ -421,7 +444,12 @@ fn is_fresh(
 		}
 		ResolvedSource::Pattern(source) => {
 			source.matches.as_ref().is_some_and(|matches| {
-				matches.iter().eq(source.members.keys())
+				!is_unrecorded_empty_pattern(
+					claim,
+					source.index,
+					matches.is_empty(),
+					source.members.is_empty(),
+				) && matches.iter().eq(source.members.keys())
 					&& matches
 						.iter()
 						.all(|path| attested(path, source.members.get(path)))

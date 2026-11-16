@@ -584,8 +584,9 @@ registers anything itself.
 
 **A cadence on a series asks for one completed entry per window.** An entry
 completes once: a record when its seal is committed, a living entry when
-all its sources are first reviewed. A window that closes without a
-completion is `overdue`; once a later entry completes, the skipped window
+all its sources are first reviewed, a pattern that matches nothing
+included: it must have been reviewed itself. A window that closes without
+a completion is `overdue`; once a later entry completes, the skipped window
 becomes `missed`.
 
 > **Why.** Counting completions accepts work finished early, refuses to

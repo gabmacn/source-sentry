@@ -1,10 +1,12 @@
 //! `attest`.
 
 use super::{
-	BASE, REPOSITORY, REVIEWER, SOURCE, Tree, at, attested, local, lockfile,
-	markdown, oid, path, present, review, seal_of, series_config,
+	BASE, REPOSITORY, REVIEW, REVIEWER, SOURCE, Tree, at, attested, local,
+	lockfile, markdown, oid, path, present, review, seal_of, series_config,
 };
-use crate::model::{DocumentId, Member, PathSource, PatternSource, SourceDecl};
+use crate::model::{
+	DocumentId, Member, PathSource, PatternSource, Review, SourceDecl,
+};
 use crate::mutate::{
 	AttestRequest, AttestedEntry, Expectation, Mismatch, MutateError, Selection,
 	attest,
@@ -289,6 +291,77 @@ fn a_living_series_entry_completes_once_fully_attested() {
 	assert_eq!(planned.summary.completed, None);
 	let tree = tree.apply(&planned.plan);
 	assert_eq!(tree.claim(&document).declaration.completed, Some(review()));
+}
+
+/// A `living` series entry `proposals/v1.md` whose sources, given as JSON, are
+/// `/src/b.rs` followed by `pattern`. `src/a.rs` and `src/b.rs` exist.
+fn series_entry(pattern: &str) -> Tree {
+	let entry = format!(r#"{{"sources": [{{"path": "/src/b.rs"}}{pattern}]}}"#);
+	Tree::new(&[
+		(REPOSITORY, &series_config("living")),
+		("src/a.rs", SOURCE),
+		("src/b.rs", "fn b() {}\n"),
+		("proposals/v1.md", "# v1\n"),
+		(
+			"proposals/source-sentry.lock",
+			&lockfile(&[("v1.md", &entry)], &[]),
+		),
+	])
+}
+
+/// Attests `/src/b.rs` alone in `tree`, and returns the completion the
+/// summary announces and the one the declaration records afterwards.
+fn complete_with_b(tree: &Tree) -> (Option<Review>, Option<Review>) {
+	let document = local("proposals/v1.md");
+	let mut request = request(document.clone());
+	request.selection = Selection::Sources(vec!["/src/b.rs".to_owned()]);
+	let planned = attest(&tree.snapshot, &tree.inventory, &request).unwrap();
+	let after = tree.apply(&planned.plan);
+	assert_eq!(path_of(&after, "proposals/v1.md").reviewed, Some(review()));
+	let recorded = after.claim(&document).declaration.completed.clone();
+	(planned.summary.completed, recorded)
+}
+
+/// A pattern that matches nothing and was never reviewed withholds the
+/// completion of a `living` series entry, as it refuses an attestation of
+/// every source; the selected source is still attested.
+#[test]
+fn an_unreviewed_empty_pattern_withholds_completion() {
+	let tree = series_entry(r#", {"pattern": "/db/*.sql"}"#);
+	assert_eq!(complete_with_b(&tree), (None, None));
+	let error = attest(
+		&tree.snapshot,
+		&tree.inventory,
+		&request(local("proposals/v1.md")),
+	)
+	.unwrap_err();
+	assert!(
+		matches!(error, MutateError::EmptyPattern { .. }),
+		"{error:?}"
+	);
+}
+
+/// Once the empty pattern has been reviewed, or is removed, the entry
+/// completes.
+#[test]
+fn a_reviewed_or_removed_empty_pattern_lets_the_entry_complete() {
+	let reviewed = series_entry(&format!(
+		r#", {{"pattern": "/db/*.sql", "reviewed": {REVIEW}}}"#
+	));
+	assert_eq!(complete_with_b(&reviewed), (Some(review()), Some(review())));
+	let removed = series_entry("");
+	assert_eq!(complete_with_b(&removed), (Some(review()), Some(review())));
+}
+
+/// A pattern whose members are all attested at their current oids counts
+/// toward completion.
+#[test]
+fn a_fresh_pattern_with_members_lets_the_entry_complete() {
+	let tree = series_entry(&format!(
+		r#", {{"members": [{}], "pattern": "/src/a*.rs", "reviewed": {REVIEW}}}"#,
+		attested("/src/a.rs", SOURCE)
+	));
+	assert_eq!(complete_with_b(&tree), (Some(review()), Some(review())));
 }
 
 #[test]
