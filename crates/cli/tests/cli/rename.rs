@@ -329,3 +329,35 @@ fn rename_previews_series_positions_and_refuses_a_sealed_head() {
 	assert!(refused.stderr.contains("sealed head"), "{}", refused.stderr);
 	assert_eq!(repo.read("proposals/source-sentry.lock"), before);
 }
+
+/// Moving the only entry of a living series out of its pattern is refused
+/// whether its declaration is in a lockfile or in its own frontmatter, which
+/// has already travelled with the file; a move within the series is not.
+#[test]
+fn rename_refuses_to_move_the_sole_living_head_out_of_its_series() {
+	for placement in [&["--on-file"][..], &[]] {
+		let repo = TestRepo::init();
+		repo.write(".source-sentry/source-sentry.yaml", "version: 1\nseries:\n  proposals:\n    pattern: 'proposals/v(?P<version>\\d+)\\.md'\n    version-kind: integer\n    lifecycle: living\n");
+		repo.write("proposals/v1.md", "# First\n");
+		let mut track = vec!["track", "proposals/v1.md", "--yes"];
+		track.extend_from_slice(placement);
+		repo.run(&track).expect_code(0);
+		repo.commit_at("2026-10-01T10:00:00Z");
+		repo.git(&["mv", "proposals/v1.md", "proposals/other.md"]);
+		let before = repo.read("proposals/other.md");
+		let refused =
+			repo.run(&["rename", "proposals/v1.md", "proposals/other.md", "--yes"]);
+		refused.expect_code(3);
+		assert!(
+			refused.stderr.contains("would leave it with no head"),
+			"{placement:?}: {}",
+			refused.stderr
+		);
+		assert_eq!(repo.read("proposals/other.md"), before);
+
+		repo.git(&["mv", "proposals/other.md", "proposals/v2.md"]);
+		repo
+			.run(&["rename", "proposals/v1.md", "proposals/v2.md", "--yes"])
+			.expect_code(0);
+	}
+}

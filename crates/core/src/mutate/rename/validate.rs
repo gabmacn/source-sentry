@@ -1,10 +1,12 @@
 //! Integrity checks that discovery alone does not perform.
 
 use super::super::repo::Repo;
+use super::{RenameSeries, membership};
 use crate::claims::{
 	Claim, Diagnostic, DiagnosticKind, Inventory, Location, MemberState,
-	SeriesMembers,
+	SeriesMember, SeriesMembers,
 };
+use crate::config::ConfigSet;
 use crate::model::{DocumentId, Lifecycle, RepoPath};
 use crate::mutate::MutateError;
 use crate::ports::Snapshot;
@@ -12,10 +14,15 @@ use crate::ports::Snapshot;
 /// Refuses final errors about the destination, a changed sealed record,
 /// and living-series heads newly left missing, sealed or removed by the
 /// rename.
+///
+/// `configs` are those of the project `old` belonged to, which place it in
+/// its series before the file moved; see [`heads`].
 pub(super) fn integrity<S: Snapshot>(
 	repo: &Repo<'_, S>,
 	after: &Inventory,
 	renamed: &Claim,
+	configs: &ConfigSet,
+	old: &RepoPath,
 	new: &RepoPath,
 ) -> Result<(), MutateError> {
 	let mut diagnostics: Vec<_> = after
@@ -39,6 +46,36 @@ pub(super) fn integrity<S: Snapshot>(
 			diagnostics.push(Diagnostic::new(DiagnosticKind::BrokenSeal, renamed.location(), format!("`{new}` differs from its seal. Restore the sealed content before renaming the record")).about(renamed.document.clone()));
 		}
 	}
+	let membership = membership(repo.inventory, old, configs);
+	heads(
+		repo,
+		after,
+		renamed,
+		(old, membership.as_ref()),
+		new,
+		&mut diagnostics,
+	);
+	if diagnostics.is_empty() {
+		Ok(())
+	} else {
+		Err(MutateError::WouldIntroduce { diagnostics })
+	}
+}
+
+/// Living-series heads newly left missing, sealed or removed by the rename.
+///
+/// The old path in `moved` counts as an entry of its series even when the
+/// inventory read before the rename no longer lists it, as for an on-file
+/// declaration that has already travelled with its file, so that the
+/// outcome does not depend on where the declaration is written.
+fn heads<S: Snapshot>(
+	repo: &Repo<'_, S>,
+	after: &Inventory,
+	renamed: &Claim,
+	moved: (&RepoPath, Option<&RenameSeries>),
+	new: &RepoPath,
+	diagnostics: &mut Vec<Diagnostic>,
+) {
 	for series in &after.series {
 		if series.series.lifecycle != Lifecycle::Living {
 			continue;
@@ -47,9 +84,13 @@ pub(super) fn integrity<S: Snapshot>(
 			old.series.scope == series.series.scope
 				&& old.series.name == series.series.name
 		});
+		let previous = old.and_then(|old| old.members.last());
+		let moved_head = moved_head(series, previous, moved);
 		let Some(head) = series.members.last() else {
-			if let Some(previous) = old.and_then(|old| old.members.last()) {
-				diagnostics.push(headless(series, &previous.path, new));
+			if let Some(previous) =
+				moved_head.or_else(|| previous.map(|previous| &previous.path))
+			{
+				diagnostics.push(headless(series, previous, new));
 			}
 			continue;
 		};
@@ -58,9 +99,8 @@ pub(super) fn integrity<S: Snapshot>(
 			|| after.tombstones.iter().any(|tombstone| {
 				tombstone.document == document && tombstone.retired.seal.is_some()
 			});
-		let unchanged_head = old
-			.and_then(|old| old.members.last())
-			.is_some_and(|old| old == head);
+		let unchanged_head =
+			moved_head.is_none() && previous.is_some_and(|old| old == head);
 		if unchanged_head && document != renamed.document {
 			continue;
 		}
@@ -80,11 +120,25 @@ pub(super) fn integrity<S: Snapshot>(
 			diagnostics.push(Diagnostic::new(DiagnosticKind::SealedHead, location, format!("the rename would leave `{}` as the sealed head of living series `{}`. Add a living successor first", head.path, series.series.name)).about(document));
 		}
 	}
-	if diagnostics.is_empty() {
-		Ok(())
-	} else {
-		Err(MutateError::WouldIntroduce { diagnostics })
-	}
+}
+
+/// The old path, when it was the newest entry of `series` before the file
+/// moved, whether or not `previous`, the newest entry still listed before
+/// the rename, includes it.
+fn moved_head<'a>(
+	series: &SeriesMembers,
+	previous: Option<&SeriesMember>,
+	(old, membership): (&'a RepoPath, Option<&RenameSeries>),
+) -> Option<&'a RepoPath> {
+	let membership = membership.filter(|membership| {
+		membership.scope == series.series.scope
+			&& membership.name == series.series.name
+	})?;
+	previous
+		.is_none_or(|previous| {
+			&previous.path == old || membership.version > previous.version
+		})
+		.then_some(old)
 }
 
 /// A living series that the rename would leave with no entry at all. Its

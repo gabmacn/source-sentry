@@ -622,6 +622,161 @@ fn a_series_that_keeps_a_head_or_needs_none_allows_the_rename() {
 	}
 }
 
+/// Plans the rename of `old`, an on-file document committed at `HEAD`, to
+/// `new` after `git mv`, beside `files` and a series of `lifecycle`.
+fn plan_on_file(
+	lifecycle: &str,
+	files: &[(&str, &str)],
+	old: &str,
+	new: &str,
+) -> (Tree, Result<Planned<RenameSummary>, MutateError>) {
+	let declared = markdown("  sources: []\n");
+	let mut history = FakeHistory::new();
+	let head = history.commit(at(), &[(old, Some(declared.as_bytes()))]);
+	let snapshot = files.iter().fold(
+		FakeSnapshot::working_tree(Some(head))
+			.with_file(
+				".source-sentry/source-sentry.yaml",
+				series_config(lifecycle).as_bytes(),
+			)
+			.with_file(new, declared.as_bytes()),
+		|snapshot, (file, contents)| snapshot.with_file(file, contents.as_bytes()),
+	);
+	let tree = Tree::of(snapshot);
+	let result = rename(
+		&tree.snapshot,
+		&history,
+		&tree.configs,
+		&tree.inventory,
+		&RenameRequest {
+			at: at(),
+			by: Some(super::REVIEWER.to_owned()),
+			old: local(old),
+			new: local(new),
+		},
+	);
+	(tree, result)
+}
+
+/// An on-file head has left the series before `rename` runs, since its
+/// declaration travels with the file. Moving the only entry of a living
+/// series out of its pattern is refused all the same, with the refusal of a
+/// lockfile entry.
+#[test]
+fn moving_the_sole_on_file_living_head_out_of_its_series_is_refused() {
+	let (_, result) =
+		plan_on_file("living", &[], "proposals/v1.md", "proposals/other.md");
+	let Err(MutateError::WouldIntroduce { diagnostics }) = result else {
+		panic!("a living series must keep its head: {result:?}");
+	};
+	let [diagnostic] = diagnostics.as_slice() else {
+		panic!("one refusal expected: {diagnostics:?}");
+	};
+	assert_eq!(diagnostic.kind, DiagnosticKind::MissingHead);
+	assert_eq!(diagnostic.document, Some(local("proposals/v1.md")));
+	assert_eq!(
+		diagnostic.location.file,
+		path(".source-sentry/source-sentry.yaml")
+	);
+	assert!(
+		diagnostic.message.contains(
+			"`proposals/v1.md` is the living head of the series `proposals`"
+		) && diagnostic.message.contains("requires retiring the series"),
+		"{}",
+		diagnostic.message
+	);
+}
+
+/// `rename` runs after the file has moved: an on-file head still at its old
+/// path is refused before any series is changed.
+#[test]
+fn an_on_file_head_not_yet_moved_is_refused() {
+	let declared = markdown("  sources: []\n");
+	let mut history = FakeHistory::new();
+	let head =
+		history.commit(at(), &[("proposals/v1.md", Some(declared.as_bytes()))]);
+	let tree = Tree::of(
+		FakeSnapshot::working_tree(Some(head))
+			.with_file(
+				".source-sentry/source-sentry.yaml",
+				series_config("living").as_bytes(),
+			)
+			.with_file("proposals/v1.md", declared.as_bytes()),
+	);
+	let result = rename(
+		&tree.snapshot,
+		&history,
+		&tree.configs,
+		&tree.inventory,
+		&RenameRequest {
+			at: at(),
+			by: Some(super::REVIEWER.to_owned()),
+			old: local("proposals/v1.md"),
+			new: local("proposals/other.md"),
+		},
+	);
+	assert!(
+		matches!(result, Err(MutateError::RenameRefused { .. })),
+		"{result:?}"
+	);
+}
+
+/// Moving an on-file head out of its series when an older entry remains
+/// makes that entry the head, which is checked as for a lockfile entry: a
+/// sealed one refuses the rename.
+#[test]
+fn moving_an_on_file_head_out_cannot_expose_a_sealed_head() {
+	let declaration = format!(r#"{{"seal": {}}}"#, seal_of(PLAIN));
+	let lock = lockfile(&[("proposals/v1.md", &declaration)], &[]);
+	let (_, result) = plan_on_file(
+		"living",
+		&[("source-sentry.lock", &lock), ("proposals/v1.md", PLAIN)],
+		"proposals/v2.md",
+		"archive/guide.md",
+	);
+	let Err(MutateError::WouldIntroduce { diagnostics }) = result else {
+		panic!("sealed head must refuse: {result:?}");
+	};
+	assert!(
+		diagnostics
+			.iter()
+			.any(|diagnostic| diagnostic.kind == DiagnosticKind::SealedHead),
+		"{diagnostics:?}"
+	);
+}
+
+/// An on-file head may move within its series, out of a series that keeps
+/// another entry, or out of a records-only series.
+#[test]
+fn an_on_file_head_that_leaves_a_head_or_needs_none_may_move() {
+	let lock = lockfile(&[("proposals/v1.md", "{}")], &[]);
+	let earlier = [
+		("source-sentry.lock", lock.as_str()),
+		("proposals/v1.md", PLAIN),
+	];
+	for (lifecycle, files, old, new) in [
+		("living", &[][..], "proposals/v1.md", "proposals/v2.md"),
+		(
+			"living",
+			&earlier[..],
+			"proposals/v2.md",
+			"proposals/other.md",
+		),
+		(
+			"records-only",
+			&[][..],
+			"proposals/v1.md",
+			"proposals/other.md",
+		),
+	] {
+		let (tree, result) = plan_on_file(lifecycle, files, old, new);
+		let planned = result.unwrap_or_else(|error| {
+			panic!("{lifecycle} rename of {old} to {new}: {error}")
+		});
+		tree.apply(&planned.plan).assert_clean();
+	}
+}
+
 /// A destination already invalid in discovery cannot be adopted by rename.
 #[test]
 fn duplicate_versions_refuse_even_if_the_destination_was_already_unclaimed() {

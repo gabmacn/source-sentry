@@ -196,7 +196,7 @@ pub fn rename<S: Snapshot, H: History>(
 	let plan = edits.finish(&repo)?;
 	let after = verify(&repo, &plan)?;
 	let renamed = rediscovered(&after, &request.new, &destination, &to)?;
-	validate::integrity(&repo, &after, renamed, new)?;
+	validate::integrity(&repo, &after, renamed, configs, old, new)?;
 	Ok(Planned {
 		plan,
 		summary: RenameSummary {
