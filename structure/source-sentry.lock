@@ -66,7 +66,7 @@
     },
     "directory-config.example.yaml": {
       "reviewed": {
-        "at": "2026-11-16T23:47:44Z",
+        "at": "2026-11-17T21:12:41Z",
         "by": "Terra (Codex)"
       },
       "sources": [
@@ -76,7 +76,7 @@
               "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
               "path": "../crates/core/src/config/diagnose.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -84,7 +84,7 @@
               "oid": "sha1:16f7e98747467de1ca02e89fd10d8f319a827269",
               "path": "../crates/core/src/config/error.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -92,7 +92,7 @@
               "oid": "sha1:756bf37565c24ee93d3bafa1188403cd54f9d394",
               "path": "../crates/core/src/config/load.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -100,15 +100,15 @@
               "oid": "sha1:2f90696caafc7cf4b1c38248d98769b624635eed",
               "path": "../crates/core/src/config/mod.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:8ecbff2a0b8a56493b300900297ce65694814049",
+              "oid": "sha1:c1649445da08976a88e9c7670bf68ff3e600e8c2",
               "path": "../crates/core/src/config/parse.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -116,7 +116,7 @@
               "oid": "sha1:05d290e1125ab93efe5c4e55a6810be8b9b98b36",
               "path": "../crates/core/src/config/pattern.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -124,22 +124,22 @@
               "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
               "path": "../crates/core/src/config/projects.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:80ab57460007d06e0d73a0a6b68a9f2d703bd173",
+              "oid": "sha1:8fb1a7785ae6658fe4d4defb74d88846929b364a",
               "path": "../crates/core/src/config/resolve.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:44Z",
+                "at": "2026-11-17T21:12:41Z",
                 "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../crates/core/src/config/*.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:44Z",
+            "at": "2026-11-17T21:12:41Z",
             "by": "Terra (Codex)"
           }
         }
@@ -269,7 +269,7 @@
     },
     "preset.example.yaml": {
       "reviewed": {
-        "at": "2026-11-16T23:47:46Z",
+        "at": "2026-11-17T21:12:42Z",
         "by": "Terra (Codex)"
       },
       "sources": [
@@ -277,7 +277,7 @@
           "oid": "sha1:c6a1101e87c29b41b505adb52f75df42a5050d46",
           "path": "../crates/core/src/claims/series.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:46Z",
+            "at": "2026-11-17T21:12:42Z",
             "by": "Terra (Codex)"
           }
         },
@@ -287,7 +287,7 @@
               "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
               "path": "../crates/core/src/config/diagnose.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -295,7 +295,7 @@
               "oid": "sha1:16f7e98747467de1ca02e89fd10d8f319a827269",
               "path": "../crates/core/src/config/error.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -303,7 +303,7 @@
               "oid": "sha1:756bf37565c24ee93d3bafa1188403cd54f9d394",
               "path": "../crates/core/src/config/load.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -311,15 +311,15 @@
               "oid": "sha1:2f90696caafc7cf4b1c38248d98769b624635eed",
               "path": "../crates/core/src/config/mod.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:8ecbff2a0b8a56493b300900297ce65694814049",
+              "oid": "sha1:c1649445da08976a88e9c7670bf68ff3e600e8c2",
               "path": "../crates/core/src/config/parse.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -327,7 +327,7 @@
               "oid": "sha1:05d290e1125ab93efe5c4e55a6810be8b9b98b36",
               "path": "../crates/core/src/config/pattern.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -335,22 +335,22 @@
               "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
               "path": "../crates/core/src/config/projects.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:80ab57460007d06e0d73a0a6b68a9f2d703bd173",
+              "oid": "sha1:8fb1a7785ae6658fe4d4defb74d88846929b364a",
               "path": "../crates/core/src/config/resolve.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:46Z",
+                "at": "2026-11-17T21:12:42Z",
                 "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../crates/core/src/config/*.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:46Z",
+            "at": "2026-11-17T21:12:42Z",
             "by": "Terra (Codex)"
           }
         },
@@ -358,7 +358,7 @@
           "oid": "sha1:1ee34cde7fa4a004a8b4ffa866eaa2eaa8e60a69",
           "path": "../crates/core/src/evaluate/cadence.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:46Z",
+            "at": "2026-11-17T21:12:42Z",
             "by": "Terra (Codex)"
           }
         },
@@ -366,7 +366,7 @@
           "oid": "sha1:63e222db978a495387c8ffac00a574900759b48c",
           "path": "../crates/core/src/model/series.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:46Z",
+            "at": "2026-11-17T21:12:42Z",
             "by": "Terra (Codex)"
           }
         }
@@ -374,7 +374,7 @@
     },
     "remote-config.example.yaml": {
       "reviewed": {
-        "at": "2026-11-16T23:47:45Z",
+        "at": "2026-11-17T21:12:43Z",
         "by": "Terra (Codex)"
       },
       "sources": [
@@ -384,7 +384,7 @@
               "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
               "path": "../crates/core/src/config/diagnose.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -392,7 +392,7 @@
               "oid": "sha1:16f7e98747467de1ca02e89fd10d8f319a827269",
               "path": "../crates/core/src/config/error.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -400,7 +400,7 @@
               "oid": "sha1:756bf37565c24ee93d3bafa1188403cd54f9d394",
               "path": "../crates/core/src/config/load.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -408,15 +408,15 @@
               "oid": "sha1:2f90696caafc7cf4b1c38248d98769b624635eed",
               "path": "../crates/core/src/config/mod.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:8ecbff2a0b8a56493b300900297ce65694814049",
+              "oid": "sha1:c1649445da08976a88e9c7670bf68ff3e600e8c2",
               "path": "../crates/core/src/config/parse.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -424,7 +424,7 @@
               "oid": "sha1:05d290e1125ab93efe5c4e55a6810be8b9b98b36",
               "path": "../crates/core/src/config/pattern.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -432,22 +432,22 @@
               "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
               "path": "../crates/core/src/config/projects.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:80ab57460007d06e0d73a0a6b68a9f2d703bd173",
+              "oid": "sha1:8fb1a7785ae6658fe4d4defb74d88846929b364a",
               "path": "../crates/core/src/config/resolve.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:45Z",
+                "at": "2026-11-17T21:12:43Z",
                 "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../crates/core/src/config/*.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:45Z",
+            "at": "2026-11-17T21:12:43Z",
             "by": "Terra (Codex)"
           }
         }
@@ -593,7 +593,7 @@
     },
     "repository-config.example.yaml": {
       "reviewed": {
-        "at": "2026-11-16T23:47:43Z",
+        "at": "2026-11-17T21:12:44Z",
         "by": "Terra (Codex)"
       },
       "sources": [
@@ -603,7 +603,7 @@
               "oid": "sha1:6079339463417265ebd9ef8490517f1b3df316dc",
               "path": "../crates/core/src/config/diagnose.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -611,7 +611,7 @@
               "oid": "sha1:16f7e98747467de1ca02e89fd10d8f319a827269",
               "path": "../crates/core/src/config/error.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -619,7 +619,7 @@
               "oid": "sha1:756bf37565c24ee93d3bafa1188403cd54f9d394",
               "path": "../crates/core/src/config/load.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -627,15 +627,15 @@
               "oid": "sha1:2f90696caafc7cf4b1c38248d98769b624635eed",
               "path": "../crates/core/src/config/mod.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:8ecbff2a0b8a56493b300900297ce65694814049",
+              "oid": "sha1:c1649445da08976a88e9c7670bf68ff3e600e8c2",
               "path": "../crates/core/src/config/parse.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -643,7 +643,7 @@
               "oid": "sha1:05d290e1125ab93efe5c4e55a6810be8b9b98b36",
               "path": "../crates/core/src/config/pattern.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -651,22 +651,22 @@
               "oid": "sha1:b9009f4d7a8df53c63506cab8b4b346e596f3463",
               "path": "../crates/core/src/config/projects.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
             {
-              "oid": "sha1:80ab57460007d06e0d73a0a6b68a9f2d703bd173",
+              "oid": "sha1:8fb1a7785ae6658fe4d4defb74d88846929b364a",
               "path": "../crates/core/src/config/resolve.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../crates/core/src/config/*.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:43Z",
+            "at": "2026-11-17T21:12:44Z",
             "by": "Terra (Codex)"
           }
         },
@@ -674,7 +674,7 @@
           "oid": "sha1:5767efca9344bf719db1ac56ee1bc232b6ad5942",
           "path": "../crates/core/src/model/rules.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:43Z",
+            "at": "2026-11-17T21:12:44Z",
             "by": "Terra (Codex)"
           }
         },
@@ -684,7 +684,7 @@
               "oid": "sha1:006cb6a8beaf84e5ce1508f93e831ba8610c3f3b",
               "path": "../crates/core/src/policy/defaults.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -692,7 +692,7 @@
               "oid": "sha1:34e4a073f32d9ce2468331b8629ccbcbe856aec9",
               "path": "../crates/core/src/policy/error.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -700,7 +700,7 @@
               "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
               "path": "../crates/core/src/policy/gate.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -708,7 +708,7 @@
               "oid": "sha1:e0d05431c97a16d33b3fbbd1ca6d56be26e1a50e",
               "path": "../crates/core/src/policy/judge.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -716,7 +716,7 @@
               "oid": "sha1:5238c691a08c4a6fe50ed25f8424fb00f2438713",
               "path": "../crates/core/src/policy/mod.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -724,7 +724,7 @@
               "oid": "sha1:80de16501124a19c3e1941107fe4f1c0654df687",
               "path": "../crates/core/src/policy/select.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -732,7 +732,7 @@
               "oid": "sha1:f4fd6e1398b49b087fdb7386dec76a39e4c6b32a",
               "path": "../crates/core/src/policy/tests.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             },
@@ -740,14 +740,14 @@
               "oid": "sha1:252c89e178a7dd6a2c6df78262f8d80aa23cfbef",
               "path": "../crates/core/src/policy/validate.rs",
               "reviewed": {
-                "at": "2026-11-16T23:47:43Z",
+                "at": "2026-11-17T21:12:44Z",
                 "by": "Terra (Codex)"
               }
             }
           ],
           "pattern": "../crates/core/src/policy/*.rs",
           "reviewed": {
-            "at": "2026-11-16T23:47:43Z",
+            "at": "2026-11-17T21:12:44Z",
             "by": "Terra (Codex)"
           }
         }

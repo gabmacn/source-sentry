@@ -70,7 +70,7 @@ A notice always exits 0, so it never fails either gate.
 
 Both gates run against the same commit, config, binary and defaults version,
 and at one evaluation instant passed to both through `--at`. The config and
-the defaults version come from the commit itself, through the repository
+the defaults version come from the commit itself, through the project
 config's `version`. The continue gate never depends on the report gate. On
 GitHub, a job that depended on the report gate would be skipped whenever
 there is a warning.
@@ -362,7 +362,7 @@ log as a notice and notifies nobody.
 > requests turning red.
 
 To block work as well once a deadline has passed, make `overdue` a failure
-in the repository's `default` context:
+in the project's `default` context:
 
 ```yaml
 # In .source-sentry/source-sentry.yaml.
@@ -683,7 +683,7 @@ Each test should also confirm:
 
 On 2026-11-14 the recipe ran on GitHub's `ubuntu-24.04` runners in
 <https://github.com/gabmacn/source-sentry-example>, unchanged apart from its
-pins, which named 0.1.0-rc.3. That repository uses the example repository
+pins, which named 0.1.0-rc.3. That repository uses the example project
 config's `default` and `production` contexts, with a `privacy` document.
 
 | Scenario | Report gate | Continue gate | Production gate | Deploy |
