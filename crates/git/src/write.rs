@@ -6,12 +6,15 @@
 //! fails:
 //!
 //! 1. **Verify.** Every target must still have the canonical oid the plan
-//!    expects, computed exactly as a working-tree snapshot computes it. A
-//!    write whose expectation is `None` requires that no file exists; a
-//!    delete requires the file. Symbolic links, paths below them,
-//!    sparse-checkout paths, submodules and non-files are refused, and so is
-//!    a new file that git ignores or that lies outside the sparse-checkout
-//!    definition, because neither could be marked intent-to-add.
+//!    expects, computed exactly as a working-tree snapshot computes it, and
+//!    the bytes the planner read, which the plan carries as a hash: a file
+//!    saved after the plan was made fails even when git would store it as
+//!    the same object. A write whose expectation is `None` requires that no
+//!    file exists; a delete requires the file. Symbolic links, paths below
+//!    them, sparse-checkout paths, submodules and non-files are refused, and
+//!    so is a new file that git ignores or that lies outside the
+//!    sparse-checkout definition, because neither could be marked
+//!    intent-to-add.
 //! 2. **Stage.** Each new content is written to a temporary file beside its
 //!    target and flushed to disk, and missing parent directories are created.
 //!    Beside each file to delete, an empty placeholder reserves a unique
@@ -46,8 +49,8 @@ use std::{
 };
 
 use source_sentry_core::ports::{
-	BackendError, Canonical, ObjectId, PlannedDelete, PlannedWrite, RepoPath,
-	WritePlan,
+	BackendError, BytesHash, Canonical, ObjectId, PlannedDelete, PlannedWrite,
+	RepoPath, WritePlan,
 };
 
 use crate::{
@@ -299,9 +302,12 @@ impl GitRepository {
 	/// Applies `plan` to the working tree, all or nothing.
 	///
 	/// Each target must still have its expected canonical oid, computed as a
-	/// working-tree snapshot computes it. A write whose expectation is `None`
-	/// requires that no file exists, and a delete requires the file. Only then
-	/// is anything changed: each new content goes to a temporary file beside
+	/// working-tree snapshot computes it, and the bytes the planner read: a
+	/// file saved after the plan was made, while a confirmation waited for
+	/// instance, fails the plan even when git would store the saved bytes as
+	/// the same object. A write whose expectation is `None` requires that no
+	/// file exists, and a delete requires the file. Only then is anything
+	/// changed: each new content goes to a temporary file beside
 	/// its target and is renamed into place, and each deleted file is first
 	/// renamed to a backup beside it, which is removed once every change has
 	/// succeeded. Directories that a delete leaves empty stay.
@@ -593,7 +599,9 @@ impl GitRepository {
 	}
 
 	/// Checks every target against the plan's expectation, computing all
-	/// canonical oids in one batch.
+	/// canonical oids in one batch. A target that has the expected oid but
+	/// not the bytes the planner read fails with an [`ApplyError::Stale`]
+	/// whose two oids are equal.
 	fn verify(
 		&self,
 		index: &BTreeMap<RepoPath, IndexRecord>,
@@ -630,6 +638,14 @@ impl GitRepository {
 					actual,
 				});
 			}
+			if let (Some(original), Some(read), Some(expected)) = (
+				&target.inspected.original,
+				write.read_hash,
+				write.expected.as_ref(),
+			) && BytesHash::of(&original.contents) != read
+			{
+				return Err(saved_as_same_object(&write.path, expected));
+			}
 		}
 		for target in deletes {
 			let delete = target.delete;
@@ -640,6 +656,9 @@ impl GitRepository {
 					expected: Some(delete.expected.clone()),
 					actual: Some(actual),
 				});
+			}
+			if BytesHash::of(&target.original.contents) != delete.read_hash {
+				return Err(saved_as_same_object(&delete.path, &delete.expected));
 			}
 		}
 		// The oids were computed from the files on disk; the contents kept for
@@ -1301,11 +1320,18 @@ mod tests {
 		result
 	}
 
+	/// The hash of a working-tree file's bytes, as a planner reading it now
+	/// would carry it.
+	fn read_hash(work: &Path, name: &str) -> BytesHash {
+		BytesHash::of(&fs::read(work.join(name)).unwrap())
+	}
+
 	/// A planned rewrite of `name`, which must hold what it holds now.
 	fn rewrite(work: &Path, name: &str, contents: &[u8]) -> PlannedWrite {
 		PlannedWrite {
 			path: RepoPath::new(name).unwrap(),
 			expected: Some(oid(work, name)),
+			read_hash: Some(read_hash(work, name)),
 			contents: contents.to_vec(),
 		}
 	}
@@ -1355,6 +1381,7 @@ mod tests {
 		PlannedWrite {
 			path: RepoPath::new("new.md").unwrap(),
 			expected: None,
+			read_hash: None,
 			contents: b"planned a\n".to_vec(),
 		}
 	}
@@ -1475,6 +1502,7 @@ mod tests {
 			writes: vec![PlannedWrite {
 				path: RepoPath::new("new.md").unwrap(),
 				expected: None,
+				read_hash: None,
 				contents: b"planned\n".to_vec(),
 			}],
 			deletes: Vec::new(),
@@ -1510,6 +1538,7 @@ mod tests {
 			deletes: vec![PlannedDelete {
 				path: RepoPath::new("gone.lock").unwrap(),
 				expected: oid(&work, "gone.lock"),
+				read_hash: read_hash(&work, "gone.lock"),
 			}],
 		};
 		let edited = work.join("gone.lock");
@@ -1731,6 +1760,7 @@ mod tests {
 			deletes: vec![PlannedDelete {
 				path: RepoPath::new("gone.lock").unwrap(),
 				expected: expected.clone(),
+				read_hash: read_hash(&work, "gone.lock"),
 			}],
 		};
 		let edited = work.join("gone.lock");
@@ -1742,6 +1772,174 @@ mod tests {
 		assert_saved_as_same_object(&result, "gone.lock", &expected);
 		assert_eq!(fs::read(work.join("gone.lock")).unwrap(), b"{}\r\n");
 		assert_eq!(names(&work), [".git", ".gitattributes", "gone.lock"]);
+	}
+
+	/// The saves that git stores as the same object: other line endings
+	/// under `text=auto`, and other text inside an `$Id$` keyword under
+	/// `ident`, each as `(attributes, before, saved)`.
+	const SAME_OBJECT_SAVES: [(&str, &[u8], &[u8]); 2] = [
+		("*.md text=auto\n", b"a\n", b"a\r\n"),
+		(
+			"*.md ident text=auto\n",
+			b"$Id$\n",
+			b"$Id: manual note from editor $\n",
+		),
+	];
+
+	/// A file saved after the plan was made, while a confirmation waits for
+	/// instance, fails the write and is kept, even when git would store the
+	/// saved bytes as the object the plan expects. Nothing is written.
+	#[test]
+	fn a_save_after_the_plan_was_made_is_kept_as_the_same_object() {
+		for (case, before, saved) in SAME_OBJECT_SAVES {
+			let (_root, work) = repository(&[
+				(".gitattributes", case.as_bytes()),
+				("a.md", b"old a\n"),
+				("b.md", before),
+			]);
+			let plan = WritePlan {
+				writes: vec![
+					rewrite(&work, "a.md", b"new a\n"),
+					rewrite(&work, "b.md", b"planned replacement\n"),
+				],
+				deletes: Vec::new(),
+			};
+			let expected = plan.writes[1].expected.clone().unwrap();
+			fs::write(work.join("b.md"), saved).unwrap();
+
+			let result = GitRepository::open(&work).unwrap().apply(&plan);
+
+			assert_eq!(oid(&work, "b.md"), expected, "{case}");
+			assert_saved_as_same_object(&result, "b.md", &expected);
+			assert_eq!(fs::read(work.join("a.md")).unwrap(), b"old a\n", "{case}");
+			assert_eq!(fs::read(work.join("b.md")).unwrap(), saved, "{case}");
+			assert_eq!(
+				names(&work),
+				[".git", ".gitattributes", "a.md", "b.md"],
+				"{case}"
+			);
+		}
+	}
+
+	/// A file to delete that is saved after the plan was made is kept, and
+	/// the plan fails, even when git would store the saved bytes as the same
+	/// object. Nothing is written.
+	#[test]
+	fn a_file_to_delete_saved_after_the_plan_was_made_is_kept() {
+		for (case, before, saved) in SAME_OBJECT_SAVES {
+			let (_root, work) = repository(&[
+				(".gitattributes", case.as_bytes()),
+				("a.md", b"old a\n"),
+				("gone.md", before),
+			]);
+			let expected = oid(&work, "gone.md");
+			let plan = WritePlan {
+				writes: vec![rewrite(&work, "a.md", b"new a\n")],
+				deletes: vec![PlannedDelete {
+					path: RepoPath::new("gone.md").unwrap(),
+					expected: expected.clone(),
+					read_hash: read_hash(&work, "gone.md"),
+				}],
+			};
+			fs::write(work.join("gone.md"), saved).unwrap();
+
+			let result = GitRepository::open(&work).unwrap().apply(&plan);
+
+			assert_eq!(oid(&work, "gone.md"), expected, "{case}");
+			assert_saved_as_same_object(&result, "gone.md", &expected);
+			assert_eq!(fs::read(work.join("a.md")).unwrap(), b"old a\n", "{case}");
+			assert_eq!(fs::read(work.join("gone.md")).unwrap(), saved, "{case}");
+			assert_eq!(
+				names(&work),
+				[".git", ".gitattributes", "a.md", "gone.md"],
+				"{case}"
+			);
+		}
+	}
+
+	/// The same plans apply when nothing changed after they were made.
+	#[test]
+	fn a_plan_applies_when_its_files_are_as_it_read_them() {
+		for (case, before, _) in SAME_OBJECT_SAVES {
+			let (_root, work) = repository(&[
+				(".gitattributes", case.as_bytes()),
+				("b.md", before),
+				("gone.md", before),
+			]);
+			let plan = WritePlan {
+				writes: vec![rewrite(&work, "b.md", b"planned replacement\n")],
+				deletes: vec![PlannedDelete {
+					path: RepoPath::new("gone.md").unwrap(),
+					expected: oid(&work, "gone.md"),
+					read_hash: read_hash(&work, "gone.md"),
+				}],
+			};
+
+			GitRepository::open(&work).unwrap().apply(&plan).unwrap();
+
+			assert_eq!(
+				fs::read(work.join("b.md")).unwrap(),
+				b"planned replacement\n",
+				"{case}"
+			);
+			assert_eq!(names(&work), [".git", ".gitattributes", "b.md"], "{case}");
+		}
+	}
+
+	/// Two writes in one run, where the first leaves bytes that git stores
+	/// as the object the file had: the second, planned from the file as the
+	/// first left it, applies. A second plan made before the first was
+	/// applied read the bytes the first replaced, and fails.
+	#[test]
+	fn a_plan_made_after_an_earlier_write_applies() {
+		let (_root, work) =
+			repository(&[(".gitattributes", b"*.md text=auto\n"), ("a.md", b"a\n")]);
+		fs::write(work.join("a.md"), b"a\r\n").unwrap();
+		let early = rewrite(&work, "a.md", b"second\n");
+		let expected = early.expected.clone().unwrap();
+		let first = WritePlan {
+			writes: vec![rewrite(&work, "a.md", b"a\n")],
+			deletes: Vec::new(),
+		};
+		let repository = GitRepository::open(&work).unwrap();
+		repository.apply(&first).unwrap();
+		assert_eq!(oid(&work, "a.md"), expected);
+
+		let stale = repository.apply(&WritePlan {
+			writes: vec![early],
+			deletes: Vec::new(),
+		});
+		assert_saved_as_same_object(&stale, "a.md", &expected);
+		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"a\n");
+
+		let second = WritePlan {
+			writes: vec![rewrite(&work, "a.md", b"second\n")],
+			deletes: Vec::new(),
+		};
+		repository.apply(&second).unwrap();
+		assert_eq!(fs::read(work.join("a.md")).unwrap(), b"second\n");
+	}
+
+	/// A change of permissions alone after the plan was made keeps the
+	/// bytes the planner read, so the plan applies.
+	#[cfg(unix)]
+	#[test]
+	fn a_permission_change_after_the_plan_was_made_is_accepted() {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let (_root, work) = repository(&[("a.md", b"a\n")]);
+		let plan = WritePlan {
+			writes: vec![rewrite(&work, "a.md", b"new a\n")],
+			deletes: Vec::new(),
+		};
+		let target = work.join("a.md");
+		let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+		fs::set_permissions(&target, fs::Permissions::from_mode(mode | 0o100))
+			.unwrap();
+
+		GitRepository::open(&work).unwrap().apply(&plan).unwrap();
+
+		assert_eq!(fs::read(&target).unwrap(), b"new a\n");
 	}
 
 	/// A write step over `name`, which holds `old` beforehand when given.

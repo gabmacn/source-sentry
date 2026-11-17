@@ -11,7 +11,7 @@ use crate::mutate::{
 	AttestRequest, AttestedEntry, Expectation, Mismatch, MutateError, Selection,
 	attest,
 };
-use crate::ports::Canonical;
+use crate::ports::{BytesHash, Canonical, Snapshot as _};
 
 /// An attestation of every source of `document`, without expectations.
 fn request(document: DocumentId) -> AttestRequest {
@@ -594,4 +594,92 @@ fn other_refusals() {
 	let mut reread = request(document);
 	reread.reread = true;
 	assert!(attest(&empty.snapshot, &empty.inventory, &reread).is_ok());
+}
+
+/// The plan carries the hash of the bytes each rewritten file was read as,
+/// the bytes its new contents were computed from.
+#[test]
+fn a_plan_carries_the_hash_of_the_bytes_it_was_read_from() {
+	for (tree, file) in [
+		(on_file(), "docs/guide.md"),
+		(in_lockfile(""), "docs/source-sentry.lock"),
+	] {
+		let planned = attest(
+			&tree.snapshot,
+			&tree.inventory,
+			&request(local("docs/guide.md")),
+		)
+		.unwrap();
+		let [write] = planned.plan.writes.as_slice() else {
+			panic!("expected one write, got {:?}", planned.plan.writes);
+		};
+		assert_eq!(write.path, path(file));
+		let read = tree.snapshot.read(&path(file)).unwrap();
+		assert_eq!(write.read_hash, Some(BytesHash::of(&read)), "{file}");
+	}
+}
+
+/// A file saved after the plan was made refuses the plan, even when git
+/// would store the saved bytes as the object the plan expects, such as other
+/// line endings; the file as it was read does not.
+#[test]
+fn a_save_after_planning_refuses_the_plan_even_as_the_same_object() {
+	let tree = on_file();
+	let planned = attest(
+		&tree.snapshot,
+		&tree.inventory,
+		&request(local("docs/guide.md")),
+	)
+	.unwrap();
+	let document = path("docs/guide.md");
+	let read = tree.text("docs/guide.md");
+	let saved = Tree::of(
+		tree
+			.snapshot
+			.clone()
+			.with_file(document.as_str(), read.replace('\n', "\r\n").as_bytes())
+			.with_canonical(document.as_str(), Canonical::Oid(oid(&read))),
+	);
+
+	assert_eq!(saved.try_apply(&planned.plan).err(), Some(document));
+	assert!(tree.try_apply(&planned.plan).is_ok());
+}
+
+/// Two attestations in a row each read the lockfile as the one before left
+/// it, so the second is not refused because of the first. A plan made before
+/// the first was applied is.
+#[test]
+fn consecutive_attestations_are_each_planned_from_a_fresh_read() {
+	let entry = r#"{"sources": [{"path": "/src/a.rs"}]}"#;
+	let tree = Tree::new(&[
+		(REPOSITORY, BASE),
+		("src/a.rs", SOURCE),
+		("docs/guide.md", "# Guide\n"),
+		("docs/other.md", "# Other\n"),
+		(
+			"docs/source-sentry.lock",
+			&lockfile(&[("guide.md", entry), ("other.md", entry)], &[]),
+		),
+	]);
+	let plan = |tree: &Tree, document: &str| {
+		attest(&tree.snapshot, &tree.inventory, &request(local(document)))
+			.unwrap()
+			.plan
+	};
+	let early = plan(&tree, "docs/other.md");
+	let first = tree.apply(&plan(&tree, "docs/guide.md"));
+
+	assert_eq!(
+		first.try_apply(&early).err(),
+		Some(path("docs/source-sentry.lock"))
+	);
+	let second = first.apply(&plan(&first, "docs/other.md"));
+	second.assert_clean();
+	for document in ["docs/guide.md", "docs/other.md"] {
+		let declared = sources(&second, document);
+		let [SourceDecl::Path(source)] = declared.as_slice() else {
+			panic!("expected one path source of {document}");
+		};
+		assert_eq!(source.reviewed, Some(review()), "{document}");
+	}
 }

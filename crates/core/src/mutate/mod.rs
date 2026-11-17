@@ -18,6 +18,11 @@
 //!   yet, and each [`PlannedDelete`](crate::ports::PlannedDelete) the
 //!   current canonical oid of the file it deletes. A file whose
 //!   [`Canonical`](crate::ports::Canonical) value is not an oid is refused.
+//! - **Bytes read.** Each existing file written or deleted also carries the
+//!   [`BytesHash`](crate::ports::BytesHash) of the bytes it was read as,
+//!   from the read its new contents were computed from, so that a file
+//!   saved after the plan was made fails the write even when git would
+//!   store it as the same object.
 //! - **Only what changes.** A file whose contents would not change is left
 //!   out. A lockfile that the change leaves with no documents and no
 //!   tombstones is deleted, and one that would be created empty is not

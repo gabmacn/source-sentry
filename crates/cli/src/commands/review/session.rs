@@ -18,7 +18,7 @@ use source_sentry_core::mutate::{
 	diff,
 };
 use source_sentry_core::ports::{
-	Canonical, PlannedWrite, RepoPath, Snapshot as _, WritePlan,
+	BytesHash, Canonical, PlannedWrite, RepoPath, Snapshot as _, WritePlan,
 };
 
 use source_sentry_git::{ApplyError, WorkingTreeSnapshot};
@@ -479,24 +479,29 @@ impl<'a> Session<'a> {
 			.map_err(|error| Failure::backend(&error))?;
 		let changed =
 			|path: &RepoPath| Ok(Undone::Changed(self.workspace.display_path(path)));
+		let mut read = Vec::with_capacity(step.files.len());
 		for (path, (before, after)) in &step.files {
 			let now = snapshot.read(path).ok();
 			if before.is_none() || now.as_ref() != Some(after) {
 				return changed(path);
 			}
+			read.push(now.as_deref().map(BytesHash::of));
 		}
 		let paths: Vec<RepoPath> = step.files.keys().cloned().collect();
 		let oids = snapshot
 			.canonical_oids(&paths)
 			.map_err(|error| Failure::backend(&error))?;
 		let mut writes = Vec::new();
-		for ((path, (before, _)), oid) in step.files.iter().zip(oids) {
+		for (((path, (before, _)), oid), read_hash) in
+			step.files.iter().zip(oids).zip(read)
+		{
 			let (Some(before), Canonical::Oid(oid)) = (before, oid) else {
 				return changed(path);
 			};
 			writes.push(PlannedWrite {
 				path: path.clone(),
 				expected: Some(oid),
+				read_hash,
 				contents: before.clone(),
 			});
 		}

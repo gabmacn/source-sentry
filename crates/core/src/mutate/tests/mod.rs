@@ -18,8 +18,8 @@ use chrono::{DateTime, Utc};
 use super::Expectation;
 use crate::claims::{Claim, Inventory, discover};
 use crate::config::ConfigSet;
-use crate::model::{DocumentId, ObjectId, Review};
-use crate::ports::{Snapshot, WritePlan};
+use crate::model::{DocumentId, ObjectId, RepoPath, Review};
+use crate::ports::{BytesHash, Canonical, Snapshot, WritePlan};
 use crate::testing::{FakeSnapshot, fake_oid, path};
 
 /// The repository config's path.
@@ -76,16 +76,33 @@ impl Tree {
 	/// write must expect the file's current oid, or `None` for a new file,
 	/// and each delete the current oid of an existing file. No path may be
 	/// both written and deleted.
+	///
+	/// # Panics
+	///
+	/// Panics where [`Tree::try_apply`] fails.
 	fn apply(&self, plan: &WritePlan) -> Self {
+		match self.try_apply(plan) {
+			Ok(tree) => tree,
+			Err(path) => panic!("the plan is stale at {path}"),
+		}
+	}
+
+	/// The tree once `plan` is applied, or the first path whose file is not
+	/// as the plan expects, with nothing applied. As in the backend, a file
+	/// must have the expected canonical oid, which
+	/// [`FakeSnapshot::with_canonical`] may set apart from its bytes, and
+	/// a file that exists must also hold the bytes whose hash the plan
+	/// carries.
+	fn try_apply(&self, plan: &WritePlan) -> Result<Self, RepoPath> {
 		let mut snapshot = self.snapshot.clone();
 		for write in &plan.writes {
 			let current = self.snapshot.read(&write.path).ok();
-			assert_eq!(
-				write.expected,
-				current.map(|content| fake_oid(&content)),
-				"the expected oid of {}",
-				write.path
-			);
+			let oid = current.as_ref().map(|_| self.canonical(&write.path));
+			if write.expected != oid
+				|| write.read_hash != current.as_deref().map(BytesHash::of)
+			{
+				return Err(write.path.clone());
+			}
 			snapshot = snapshot.with_file(write.path.as_str(), &write.contents);
 		}
 		for delete in &plan.deletes {
@@ -94,16 +111,28 @@ impl Tree {
 				"{} is both written and deleted",
 				delete.path
 			);
-			let current = self.snapshot.read(&delete.path).unwrap();
-			assert_eq!(
-				delete.expected,
-				fake_oid(&current),
-				"the expected oid of deleted {}",
-				delete.path
-			);
+			let Ok(current) = self.snapshot.read(&delete.path) else {
+				return Err(delete.path.clone());
+			};
+			if delete.expected != self.canonical(&delete.path)
+				|| delete.read_hash != BytesHash::of(&current)
+			{
+				return Err(delete.path.clone());
+			}
 			snapshot = snapshot.without_file(delete.path.as_str());
 		}
-		Self::of(snapshot)
+		Ok(Self::of(snapshot))
+	}
+
+	/// The canonical oid of an existing file.
+	fn canonical(&self, path: &RepoPath) -> ObjectId {
+		match self.snapshot.canonical_oids(std::slice::from_ref(path)) {
+			Ok(mut oids) => match oids.pop() {
+				Some(Canonical::Oid(oid)) => oid,
+				other => panic!("no canonical oid for {path}: {other:?}"),
+			},
+			Err(error) => panic!("no canonical oid for {path}: {error}"),
+		}
 	}
 
 	/// A file's contents, as text.

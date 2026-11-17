@@ -12,7 +12,7 @@ use crate::mutate::{
 	CarriedTombstone, MutateError, Placement, Setting, Target, TrackFromRequest,
 	track_from,
 };
-use crate::ports::{PlannedDelete, Snapshot};
+use crate::ports::{BytesHash, PlannedDelete, Snapshot};
 use crate::testing::fake_oid;
 
 /// A move of `documents` from `from` to `to`.
@@ -86,6 +86,22 @@ fn on_file_to_a_lockfile_and_back() {
 	.unwrap();
 	assert_eq!(planned.plan.writes.len(), 2);
 	assert_eq!(planned.plan.deletes, [] as [PlannedDelete; 0]);
+	// The created lockfile has no bytes read; the rewritten document has.
+	let read = |file: &str| {
+		planned
+			.plan
+			.writes
+			.iter()
+			.find(|write| write.path == path(file))
+			.map(|write| write.read_hash)
+	};
+	assert_eq!(read("docs/source-sentry.lock"), Some(None));
+	assert_eq!(
+		read("docs/guide.md"),
+		Some(Some(BytesHash::of(
+			&tree.snapshot.read(&path("docs/guide.md")).unwrap()
+		)))
+	);
 	let moved = &planned.summary.moved[0];
 	assert!(moved.created);
 	assert_eq!(moved.to.file, path("docs/source-sentry.lock"));
@@ -128,6 +144,7 @@ fn on_file_to_a_lockfile_and_back() {
 		[PlannedDelete {
 			path: lockfile.clone(),
 			expected: fake_oid(&current),
+			read_hash: BytesHash::of(&current),
 		}]
 	);
 	let tree = tree.apply(&planned.plan);
@@ -263,6 +280,7 @@ fn merging_a_nested_lockfile_into_its_parent() {
 		[PlannedDelete {
 			path: nested.clone(),
 			expected: fake_oid(&current),
+			read_hash: BytesHash::of(&current),
 		}]
 	);
 	let [write] = planned.plan.writes.as_slice() else {

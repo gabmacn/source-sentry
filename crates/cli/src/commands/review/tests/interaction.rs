@@ -177,6 +177,36 @@ fn yes_and_reread_share_attestation_writes_and_reviewer_defaults() {
 	}
 }
 
+/// Each answer is written from the lockfile as the answer before left it, so
+/// a session never refuses an answer because of its own earlier write, even
+/// where the lockfile held line endings that the first write replaces.
+#[test]
+fn answers_in_one_lockfile_are_each_written_from_a_fresh_read() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {"sources": [{"path": "/src/a.rs"}]},
+		"docs/b.md": {"sources": [{"path": "/src/b.rs"}]},
+	}));
+	repo.write(".gitattributes", "* text=auto\n");
+	let lockfile: serde_json::Value =
+		serde_json::from_str(&repo.read("source-sentry.lock")).unwrap();
+	let pretty = serde_json::to_string_pretty(&lockfile).unwrap();
+	repo.write("source-sentry.lock", &pretty);
+	repo.commit();
+	repo.write("source-sentry.lock", &pretty.replace('\n', "\r\n"));
+
+	let mut script = Script::answers(&repo, &[Answer::Yes, Answer::Yes]);
+	repo.run(&[], &mut script).unwrap();
+
+	assert_eq!(script.shown, [local("docs/a.md"), local("docs/b.md")]);
+	for document in ["docs/a.md", "docs/b.md"] {
+		assert!(
+			repo.entry(document)["sources"][0]["reviewed"].is_object(),
+			"{document}"
+		);
+	}
+	assert!(script.summary().contains("Recorded 2 reviews"));
+}
+
 /// Documents without sources always record a reread, for both positive keys.
 #[test]
 fn sourceless_yes_and_reread_both_record_a_reread() {

@@ -1,7 +1,7 @@
 //! Applying write plans all or nothing.
 
 use source_sentry_core::ports::{
-	Canonical, PlannedDelete, PlannedWrite, Snapshot as _, WritePlan,
+	BytesHash, Canonical, PlannedDelete, PlannedWrite, Snapshot as _, WritePlan,
 };
 use source_sentry_git::{ApplyError, Unwritable};
 
@@ -18,6 +18,12 @@ fn current_oid(
 		Some(Canonical::Oid(id)) => id,
 		other => panic!("no canonical oid for {file}: {other:?}"),
 	}
+}
+
+/// The hash of a working-tree file's bytes, as a planner reading it now
+/// would carry it.
+fn current_hash(repo: &TestRepo, file: &str) -> BytesHash {
+	BytesHash::of(&repo.read(file))
 }
 
 /// Names of leftover temporary files anywhere in the working tree.
@@ -53,11 +59,13 @@ fn a_plan_is_applied() {
 			PlannedWrite {
 				path: path("docs/guide.md"),
 				expected: Some(expected),
+				read_hash: Some(current_hash(&repo, "docs/guide.md")),
 				contents: b"new guide\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path(".source-sentry/remotes/owner/source-sentry.lock"),
 				expected: None,
+				read_hash: None,
 				contents: b"{}\n".to_vec(),
 			},
 		],
@@ -81,6 +89,7 @@ fn a_stale_expectation_changes_nothing() {
 	repo.commit_all("add documents");
 	let a = current_oid(&repo, "a.md");
 	let stale = current_oid(&repo, "b.md");
+	let read = current_hash(&repo, "b.md");
 	repo.write("b.md", "edited after the plan was made\n");
 
 	let plan = WritePlan {
@@ -88,16 +97,19 @@ fn a_stale_expectation_changes_nothing() {
 			PlannedWrite {
 				path: path("a.md"),
 				expected: Some(a),
+				read_hash: Some(current_hash(&repo, "a.md")),
 				contents: b"new a\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path("new/dir/source-sentry.lock"),
 				expected: None,
+				read_hash: None,
 				contents: b"{}\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path("b.md"),
 				expected: Some(stale.clone()),
+				read_hash: Some(read),
 				contents: b"new b\n".to_vec(),
 			},
 		],
@@ -134,6 +146,7 @@ fn a_new_file_must_not_exist() {
 		writes: vec![PlannedWrite {
 			path: path("source-sentry.lock"),
 			expected: None,
+			read_hash: None,
 			contents: b"{}\n".to_vec(),
 		}],
 		deletes: Vec::new(),
@@ -160,12 +173,14 @@ fn a_missing_file_fails_its_expectation() {
 	repo.write("gone.md", "gone\n");
 	repo.commit_all("add file");
 	let expected = current_oid(&repo, "gone.md");
+	let read = current_hash(&repo, "gone.md");
 	std::fs::remove_file(repo.path().join("gone.md")).unwrap();
 
 	let plan = WritePlan {
 		writes: vec![PlannedWrite {
 			path: path("gone.md"),
 			expected: Some(expected),
+			read_hash: Some(read),
 			contents: b"recreated\n".to_vec(),
 		}],
 		deletes: Vec::new(),
@@ -188,6 +203,7 @@ fn unsafe_targets_are_refused() {
 	let duplicate = PlannedWrite {
 		path: path("dir/file.md"),
 		expected: None,
+		read_hash: None,
 		contents: Vec::new(),
 	};
 	let plan = WritePlan {
@@ -203,6 +219,7 @@ fn unsafe_targets_are_refused() {
 		writes: vec![PlannedWrite {
 			path: path("dir"),
 			expected: None,
+			read_hash: None,
 			contents: Vec::new(),
 		}],
 		deletes: Vec::new(),
@@ -219,6 +236,7 @@ fn unsafe_targets_are_refused() {
 		writes: vec![PlannedWrite {
 			path: path("dir/file.md/child"),
 			expected: None,
+			read_hash: None,
 			contents: Vec::new(),
 		}],
 		deletes: Vec::new(),
@@ -248,6 +266,7 @@ fn submodules_are_not_written() {
 		writes: vec![PlannedWrite {
 			path: path("vendor/lib/source-sentry.lock"),
 			expected: None,
+			read_hash: None,
 			contents: b"{}
 "
 			.to_vec(),
@@ -275,6 +294,7 @@ fn filtered_files_cannot_be_verified() {
 		writes: vec![PlannedWrite {
 			path: path("data.dat"),
 			expected: Some(repo.blob_at("HEAD", "data.dat")),
+			read_hash: Some(current_hash(&repo, "data.dat")),
 			contents: b"new\n".to_vec(),
 		}],
 		deletes: Vec::new(),
@@ -312,6 +332,7 @@ fn populated_submodules_and_their_files_are_not_written_or_deleted() {
 				writes: vec![PlannedWrite {
 					path: path(file),
 					expected: None,
+					read_hash: None,
 					contents: b"replacement\n".to_vec(),
 				}],
 				deletes: Vec::new(),
@@ -321,6 +342,7 @@ fn populated_submodules_and_their_files_are_not_written_or_deleted() {
 				deletes: vec![PlannedDelete {
 					path: path(file),
 					expected: expected.clone(),
+					read_hash: BytesHash::of(b"submodule readme\n"),
 				}],
 			},
 		] {
@@ -355,6 +377,7 @@ fn crlf_kept_from_the_index_cannot_be_verified() {
 		writes: vec![PlannedWrite {
 			path: path("doc.md"),
 			expected: Some(repo.blob_at("HEAD", "doc.md")),
+			read_hash: Some(current_hash(&repo, "doc.md")),
 			contents: b"new\n".to_vec(),
 		}],
 		deletes: Vec::new(),
@@ -374,11 +397,12 @@ fn crlf_kept_from_the_index_cannot_be_verified() {
 	assert_eq!(repo.read("doc.md"), b"a\r\nb\r\n");
 }
 
-/// A delete of `file` with its current canonical oid.
+/// A delete of `file` with its current canonical oid and bytes.
 fn delete_of(repo: &TestRepo, file: &str) -> PlannedDelete {
 	PlannedDelete {
 		path: path(file),
 		expected: current_oid(repo, file),
+		read_hash: current_hash(repo, file),
 	}
 }
 
@@ -414,6 +438,7 @@ fn deletes_and_writes_are_applied_together() {
 		writes: vec![PlannedWrite {
 			path: path("source-sentry.lock"),
 			expected: Some(current_oid(&repo, "source-sentry.lock")),
+			read_hash: Some(current_hash(&repo, "source-sentry.lock")),
 			contents: b"{\"merged\": true}\n".to_vec(),
 		}],
 		deletes: vec![delete_of(&repo, "docs/source-sentry.lock")],
@@ -445,11 +470,13 @@ fn files_with_names_near_the_length_limit_are_changed() {
 			PlannedWrite {
 				path: path(&rewritten),
 				expected: Some(current_oid(&repo, &rewritten)),
+				read_hash: Some(current_hash(&repo, &rewritten)),
 				contents: b"new\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path(&created),
 				expected: None,
+				read_hash: None,
 				contents: b"created\n".to_vec(),
 			},
 		],
@@ -476,6 +503,7 @@ fn a_stale_delete_changes_nothing() {
 		writes: vec![PlannedWrite {
 			path: path("a.md"),
 			expected: Some(current_oid(&repo, "a.md")),
+			read_hash: Some(current_hash(&repo, "a.md")),
 			contents: b"new a\n".to_vec(),
 		}],
 		deletes: vec![stale.clone()],
@@ -512,6 +540,7 @@ fn a_delete_of_a_missing_file_changes_nothing() {
 		writes: vec![PlannedWrite {
 			path: path("a.md"),
 			expected: Some(current_oid(&repo, "a.md")),
+			read_hash: Some(current_hash(&repo, "a.md")),
 			contents: b"new a\n".to_vec(),
 		}],
 		deletes: vec![delete],
@@ -543,6 +572,7 @@ fn a_path_may_appear_only_once() {
 		writes: vec![PlannedWrite {
 			path: path("a.lock"),
 			expected: Some(delete.expected.clone()),
+			read_hash: Some(delete.read_hash),
 			contents: b"new\n".to_vec(),
 		}],
 		deletes: vec![delete.clone()],
@@ -572,11 +602,13 @@ fn unsafe_deletes_are_refused() {
 	repo.git(&["commit", "--quiet", "--message", "add a submodule entry"]);
 	std::fs::create_dir_all(repo.path().join("vendor").join("lib")).unwrap();
 	let any = current_oid(&repo, "dir/file.md");
+	let read = current_hash(&repo, "dir/file.md");
 	let delete = |file: &str| WritePlan {
 		writes: Vec::new(),
 		deletes: vec![PlannedDelete {
 			path: path(file),
 			expected: any.clone(),
+			read_hash: read,
 		}],
 	};
 
@@ -611,6 +643,7 @@ fn sparse_checkout_paths_are_not_deleted() {
 	repo.write("other/outside.lock", "outside\n");
 	repo.commit_all("add tree");
 	let expected = repo.blob_at("HEAD", "other/outside.lock");
+	let read = current_hash(&repo, "other/outside.lock");
 	repo.git(&["sparse-checkout", "set", "--cone", "d"]);
 
 	let plan = WritePlan {
@@ -618,6 +651,7 @@ fn sparse_checkout_paths_are_not_deleted() {
 		deletes: vec![PlannedDelete {
 			path: path("other/outside.lock"),
 			expected,
+			read_hash: read,
 		}],
 	};
 	assert!(matches!(
@@ -643,6 +677,7 @@ fn symbolic_links_are_not_deleted() {
 		deletes: vec![PlannedDelete {
 			path: path("link.md"),
 			expected: repo.blob_at("HEAD", "link.md"),
+			read_hash: BytesHash::of(b"target.md"),
 		}],
 	};
 	assert!(matches!(
@@ -724,16 +759,19 @@ fn a_failing_write_restores_deleted_and_written_files() {
 			PlannedWrite {
 				path: path("a.md"),
 				expected: Some(current_oid(&repo, "a.md")),
+				read_hash: Some(current_hash(&repo, "a.md")),
 				contents: b"new a\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path("brand/new.md"),
 				expected: None,
+				read_hash: None,
 				contents: b"new\n".to_vec(),
 			},
 			PlannedWrite {
 				path: path("locked/blocked.md"),
 				expected: Some(current_oid(&repo, "locked/blocked.md")),
+				read_hash: Some(current_hash(&repo, "locked/blocked.md")),
 				contents: b"new blocked\n".to_vec(),
 			},
 		],
@@ -779,6 +817,7 @@ fn placeholder_links_are_not_written() {
 		writes: vec![PlannedWrite {
 			path: path("link.md"),
 			expected: Some(current_oid(&repo, "link.md")),
+			read_hash: Some(current_hash(&repo, "link.md")),
 			contents: b"---\nsource-sentry: {}\n---\ntarget.md".to_vec(),
 		}],
 		deletes: Vec::new(),

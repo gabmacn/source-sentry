@@ -10,7 +10,10 @@
 //! `fn check<S: Snapshot, H: History>(snapshot: &S, history: &H, at: DateTime<Utc>, context: &str)`.
 //! `History` returns an `impl Iterator`, so the traits are not object-safe; generics are intended.
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
+use sha2::{Digest as _, Sha256};
 
 // The value types that cross the boundary are defined in `model`, which owns
 // their validation, and re-exported here so the traits read on their own.
@@ -234,6 +237,10 @@ pub struct PlannedDelete {
 	/// The canonical oid the file must still have when the plan is applied. A
 	/// mismatch aborts the whole plan.
 	pub expected: ObjectId,
+	/// The hash of the exact bytes the planner read from the file. A file
+	/// whose bytes no longer have this hash aborts the whole plan, even when
+	/// it still has the `expected` oid.
+	pub read_hash: BytesHash,
 }
 
 /// One file in a [`WritePlan`].
@@ -244,6 +251,37 @@ pub struct PlannedWrite {
 	/// The canonical oid the file must still have when the plan is applied, or `None` when the file
 	/// must not exist yet. A mismatch aborts the whole plan.
 	pub expected: Option<ObjectId>,
+	/// The hash of the exact bytes the planner read from the file and
+	/// computed `contents` from, or `None` for a file that must not exist
+	/// yet. A file whose bytes no longer have this hash aborts the whole plan,
+	/// even when it still has the `expected` oid.
+	pub read_hash: Option<BytesHash>,
 	/// The file's new contents.
 	pub contents: Vec<u8>,
+}
+
+/// The SHA-256 hash of a file's exact bytes, before any conversion git
+/// applies. Two files with the same canonical oid may hold different bytes,
+/// such as other line endings under `text=auto` or other text inside an
+/// `$Id$` keyword under `ident`; two with the same `BytesHash` hold the same
+/// bytes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BytesHash([u8; 32]);
+
+impl BytesHash {
+	/// The hash of `bytes`.
+	#[must_use]
+	pub fn of(bytes: &[u8]) -> Self {
+		Self(Sha256::digest(bytes).into())
+	}
+}
+
+impl fmt::Debug for BytesHash {
+	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		formatter.write_str("BytesHash(")?;
+		for byte in self.0 {
+			write!(formatter, "{byte:02x}")?;
+		}
+		formatter.write_str(")")
+	}
 }

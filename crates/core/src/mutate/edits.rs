@@ -4,7 +4,8 @@
 //! A command loads each file it changes once, edits it in memory, and calls
 //! [`Edits::finish`], which writes every changed file through its adapter,
 //! parses the bytes back, deletes the lockfiles the change empties, and
-//! records each file's current canonical oid.
+//! records each file's current canonical oid and the hash of the bytes it
+//! was read as.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
@@ -15,14 +16,16 @@ use crate::adapters::frontmatter;
 use crate::adapters::lockfile::{LocalLockfile, RemoteLockfile};
 use crate::claims::Claim;
 use crate::model::{Declaration, DocumentId, ObjectId, RepoPath};
-use crate::ports::{PlannedDelete, PlannedWrite, Snapshot, WritePlan};
+use crate::ports::{
+	BytesHash, PlannedDelete, PlannedWrite, Snapshot, WritePlan,
+};
 
 /// A lockfile held in memory, as the snapshot holds it and as edited.
 #[derive(Debug)]
 struct Loaded<T> {
-	/// The lockfile as the snapshot holds it, or `None` when it does not
-	/// exist yet.
-	original: Option<T>,
+	/// The lockfile as the snapshot holds it, with the hash of the bytes it
+	/// was parsed from, or `None` when it does not exist yet.
+	original: Option<(T, BytesHash)>,
 	/// The lockfile as edited.
 	current: T,
 }
@@ -35,16 +38,16 @@ enum Fate {
 	/// Write it.
 	Write,
 	/// Delete it, because the change left it with no documents and no
-	/// tombstones.
-	Delete,
+	/// tombstones. It holds the hash of the bytes the lockfile was read as.
+	Delete(BytesHash),
 }
 
 impl<T: PartialEq> Loaded<T> {
 	/// What becomes of the lockfile, given whether it is now `empty`.
 	fn fate(&self, empty: bool) -> Fate {
 		match &self.original {
-			Some(original) if *original == self.current => Fate::Keep,
-			Some(_) if empty => Fate::Delete,
+			Some((original, _)) if *original == self.current => Fate::Keep,
+			Some((_, read)) if empty => Fate::Delete(*read),
 			None if empty => Fate::Keep,
 			Some(_) | None => Fate::Write,
 		}
@@ -87,20 +90,20 @@ impl Edits {
 				let path = lockfile_path(directory);
 				let original = if repo.tracked.contains(&path) {
 					let bytes = repo.snapshot.read(&path)?;
-					Some(
-						LocalLockfile::parse_in_project(
-							&crate::config::project_of(&repo.inventory.projects, directory),
-							directory,
-							&bytes,
-						)
-						.map_err(|error| MutateError::InvalidLockfile { path, error })?,
+					let lockfile = LocalLockfile::parse_in_project(
+						&crate::config::project_of(&repo.inventory.projects, directory),
+						directory,
+						&bytes,
 					)
+					.map_err(|error| MutateError::InvalidLockfile { path, error })?;
+					Some((lockfile, BytesHash::of(&bytes)))
 				} else {
 					None
 				};
-				let current = original
-					.clone()
-					.unwrap_or_else(|| LocalLockfile::new(directory.clone()));
+				let current = original.as_ref().map_or_else(
+					|| LocalLockfile::new(directory.clone()),
+					|(lockfile, _)| lockfile.clone(),
+				);
 				Ok(&mut entry.insert(Loaded { original, current }).current)
 			}
 		}
@@ -125,14 +128,16 @@ impl Edits {
 				let path = remote_lockfile_path(project, owner)?;
 				let original = if repo.tracked.contains(&path) {
 					let bytes = repo.snapshot.read(&path)?;
-					Some(
-						RemoteLockfile::parse_in_project(project, &bytes)
-							.map_err(|error| MutateError::InvalidLockfile { path, error })?,
-					)
+					let lockfile = RemoteLockfile::parse_in_project(project, &bytes)
+						.map_err(|error| MutateError::InvalidLockfile { path, error })?;
+					Some((lockfile, BytesHash::of(&bytes)))
 				} else {
 					None
 				};
-				let current = original.clone().unwrap_or_default();
+				let current = original
+					.as_ref()
+					.map(|(lockfile, _)| lockfile.clone())
+					.unwrap_or_default();
 				Ok(&mut entry.insert(Loaded { original, current }).current)
 			}
 		}
@@ -238,7 +243,9 @@ impl Edits {
 	///
 	/// Each written file that the snapshot tracks expects its current
 	/// canonical oid, and a new file expects to be absent. Each deleted file
-	/// expects its current canonical oid.
+	/// expects its current canonical oid. Each written or deleted file that
+	/// exists also carries the hash of the bytes it was read as, the read
+	/// its new contents were computed from.
 	///
 	/// # Errors
 	///
@@ -252,7 +259,10 @@ impl Edits {
 		repo: &Repo<'_, S>,
 	) -> Result<WritePlan, MutateError> {
 		let mut files: BTreeMap<RepoPath, Vec<u8>> = BTreeMap::new();
-		let mut deleted: Vec<RepoPath> = Vec::new();
+		let mut deleted: Vec<(RepoPath, BytesHash)> = Vec::new();
+		// The hash of the bytes of each existing file to write, as read for
+		// computing its new contents.
+		let mut read: BTreeMap<RepoPath, BytesHash> = BTreeMap::new();
 		for (directory, loaded) in self.locals {
 			let path = lockfile_path(&directory);
 			let lockfile = &loaded.current;
@@ -265,9 +275,12 @@ impl Edits {
 						&path,
 						lockfile,
 					)?;
+					if let Some((_, hash)) = loaded.original {
+						read.insert(path.clone(), hash);
+					}
 					files.insert(path, bytes);
 				}
-				Fate::Delete => deleted.push(path),
+				Fate::Delete(hash) => deleted.push((path, hash)),
 			}
 		}
 		for ((project, owner), loaded) in self.remotes {
@@ -278,9 +291,12 @@ impl Edits {
 				Fate::Keep => {}
 				Fate::Write => {
 					let bytes = write_remote(&project, &path, lockfile)?;
+					if let Some((_, hash)) = loaded.original {
+						read.insert(path.clone(), hash);
+					}
 					files.insert(path, bytes);
 				}
-				Fate::Delete => deleted.push(path),
+				Fate::Delete(hash) => deleted.push((path, hash)),
 			}
 		}
 		for (document, declaration) in self.documents {
@@ -295,6 +311,7 @@ impl Edits {
 				declaration.as_ref(),
 			)?;
 			if bytes != original {
+				read.insert(document.clone(), BytesHash::of(&original));
 				files.insert(document, bytes);
 			}
 		}
@@ -307,21 +324,33 @@ impl Edits {
 		let oids = repo.oids(&existing)?;
 		let mut expected: BTreeMap<RepoPath, ObjectId> =
 			existing.into_iter().zip(oids).collect();
-		deleted.sort();
-		let deleted_oids = repo.oids(&deleted)?;
+		deleted.sort_by(|(left, _), (right, _)| left.cmp(right));
+		let deleted_paths: Vec<RepoPath> =
+			deleted.iter().map(|(path, _)| path.clone()).collect();
+		let deleted_oids = repo.oids(&deleted_paths)?;
 		Ok(WritePlan {
 			writes: files
 				.into_iter()
-				.map(|(path, contents)| PlannedWrite {
-					expected: expected.remove(&path),
-					path,
-					contents,
+				.map(|(path, contents)| {
+					let expected = expected.remove(&path);
+					// Only a file that exists has bytes to compare.
+					let read_hash = expected.as_ref().and(read.get(&path).copied());
+					PlannedWrite {
+						path,
+						expected,
+						read_hash,
+						contents,
+					}
 				})
 				.collect(),
 			deletes: deleted
 				.into_iter()
 				.zip(deleted_oids)
-				.map(|(path, expected)| PlannedDelete { path, expected })
+				.map(|((path, read_hash), expected)| PlannedDelete {
+					path,
+					expected,
+					read_hash,
+				})
 				.collect(),
 		})
 	}

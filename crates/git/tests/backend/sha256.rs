@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 
 use sha2::{Digest as _, Sha256};
 use source_sentry_core::ports::{
-	Canonical, FirstParent, HashAlgorithm, History as _, PlannedDelete,
-	PlannedWrite, Snapshot as _, WritePlan,
+	BytesHash, Canonical, FirstParent, HashAlgorithm, History as _,
+	PlannedDelete, PlannedWrite, Snapshot as _, WritePlan,
 };
 
 use crate::support::{TestRepo, commit_id, object_id, path};
@@ -154,6 +154,7 @@ fn a_write_plan_is_verified_with_sha256_ids() {
 		writes: vec![PlannedWrite {
 			path: path("docs/notes.md"),
 			expected: Some(expected),
+			read_hash: Some(BytesHash::of(&repo.read("docs/notes.md"))),
 			contents: b"rewritten\n".to_vec(),
 		}],
 		deletes: Vec::new(),
@@ -174,11 +175,13 @@ fn deletes_are_verified_with_sha256_ids() {
 		writes: vec![PlannedWrite {
 			path: path("file.txt"),
 			expected: Some(file.clone()),
+			read_hash: Some(BytesHash::of(b"version 3\n")),
 			contents: b"rewritten\n".to_vec(),
 		}],
 		deletes: vec![PlannedDelete {
 			path: path("docs/notes.md"),
 			expected: repo.blob_at(&ids[0], "docs/notes.md"),
+			read_hash: BytesHash::of(b"notes 1\n"),
 		}],
 	};
 	assert!(repo.open().apply(&stale).is_err());
@@ -191,6 +194,7 @@ fn deletes_are_verified_with_sha256_ids() {
 		deletes: vec![PlannedDelete {
 			path: path("docs/notes.md"),
 			expected: notes,
+			read_hash: BytesHash::of(b"notes 3\n"),
 		}],
 	};
 	repo.open().apply(&plan).unwrap();

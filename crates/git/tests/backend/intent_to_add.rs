@@ -1,7 +1,7 @@
 //! Files that a plan creates are marked intent-to-add.
 
 use source_sentry_core::ports::{
-	Canonical, PlannedDelete, PlannedWrite, Snapshot as _, WritePlan,
+	BytesHash, Canonical, PlannedDelete, PlannedWrite, Snapshot as _, WritePlan,
 };
 use source_sentry_git::{ApplyError, Unwritable};
 
@@ -12,6 +12,7 @@ fn create(file: &str, contents: &str) -> PlannedWrite {
 	PlannedWrite {
 		path: path(file),
 		expected: None,
+		read_hash: None,
 		contents: contents.as_bytes().to_vec(),
 	}
 }
@@ -104,6 +105,7 @@ fn rewrites_and_deletes_leave_the_index_alone() {
 			PlannedWrite {
 				path: path("a.md"),
 				expected: Some(a),
+				read_hash: Some(BytesHash::of(&repo.read("a.md"))),
 				contents: b"new a\n".to_vec(),
 			},
 			create("recreated.lock", "new\n"),
@@ -111,6 +113,7 @@ fn rewrites_and_deletes_leave_the_index_alone() {
 		deletes: vec![PlannedDelete {
 			path: path("b.lock"),
 			expected: repo.blob_at("HEAD", "b.lock"),
+			read_hash: BytesHash::of(b"b\n"),
 		}],
 	};
 	repo.open().apply(&plan).unwrap();
@@ -132,6 +135,7 @@ fn a_failed_marking_changes_nothing() {
 			PlannedWrite {
 				path: path("a.md"),
 				expected: Some(repo.blob_at("HEAD", "a.md")),
+				read_hash: Some(BytesHash::of(b"a\n")),
 				contents: b"new a\n".to_vec(),
 			},
 			create("new/c.lock", "{}\n"),
@@ -139,6 +143,7 @@ fn a_failed_marking_changes_nothing() {
 		deletes: vec![PlannedDelete {
 			path: path("b.lock"),
 			expected: repo.blob_at("HEAD", "b.lock"),
+			read_hash: BytesHash::of(b"b\n"),
 		}],
 	};
 	let before = index_bytes(&repo);
