@@ -313,6 +313,42 @@ fn messages_in_a_nested_project_name_the_projects_config() {
 	);
 }
 
+/// A message about the config at `.source-sentry/source-sentry.yaml` calls
+/// it a project config, in the repository's root project as in a nested one.
+#[test]
+fn messages_call_the_config_of_any_project_a_project_config() {
+	let repo = nested();
+	repo.write(
+		".source-sentry/source-sentry.yaml",
+		"version: 1\nroot: true\n",
+	);
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1\nschedule: {grace: 5}\nunknown: 1\n",
+	);
+	for (arguments, message) in [
+		(
+			&["check", "--at", AT][..],
+			"a project config cannot set `root`",
+		),
+		(
+			&["-C", "app", "check", "--at", AT][..],
+			"A project config allows `version`, `time-zone`, `define`, \
+			 `imports`, `classes`, `owners`, `schedule`, `documents`, `rules` \
+			 or `series`",
+		),
+	] {
+		let output = repo.run(arguments);
+		output.expect_code(3);
+		assert!(output.stderr.contains(message), "{}", output.stderr);
+		assert!(
+			!output.stderr.contains("repository config"),
+			"{}",
+			output.stderr
+		);
+	}
+}
+
 /// Cross-project renames preserve reviews while rewriting both rooted source kinds.
 #[test]
 fn rename_across_projects_previews_sources_and_settings() {

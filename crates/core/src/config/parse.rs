@@ -92,7 +92,7 @@ impl ConfigKind {
 impl fmt::Display for ConfigKind {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
 		formatter.write_str(match self {
-			Self::Repository => "repository config",
+			Self::Repository => "project config",
 			Self::Directory => "directory config",
 			Self::Preset => "preset",
 			Self::Paired => "paired config",

@@ -29,7 +29,7 @@ pub(super) fn repository_config() -> RepoPath {
 		          repository path"
 	)]
 	RepoPath::new(&format!("{DIR_NAME}/{CONFIG_NAME}"))
-		.expect("the repository config's path is valid")
+		.expect("the root project config's path is valid")
 }
 
 /// The path of the config at the root of `configs`' project, which
