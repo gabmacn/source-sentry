@@ -34,7 +34,7 @@ impl fmt::Display for Scope {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::BuiltIn => formatter.write_str("the built-in defaults"),
-			Self::Repository => formatter.write_str("the repository"),
+			Self::Repository => formatter.write_str("the project"),
 			Self::Directory(directory) => write!(formatter, "directory {directory}"),
 			Self::Remote(owner) => write!(formatter, "remote owner {owner}"),
 		}

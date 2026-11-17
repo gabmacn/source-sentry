@@ -10,7 +10,7 @@
 # its values are placeholders that you must replace.
 #
 # Contexts: pull requests, pushes and scheduled runs use `default`. The deploy
-# job uses `production`, which the repository config
+# job uses `production`, which the project config
 # (.source-sentry/source-sentry.yaml) must declare; otherwise every production
 # check fails with exit 3.
 
@@ -194,7 +194,7 @@ jobs:
             --at "${AT:?The prepare job provided no evaluation instant.}"
 
   # The production context's continue gate decides whether this commit may
-  # deploy. With the example repository config, a stale privacy policy fails
+  # deploy. With the example project config, a stale privacy policy fails
   # here, although it only warns in `default`.
   continue-gate-production:
     name: Source Sentry continue gate (production)

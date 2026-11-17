@@ -15,7 +15,7 @@
 # their own: within one workflow, a failed step stops every later step,
 # whatever `depends_on` says, and a failure of the default context's gate
 # would stop the deploy. The production context must be declared in the
-# repository config (.source-sentry/source-sentry.yaml); otherwise its check
+# project config (.source-sentry/source-sentry.yaml); otherwise its check
 # fails with exit 3.
 #
 # Woodpecker substitutes its own variables throughout this file, comments
@@ -108,7 +108,7 @@ steps:
         cp "$${download}/$${name}/source-sentry" /woodpecker/source-sentry/bin/
 
   # The production context's continue gate decides whether this commit may
-  # deploy. With the example repository config, a stale privacy policy fails
+  # deploy. With the example project config, a stale privacy policy fails
   # here, although it only warns in `default`. The evaluation instant is
   # CI_PIPELINE_CREATED, which Woodpecker sets once per pipeline, for every
   # workflow, converted to RFC 3339.

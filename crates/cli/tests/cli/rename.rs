@@ -349,9 +349,9 @@ fn rename_previews_series_positions_and_refuses_a_sealed_head() {
 		repo.run(&["rename", "proposals/v2.md", "proposals/v3.md", "--dry-run"]);
 	plan.expect_code(0);
 	assert!(
-		plan.stdout.contains(
-			"change series `proposals` (the repository) from version 2 to 3"
-		),
+		plan
+			.stdout
+			.contains("change series `proposals` (the project) from version 2 to 3"),
 		"{}",
 		plan.stdout
 	);

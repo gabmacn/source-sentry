@@ -9,7 +9,7 @@
 # you must replace.
 #
 # Contexts: merge requests, pushes and scheduled pipelines use `default`. The
-# deploy job uses `production`, which the repository config
+# deploy job uses `production`, which the project config
 # (.source-sentry/source-sentry.yaml) must declare; otherwise every production
 # check fails with exit 3.
 #
@@ -139,7 +139,7 @@ source-sentry-gates:
       --at "$CI_PIPELINE_CREATED_AT"
 
 # The production context's continue gate decides whether this commit may
-# deploy. With the example repository config, a stale privacy policy fails
+# deploy. With the example project config, a stale privacy policy fails
 # here, although it only warns in `default`.
 source-sentry-production-continue:
   stage: check

@@ -125,8 +125,11 @@ that version's section, so a release cannot be made without one.
 - In a nested project, an unknown `--context` is reported against that
   project's own config, not the enclosing repository's, and messages about
   contexts and settings name "the project's config".
-- Messages call `.source-sentry/source-sentry.yaml` a "project config", as
-  the documentation does, where they said "repository config".
+- Messages call `.source-sentry/source-sentry.yaml` a "project config",
+  where they said "repository config", and name the scope of a setting or
+  a series "the project", where they said "the repository". The recipes
+  and their guide use the same words. The JSON value `repository` is
+  unchanged.
 - An invalid context now stops every command that works in its project
   with exit 3, as `check` reports it. Before, `track`, `attest` and the
   other commands that write went on, and so did `explain` and `diff`.

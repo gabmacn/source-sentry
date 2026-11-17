@@ -1,7 +1,7 @@
-# The built-in default context, version 1. The repository config's `version`
+# The built-in default context, version 1. The project config's `version`
 # selects it.
 #
-# It applies when you choose no context and the repository config defines no
+# It applies when you choose no context and the project config defines no
 # context named `default`. Defining `default` there replaces this context
 # entirely.
 #

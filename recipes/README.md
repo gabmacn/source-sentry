@@ -18,7 +18,7 @@ are those of [cli.md](../docs/cli.md).
 > of Source Sentry pinned by version and checksum, and those pins are
 > placeholders until you replace them ([Installation](#installation)).
 
-Every recipe assumes that the repository config declares a `production`
+Every recipe assumes that the project config declares a `production`
 context, as `structure/repository-config.example.yaml` does. Without it,
 every production check fails with exit 3, because an unknown context is a
 configuration error.
@@ -414,7 +414,7 @@ the `default` context reports and `production` does not leaves the deploy
 free to run.
 
 To deploy to staging as well, add a gate with `--context staging`, declared
-in the repository config, and a deploy that needs it.
+in the project config, and a deploy that needs it.
 
 ## Installation
 
@@ -533,7 +533,7 @@ files through CODEOWNERS and branch protection:
 
 | Surface | Paths |
 |---|---|
-| The repository config, presets, remote lockfiles and their configs | `.source-sentry/` |
+| The project config, presets, remote lockfiles and their configs | `.source-sentry/` |
 | Directory configs | every `source-sentry.yaml` |
 | Lockfiles, including tombstones | every `source-sentry.lock` |
 | Sensitive documents' on-file declarations | the documents themselves, such as `docs/privacy.md` |
@@ -648,7 +648,7 @@ they come into use.
 
 ### A fixture repository
 
-Every engine needs a repository with the example repository config, whose
+Every engine needs a repository with the example project config, whose
 `production` context fails a stale `privacy` document, and documents that can
 be put in each state below. The production gate and deploy columns describe
 the push to the default branch:
