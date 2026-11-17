@@ -77,8 +77,9 @@ that version's section, so a release cannot be made without one.
   could fail outright. `diff --help` now names that directory correctly.
 - A file saved by another program while a write is being applied now fails
   the write and is kept, instead of being overwritten, even when only its
-  line endings or the text inside `$Id$` changed. A short window right
-  before the replacement remains.
+  line endings or the text inside `$Id$` changed. The same holds for a file
+  saved after the command planned its changes, for example while it waited
+  for confirmation. A short window right before the replacement remains.
 - A write that fails part-way no longer undoes a file that another program
   saved after the write had changed it. The file is kept, and the failure
   names it.
@@ -124,6 +125,8 @@ that version's section, so a release cannot be made without one.
 - In a nested project, an unknown `--context` is reported against that
   project's own config, not the enclosing repository's, and messages about
   contexts and settings name "the project's config".
+- Messages call `.source-sentry/source-sentry.yaml` a "project config", as
+  the documentation does, where they said "repository config".
 - An invalid context now stops every command that works in its project
   with exit 3, as `check` reports it. Before, `track`, `attest` and the
   other commands that write went on, and so did `explain` and `diff`.
