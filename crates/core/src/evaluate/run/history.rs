@@ -500,18 +500,15 @@ impl<H: History> Predicate<'_, '_, H> {
 	/// gives it whatever the owner lockfiles not yet read say. Those are
 	/// former sites: they can only add matches and are never authoritative,
 	/// so a condition that holds keeps holding, and a pattern whose file is
-	/// absent cannot hold at all. `None` when they must be read, which is
-	/// always the case while a rename marker is in play, since every
-	/// declaring file's markers then decide where the walk goes.
+	/// absent cannot hold at all. `None` when they must be read. An owner
+	/// lockfile never carries a rename marker, so none of them can change
+	/// where the walk goes.
 	fn settled(
 		&self,
 		evidence: &Evidence,
 		required: usize,
 		own_path_exists: bool,
 	) -> Option<bool> {
-		if self.provenance.has_links() || evidence.has_markers() {
-			return None;
-		}
 		if matches!(self.query.condition, Condition::Pattern { .. })
 			&& !own_path_exists
 		{

@@ -22,11 +22,6 @@ pub(super) struct Evidence {
 }
 
 impl Evidence {
-	/// Whether a readable declaration carried a rename marker.
-	pub(super) fn has_markers(&self) -> bool {
-		!self.markers.is_empty()
-	}
-
 	/// Keeps only a declaration's explicit path boundaries, without copying
 	/// its sources and reviews for every clock question.
 	pub(super) fn record(
@@ -107,12 +102,6 @@ impl Provenance {
 	/// Its possible declaring files.
 	pub(super) fn sites(&self) -> &[Site] {
 		&self.sites
-	}
-
-	/// Whether a rename chain is known, so that the walk may still cross to
-	/// an earlier path.
-	pub(super) fn has_links(&self) -> bool {
-		!self.links.is_empty()
 	}
 
 	/// Whether the query's original batched blob view can be used.
