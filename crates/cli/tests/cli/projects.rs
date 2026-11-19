@@ -226,6 +226,44 @@ fn cross_project_source_documents_propagate_freshness() {
 	);
 }
 
+/// A dependant's human report names the deadline of a cited document of
+/// another project that is due, as it does for one of its own project.
+#[test]
+fn a_due_document_of_another_project_is_named_with_its_deadline() {
+	let repo = nested();
+	repo
+		.run(&["track", "app/guide.md", "--source", "/code.rs", "--yes"])
+		.expect_code(0);
+	repo
+		.run(&[
+			"track",
+			"docs/guide.md",
+			"--source",
+			"/app/guide.md",
+			"--yes",
+		])
+		.expect_code(0);
+	repo
+		.run(&["attest", "docs/guide.md", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-01T10:00:00Z");
+	let own = repo.run(&["-C", "app", "check", "--at", AT]);
+	assert!(
+		own.stdout.contains("missed review by 2026-10-06"),
+		"{}",
+		own.stdout
+	);
+	let run = repo.run(&["check", "--at", AT]);
+	assert!(
+		run
+			.stdout
+			.contains("its source app/guide.md is due (review by 2026-10-06)"),
+		"{}",
+		run.stdout
+	);
+	assert!(!run.stdout.contains("waits on"), "{}", run.stdout);
+}
+
 /// Invalid nested configs report their own project and relative diagnostic file.
 #[test]
 fn diagnostics_carry_project_locations() {

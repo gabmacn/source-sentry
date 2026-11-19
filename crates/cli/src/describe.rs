@@ -305,7 +305,7 @@ pub(crate) fn changes(
 				return format!("its source {path} is not up to date");
 			}
 			let due = evaluation
-				.subjects_of(&DocumentId::Local(upstream.clone()))
+				.upstream_subjects_of(&DocumentId::Local(upstream.clone()))
 				.find(|found| found.facts.contains(&Fact::Due));
 			match due.and_then(|found| found.deadline.as_ref()) {
 				Some(deadline) => format!(

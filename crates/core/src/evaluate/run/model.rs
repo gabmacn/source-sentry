@@ -55,6 +55,11 @@ pub struct Evaluation {
 	/// Every subject: each claim of a document in inventory order, then each
 	/// unclaimed file by path, then each series by scope and name.
 	pub subjects: Vec<Subject>,
+	/// The documents of other projects that the subjects cite, with the
+	/// facts and deadlines their own projects give them, so that a
+	/// dependant's report can name an upstream's deadline. They are neither
+	/// judged nor reported.
+	pub cited: Vec<Subject>,
 	/// Every diagnostic, discovery's and evaluation's, sorted by location and
 	/// without repeats.
 	pub diagnostics: Vec<Diagnostic>,
@@ -98,6 +103,24 @@ impl Evaluation {
 				.document()
 				.is_some_and(|found| found.document == document)
 		})
+	}
+
+	/// The subjects of `document` as a source: among [`Self::subjects`], or,
+	/// for a document of another project, among [`Self::cited`].
+	pub fn upstream_subjects_of<'a>(
+		&'a self,
+		document: &DocumentId,
+	) -> impl Iterator<Item = &'a Subject> + use<'a> {
+		let document = document.clone();
+		self
+			.subjects
+			.iter()
+			.chain(&self.cited)
+			.filter(move |subject| {
+				subject
+					.document()
+					.is_some_and(|found| found.document == document)
+			})
 	}
 
 	/// The rule that `reference`, taken from `subject`'s judgement, points

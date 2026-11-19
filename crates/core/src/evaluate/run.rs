@@ -201,6 +201,7 @@ fn check_within<S: Snapshot, H: History>(
 		time_zone: configs.time_zone().clone(),
 		context: applied,
 		subjects,
+		cited: Vec::new(),
 		diagnostics,
 		summary,
 	})
@@ -353,6 +354,7 @@ pub fn unloadable(
 		},
 		context: None,
 		subjects: Vec::new(),
+		cited: Vec::new(),
 		diagnostics,
 		summary,
 	}

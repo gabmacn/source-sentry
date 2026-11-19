@@ -23,7 +23,8 @@ struct Cited {
 
 /// Evaluates one project, including the freshness of source documents in other
 /// projects. Foreign contexts are never applied, and foreign subjects are not
-/// reported.
+/// reported: they are kept apart, in [`Evaluation::cited`], for the deadlines
+/// a dependant's report names.
 ///
 /// Of another project, only the cited documents are evaluated, with the
 /// documents of that project that they cite in turn: their own sources are
@@ -102,7 +103,7 @@ pub fn check<S: Snapshot, H: History>(
 	let count = result.subjects.len();
 	result.subjects.extend(foreign);
 	propagate(&mut result.subjects, &combined);
-	result.subjects.truncate(count);
+	result.cited = result.subjects.split_off(count);
 	result
 		.diagnostics
 		.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
