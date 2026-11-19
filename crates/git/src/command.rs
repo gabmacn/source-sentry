@@ -191,6 +191,40 @@ impl Git {
 	}
 }
 
+/// Runs `git -C <start>` with `args`, before any repository is bound: git
+/// finds the repository itself, from `start` and the process's environment.
+/// It gets the same safety settings as bound commands, and no input.
+///
+/// # Errors
+///
+/// Fails with [`BackendErrorKind::GitExecutable`] when `git` cannot be
+/// started.
+pub(crate) fn unbound(
+	start: &Path,
+	args: &[&str],
+) -> Result<Finished, BackendError> {
+	let mut command = Command::new("git");
+	command
+		.arg("-C")
+		.arg(start)
+		.args(args)
+		.env("GIT_NO_LAZY_FETCH", "1")
+		.env("GIT_OPTIONAL_LOCKS", "0")
+		.env("GIT_TERMINAL_PROMPT", "0")
+		.stdin(Stdio::null());
+	for variable in PATHSPEC_VARIABLES {
+		command.env_remove(variable);
+	}
+	let output = command
+		.output()
+		.map_err(|error| spawn_failure(args, error))?;
+	Ok(Finished {
+		status: output.status,
+		stdout: output.stdout,
+		stderr: output.stderr,
+	})
+}
+
 /// Describes a `git` command that exited unsuccessfully.
 pub(crate) fn exit_failure(args: &[&str], finished: &Finished) -> BackendError {
 	let message = String::from_utf8_lossy(&finished.stderr);

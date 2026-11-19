@@ -69,8 +69,11 @@ impl Workspace {
 			));
 		}
 		let start = working.clone();
-		let repository =
-			GitRepository::open(&start).map_err(|error| Failure::backend(&error))?;
+		// Git finds the repository, from the start directory and git's
+		// environment, so that the commands printed for the user's shell
+		// reach the same one.
+		let repository = GitRepository::open_from_env(&start)
+			.map_err(|error| Failure::backend(&error))?;
 		let root_shown = repository
 			.work_dir()
 			.ok_or_else(|| {
@@ -92,9 +95,9 @@ impl Workspace {
 		let projects = project_roots(
 			&snapshot.paths().map_err(|error| Failure::backend(&error))?,
 		);
-		let relative = current.strip_prefix(&root).unwrap_or(Path::new(""));
-		let scope = RepoPath::new(&relative.to_string_lossy().replace('\\', "/"))
-			.map_err(|error| Failure::usage(error.to_string()))?;
+		// The project is selected from where git places the start directory,
+		// and from the root when it lies outside the working tree.
+		let scope = repository.prefix().cloned().unwrap_or_default();
 		Ok(Self {
 			scope,
 			projects,

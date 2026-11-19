@@ -3,7 +3,9 @@
 //! It implements the core's [`Snapshot`] and [`History`] traits for a real
 //! repository, and applies the core's write plans:
 //!
-//! - [`GitRepository::open`] finds a repository.
+//! - [`GitRepository::open_from_env`] finds the repository that `git` would
+//!   use, honouring git's environment variables, and
+//!   [`GitRepository::open`] the one that contains a path, ignoring them.
 //! - [`GitRepository::working_tree_snapshot`] and
 //!   [`GitRepository::commit_snapshot`] produce the two kinds of snapshot: the
 //!   working tree on top of `HEAD`, and a committed tree for `--rev`.
@@ -38,6 +40,7 @@
 mod attributes;
 mod canonical;
 mod command;
+mod discover;
 mod eol;
 mod error;
 mod history;

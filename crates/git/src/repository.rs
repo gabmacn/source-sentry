@@ -36,6 +36,7 @@ pub struct GitRepository {
 	algorithm: HashAlgorithm,
 	work_dir: Option<PathBuf>,
 	common_dir: PathBuf,
+	prefix: Option<RepoPath>,
 }
 
 impl std::fmt::Debug for GitRepository {
@@ -52,7 +53,9 @@ impl std::fmt::Debug for GitRepository {
 impl GitRepository {
 	/// Opens the repository that contains `path`, searching upwards from it as
 	/// git does, so that a command run from a subdirectory finds its
-	/// repository.
+	/// repository. Git's environment variables, such as `GIT_DIR`, are
+	/// ignored, so that a library caller opens exactly the repository it
+	/// names; [`GitRepository::open_from_env`] honours them.
 	///
 	/// # Errors
 	///
@@ -61,23 +64,74 @@ impl GitRepository {
 	/// it.
 	pub fn open(path: impl AsRef<Path>) -> Result<Self, BackendError> {
 		let path = path.as_ref();
-		let repository = git2::Repository::discover(path).map_err(|source| {
-			let hint = if source.message().contains("object format") {
-				"; reading SHA-256 repositories needs git2's `unstable-sha256` \
-				 feature"
-			} else {
-				""
-			};
-			caused(
-				BackendErrorKind::Git,
-				format!("cannot open a git repository at {}{hint}", path.display()),
-				source,
-			)
-		})?;
-		let format = repository.object_format();
-		let algorithm = algorithm_of_format(format)?;
+		let repository = git2::Repository::discover(path)
+			.map_err(|source| open_failure(path, source))?;
 		let work_dir = repository.workdir().map(Path::to_path_buf);
 		let common_dir = repository.commondir().to_path_buf();
+		Self::from_parts(repository, work_dir, common_dir, None)
+	}
+
+	/// Opens the repository that `git` would use for a command started in
+	/// `start`, with this process's environment, as the command line does.
+	///
+	/// Git itself is asked, so its environment variables apply as git
+	/// applies them: `GIT_DIR` and `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`
+	/// and `GIT_DISCOVERY_ACROSS_FILESYSTEM` while searching, a working tree
+	/// that `core.worktree` names, and `safe.directory` from every level of
+	/// git's configuration. A bare repository opens without a working tree,
+	/// unless `GIT_WORK_TREE` names one.
+	///
+	/// # Errors
+	///
+	/// Fails with [`BackendErrorKind::Git`] when git finds no repository or
+	/// refuses it, when `start` lies inside a git directory, when the working
+	/// tree that git reports is not a directory, and when `git2` cannot open
+	/// the same repository; with [`BackendErrorKind::GitExecutable`] when
+	/// `git` cannot run.
+	pub fn open_from_env(start: impl AsRef<Path>) -> Result<Self, BackendError> {
+		let location = crate::discover::locate(start.as_ref())?;
+		// Git applied its environment above. `git2` opens exactly the
+		// directory git reported, without reading the environment, whose
+		// handling in libgit2 differs from git's.
+		let repository = git2::Repository::open_ext(
+			&location.git_dir,
+			git2::RepositoryOpenFlags::NO_SEARCH
+				| git2::RepositoryOpenFlags::NO_DOTGIT,
+			std::iter::empty::<&std::ffi::OsStr>(),
+		)
+		.map_err(|source| open_failure(&location.git_dir, source))?;
+		same_directory(repository.path(), &location.git_dir, || {
+			format!(
+				"git2 opened the git directory {} where git uses {}",
+				repository.path().display(),
+				location.git_dir.display()
+			)
+		})?;
+		same_directory(repository.commondir(), &location.common_dir, || {
+			format!(
+				"git2 reads the common git directory {} where git uses {}",
+				repository.commondir().display(),
+				location.common_dir.display()
+			)
+		})?;
+		Self::from_parts(
+			repository,
+			location.work_dir,
+			location.common_dir,
+			location.prefix,
+		)
+	}
+
+	/// A repository that `git2` opened, with its working tree and common
+	/// directory.
+	fn from_parts(
+		repository: git2::Repository,
+		work_dir: Option<PathBuf>,
+		common_dir: PathBuf,
+		prefix: Option<RepoPath>,
+	) -> Result<Self, BackendError> {
+		let format = repository.object_format();
+		let algorithm = algorithm_of_format(format)?;
 		let git = Git::new(repository.path(), work_dir.as_deref());
 		Ok(Self {
 			repository,
@@ -86,7 +140,18 @@ impl GitRepository {
 			algorithm,
 			work_dir,
 			common_dir,
+			prefix,
 		})
+	}
+
+	/// Where the directory that [`GitRepository::open_from_env`] started in
+	/// lies in the working tree, as `git rev-parse --show-prefix` reports
+	/// it: the root itself at the top. `None` when it lies outside the
+	/// working tree, which `GIT_WORK_TREE` allows, when the repository is
+	/// bare, and for a repository opened with [`GitRepository::open`].
+	#[must_use]
+	pub fn prefix(&self) -> Option<&RepoPath> {
+		self.prefix.as_ref()
 	}
 
 	/// The algorithm of the repository's object IDs.
@@ -430,6 +495,39 @@ impl GitRepository {
 		})?;
 		let text = text.trim_end_matches(['\r', '\n']);
 		Ok((!text.is_empty()).then(|| PathBuf::from(text)))
+	}
+}
+
+/// A repository that `git2` could not open at `path`.
+fn open_failure(path: &Path, source: git2::Error) -> BackendError {
+	let hint = if source.message().contains("object format") {
+		"; reading SHA-256 repositories needs git2's `unstable-sha256` feature"
+	} else {
+		""
+	};
+	caused(
+		BackendErrorKind::Git,
+		format!("cannot open a git repository at {}{hint}", path.display()),
+		source,
+	)
+}
+
+/// Checks that `git2` and git name the same directory, comparing the
+/// directories as the filesystem resolves them, since the two spell paths
+/// differently.
+///
+/// # Errors
+///
+/// Fails with [`BackendErrorKind::Git`] and `message` when they differ or
+/// either cannot be resolved.
+fn same_directory(
+	opened: &Path,
+	reported: &Path,
+	message: impl FnOnce() -> String,
+) -> Result<(), BackendError> {
+	match (opened.canonicalize(), reported.canonicalize()) {
+		(Ok(opened), Ok(reported)) if opened == reported => Ok(()),
+		_ => Err(failure(BackendErrorKind::Git, message())),
 	}
 }
 
