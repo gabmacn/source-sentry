@@ -239,6 +239,12 @@ is retired.
 > two changes in one commit. And when an old declaration cannot be read,
 > it may only bring a deadline earlier: uncertainty never grants credit.
 
+**Commits are read as stored.** Replacement refs made with `git replace`
+are not applied, as with `git --no-replace-objects`.
+
+> **Why.** Replacement refs belong to one clone and are not fetched by
+> default. Applying them would make the result depend on the clone.
+
 All of this assumes that the history can be trusted.
 
 ## Schedules

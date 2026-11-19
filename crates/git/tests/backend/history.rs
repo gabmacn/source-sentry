@@ -357,6 +357,35 @@ fn the_commits_that_changed_a_path_are_listed_newest_first() {
 	assert_eq!((cut.commits.len(), cut.more), (2, true));
 }
 
+/// Replacement refs are not applied: the commits that changed a path are
+/// listed as stored, as the first-parent walk reads them, even when
+/// `git replace` grafts a commit onto another parent.
+#[test]
+fn replacement_refs_do_not_change_the_history_read() {
+	let (repo, ids) = three_commits();
+	repo.write("other.txt", "elsewhere\n");
+	let head = repo.commit_all("commit 4").0.hex().to_owned();
+	// Graft the head onto the first commit, hiding the second and third.
+	repo.git(&["replace", "--graft", &head, &ids[0]]);
+	assert_eq!(repo.git(&["rev-parse", "HEAD~1"]), ids[0]);
+	let repository = repo.open();
+
+	let listed = repository
+		.path_commits(&path("file.txt"), None, 10)
+		.unwrap();
+	let subjects: Vec<_> = listed
+		.commits
+		.iter()
+		.map(|commit| commit.subject.as_str())
+		.collect();
+	assert_eq!(subjects, ["commit 3", "commit 2", "commit 1"]);
+
+	let commits = walk(&repo);
+	let walked: Vec<&str> =
+		commits.iter().map(|commit| commit.id.0.hex()).collect();
+	assert_eq!(walked, [head.as_str(), &ids[2], &ids[1], &ids[0]]);
+}
+
 /// An author name may hold any character but NUL, including the control
 /// characters a log format might use as separators; it stays apart from the
 /// subject.

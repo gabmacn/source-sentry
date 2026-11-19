@@ -167,6 +167,10 @@ commit's own.
   exit 4, rather than being moved to the evaluation instant.
 - **A shallow clone** stops with exit 4 only when a clock needs history the
   clone does not have.
+- **Replacement refs** made with `git replace` are not applied: commits are
+  read as stored, as `git --no-replace-objects` reads them, so that every
+  clone gives the same result. The commits that `h` lists in `review` are
+  read the same way.
 
 A diagnostic about a document, such as a missing source, is shown under that
 document, which is then listed even when it passes. Other diagnostics follow

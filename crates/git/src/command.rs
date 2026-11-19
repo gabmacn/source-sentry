@@ -51,8 +51,9 @@ pub(crate) struct Finished {
 /// Every command gets `GIT_DIR` and, for a non-bare repository,
 /// `GIT_WORK_TREE`, so that it reads exactly the repository `git2` opened. It
 /// also sets `GIT_NO_LAZY_FETCH`, because a partial clone must never fetch
-/// during `check`, and `GIT_OPTIONAL_LOCKS=0`, so that no command
-/// refreshes the index.
+/// during `check`; `GIT_OPTIONAL_LOCKS=0`, so that no command refreshes the
+/// index; and `GIT_NO_REPLACE_OBJECTS`, so that git reads objects as stored,
+/// as `git2` does, and ignores replacement refs.
 #[derive(Clone, Debug)]
 pub(crate) struct Git {
 	git_dir: PathBuf,
@@ -87,6 +88,7 @@ impl Git {
 			.args(args)
 			.env("GIT_DIR", &self.git_dir)
 			.env("GIT_NO_LAZY_FETCH", "1")
+			.env("GIT_NO_REPLACE_OBJECTS", "1")
 			.env("GIT_OPTIONAL_LOCKS", "0")
 			.env("GIT_TERMINAL_PROMPT", "0")
 			.stdin(if input.is_some() {
