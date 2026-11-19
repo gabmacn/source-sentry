@@ -683,3 +683,18 @@ fn git_common_dir_is_followed_only_to_the_repository_s_own() {
 	run.expect_code(4);
 	assert!(run.stderr.contains("GIT_COMMON_DIR"), "{}", run.stderr);
 }
+
+/// An empty variable is left to git, which refuses it, rather than being
+/// taken as unset.
+#[test]
+fn empty_variables_are_left_to_git() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	for variable in ["GIT_DIR", "GIT_WORK_TREE"] {
+		let env = [(variable, OsStr::new(""))];
+		let git = repo.git_at(repo.path(), &["ls-files"], &env);
+		assert_ne!(git.code, 0, "{variable}: {git:?}");
+		let run = repo.run_at(repo.path(), &["check", "--at", AT], &env);
+		run.expect_code(4);
+	}
+}
