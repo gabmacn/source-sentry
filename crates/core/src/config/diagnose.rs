@@ -9,7 +9,7 @@ use serde_saphyr::{Error, MessageFormatter, UserMessageFormatter};
 
 use super::ConfigKind;
 use super::error::{ConfigError, ConfigErrorKind, Position};
-use super::parse::{WHOLE_NUMBER, position_of};
+use super::parse::{BOOLEAN, WHOLE_NUMBER, position_of};
 use super::pattern::quote;
 use crate::model::RepoPath;
 
@@ -18,9 +18,12 @@ const SPANNED_VALUE: &str = "value";
 
 /// The strict parser options. Merge keys, duplicate keys, unsupported tags and
 /// YAML 1.1 booleans are rejected; the single-document entry point rejects a
-/// second document.
+/// second document. A plain number or boolean where text belongs, such as
+/// `owners: [123]`, is rejected too, rather than read as text.
 fn options() -> serde_saphyr::Options {
-	crate::yaml::strict_options()
+	let mut options = crate::yaml::strict_options();
+	options.no_schema = true;
+	options
 }
 
 /// Deserializes `text`, the contents of `file`, strictly.
@@ -142,18 +145,19 @@ fn classify(
 				)),
 			)
 		}
-		Error::InvalidBooleanStrict { .. } => {
-			let value = token.unwrap_or_default();
-			let correction = match value.to_ascii_lowercase().as_str() {
-				"yes" | "y" | "on" | "true" => "Use `true`",
-				"no" | "n" | "off" | "false" => "Use `false`",
-				_ => "Use `true` or `false`",
-			};
-			(
-				ConfigErrorKind::NonStrictBoolean { value },
-				Some(correction.to_owned()),
-			)
+		Error::InvalidBooleanStrict { .. } => not_boolean(token),
+		Error::SerdeInvalidType { expected, .. }
+		| Error::SerdeInvalidValue { expected, .. }
+			if expected == BOOLEAN =>
+		{
+			not_boolean(token)
 		}
+		Error::QuotingRequired { value, .. } => (
+			ConfigErrorKind::NotText {
+				value: value.clone(),
+			},
+			Some(format!("Quote it: use {}", quote(value))),
+		),
 		Error::DuplicateMappingKey { key, .. } => (
 			ConfigErrorKind::DuplicateKey {
 				key: key.clone().unwrap_or_default(),
@@ -225,6 +229,26 @@ fn classify(
 			(ConfigErrorKind::Yaml { message }, correction)
 		}
 	}
+}
+
+/// A boolean was written as something else, such as `yes` or `"true"`.
+fn not_boolean(token: Option<String>) -> (ConfigErrorKind, Option<String>) {
+	let value = token.unwrap_or_default();
+	let bare = value.trim_matches(['"', '\'']);
+	let boolean = match bare.to_ascii_lowercase().as_str() {
+		"yes" | "y" | "on" | "true" => "`true`",
+		"no" | "n" | "off" | "false" => "`false`",
+		_ => "`true` or `false`",
+	};
+	let correction = if bare == value {
+		format!("Use {boolean}")
+	} else {
+		format!("Use {boolean}, without quotes")
+	};
+	(
+		ConfigErrorKind::NonStrictBoolean { value },
+		Some(correction),
+	)
 }
 
 /// Whether `ty`, a Rust type name from serde-saphyr, is an integer type.

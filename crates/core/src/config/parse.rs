@@ -19,8 +19,8 @@ use super::{SUPPORTED_VERSIONS, diagnose};
 use crate::adapters::Adapter;
 use crate::evaluate::schedule::EffectiveSchedule;
 use crate::model::{
-	ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule, Schedule,
-	VersionKind,
+	CadenceSetting, ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule,
+	Schedule, VersionKind,
 };
 
 /// The kinds of config, which differ in the settings they allow.
@@ -327,6 +327,84 @@ impl<'de> Deserialize<'de> for WholeNumber {
 	}
 }
 
+/// What the strict-boolean visitor expects. `diagnose` recognizes its errors
+/// by this text.
+pub(super) const BOOLEAN: &str = "`true` or `false`, without quotes";
+
+/// A boolean written as a YAML boolean, never as a quoted string such as
+/// `"true"`, which the parser would otherwise read as one.
+#[derive(Debug)]
+struct StrictBool(bool);
+
+impl StrictBool {
+	/// The boolean, at the position it was written at.
+	fn located(located: &Located<Self>) -> Located<bool> {
+		Located {
+			value: located.value.0,
+			position: located.position,
+		}
+	}
+}
+
+impl<'de> Deserialize<'de> for StrictBool {
+	fn deserialize<D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Self, D::Error> {
+		struct StrictBoolVisitor;
+
+		impl Visitor<'_> for StrictBoolVisitor {
+			type Value = StrictBool;
+
+			fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+				formatter.write_str(BOOLEAN)
+			}
+
+			fn visit_bool<E: de::Error>(self, value: bool) -> Result<StrictBool, E> {
+				Ok(StrictBool(value))
+			}
+		}
+
+		deserializer.deserialize_any(StrictBoolVisitor)
+	}
+}
+
+/// A schedule whose `grace` is written as a YAML integer, never as a string
+/// such as `"2"`, which the parser would otherwise read as a number.
+#[derive(Debug)]
+struct StrictSchedule(Schedule);
+
+impl StrictSchedule {
+	/// The schedule, at the position it was written at.
+	fn located(located: Located<Self>) -> Located<Schedule> {
+		Located {
+			value: located.value.0,
+			position: located.position,
+		}
+	}
+}
+
+impl<'de> Deserialize<'de> for StrictSchedule {
+	fn deserialize<D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Self, D::Error> {
+		/// The fields of [`Schedule`], with a strict `grace`.
+		#[derive(Deserialize)]
+		#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+		struct Fields {
+			#[serde(default)]
+			cadence: CadenceSetting,
+			#[serde(default)]
+			grace: Option<WholeNumber>,
+		}
+
+		let fields = Fields::deserialize(deserializer)?;
+		Ok(Self(Schedule {
+			cadence: fields.cadence,
+			grace: fields.grace.map(|grace| grace.0),
+		}))
+	}
+}
+
 /// What the strict-string visitor expects.
 const TIME_ZONE_NAME: &str = "an IANA time zone name, such as 'Europe/Madrid'";
 
@@ -367,9 +445,9 @@ struct RawFile {
 	#[serde(default)]
 	define: Field<RawDefine>,
 	#[serde(default)]
-	root: Field<bool>,
+	root: Field<StrictBool>,
 	#[serde(default)]
-	inherit: Field<bool>,
+	inherit: Field<StrictBool>,
 	#[serde(default)]
 	imports: Field<Vec<Item<String>>>,
 	#[serde(default)]
@@ -377,7 +455,7 @@ struct RawFile {
 	#[serde(default)]
 	owners: Field<Vec<Item<String>>>,
 	#[serde(default)]
-	schedule: Field<Schedule>,
+	schedule: Field<StrictSchedule>,
 	#[serde(default)]
 	documents: Field<RawDocuments>,
 	#[serde(default)]
@@ -441,7 +519,7 @@ struct RawSeries {
 	#[serde(default)]
 	lifecycle: Field<Lifecycle>,
 	#[serde(default)]
-	schedule: Field<Schedule>,
+	schedule: Field<StrictSchedule>,
 }
 
 /// Turns raw shapes into checked settings, collecting every error.
@@ -533,8 +611,11 @@ impl Converter<'_> {
 		let define = self
 			.top(raw.define, "define")
 			.map(|define| self.define(define));
-		let root = self.top(raw.root, "root");
-		let inherit = self.top(raw.inherit, "inherit");
+		let root = self.top(raw.root, "root").as_ref().map(StrictBool::located);
+		let inherit = self
+			.top(raw.inherit, "inherit")
+			.as_ref()
+			.map(StrictBool::located);
 		let imports = self.top(raw.imports, "imports");
 		let imports =
 			imports.map_or_else(Vec::new, |imports| self.imports(imports.value));
@@ -542,7 +623,9 @@ impl Converter<'_> {
 		let classes = classes.map(|classes| self.classes(classes));
 		let owners = self.top(raw.owners, "owners");
 		let owners = owners.map(|owners| self.owners(owners));
-		let schedule = self.top(raw.schedule, "schedule");
+		let schedule = self
+			.top(raw.schedule, "schedule")
+			.map(StrictSchedule::located);
 		if let Some(schedule) = &schedule {
 			self.schedule(&schedule.value, "schedule", schedule.position);
 		}
@@ -931,6 +1014,7 @@ impl Converter<'_> {
 			);
 			let schedule = self
 				.value(raw.value.schedule, &format!("{setting}.schedule"))
+				.map(StrictSchedule::located)
 				.map(|schedule| {
 					self.schedule(
 						&schedule.value,

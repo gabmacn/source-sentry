@@ -609,8 +609,10 @@ tracks is `unclaimed`. By default the eligible files are `.md`, `.txt` and
 ## Configuration
 
 **Configuration is strict YAML.** Unknown keys, duplicate keys, several
-documents in one file, merge keys, unsupported tags and the old booleans
-such as `yes` and `no` are errors, each naming the file, the setting and
+documents in one file, merge keys, unsupported tags, the old booleans
+such as `yes` and `no`, a bare number or boolean where text belongs, such
+as `owners: [123]`, and a quoted one where a number or boolean belongs,
+such as `grace: '2'`, are errors, each naming the file, the setting and
 the correction.
 
 > **Why.** YAML was chosen to match frontmatter, and its loose corners are

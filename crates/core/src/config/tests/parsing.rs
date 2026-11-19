@@ -275,6 +275,99 @@ fn yaml_1_1_booleans_are_rejected() {
 }
 
 #[test]
+fn a_plain_number_or_boolean_is_not_text() {
+	for (written, value, setting) in [
+		("owners: [123]\n", "123", "owners[0]"),
+		("owners: [true]\n", "true", "owners[0]"),
+		(
+			"documents:\n  include: [123]\n",
+			"123",
+			"documents.include[0]",
+		),
+		("classes: [12]\n", "12", "classes[0]"),
+		("imports: [2024]\n", "2024", "imports[0]"),
+	] {
+		let error = directory_error(written);
+		assert_eq!(
+			error.kind,
+			ConfigErrorKind::NotText {
+				value: value.to_owned()
+			},
+			"{written}"
+		);
+		assert_eq!(error.setting.as_deref(), Some(setting), "{written}");
+		assert_eq!(
+			error.correction,
+			Some(format!("Quote it: use '{value}'")),
+			"{written}"
+		);
+	}
+	let key = directory_error(
+		"series:\n  2024:\n    pattern: 'v(?P<version>[0-9]+)[.]md'\n    \
+		 version-kind: integer\n    lifecycle: records-only\n",
+	);
+	assert_eq!(
+		key.kind,
+		ConfigErrorKind::NotText {
+			value: "2024".to_owned()
+		}
+	);
+	load(&[
+		(REPOSITORY, BASE),
+		("docs/source-sentry.yaml", "owners: ['123', 'true']\n"),
+	]);
+}
+
+#[test]
+fn a_quoted_number_or_boolean_is_not_one() {
+	for written in ["schedule:\n  grace: '2'\n", "schedule:\n  grace: \"2\"\n"] {
+		let error = directory_error(written);
+		assert!(
+			matches!(&error.kind, ConfigErrorKind::NotWholeNumber { .. }),
+			"{written}: {error:#?}"
+		);
+		assert_eq!(error.setting.as_deref(), Some("schedule.grace"));
+	}
+	let series = directory_error(
+		"series:\n  audit:\n    pattern: 'v(?P<version>[0-9]+)[.]md'\n    \
+		 version-kind: integer\n    lifecycle: records-only\n    schedule:\n      \
+		 grace: '2'\n",
+	);
+	assert!(
+		matches!(&series.kind, ConfigErrorKind::NotWholeNumber { .. }),
+		"{series:#?}"
+	);
+	assert_eq!(
+		series.setting.as_deref(),
+		Some("series.audit.schedule.grace")
+	);
+	let root = directory_error("root: 'true'\n");
+	assert_eq!(
+		root.kind,
+		ConfigErrorKind::NonStrictBoolean {
+			value: "'true'".to_owned()
+		}
+	);
+	assert_eq!(root.setting.as_deref(), Some("root"));
+	assert_eq!(
+		root.correction.as_deref(),
+		Some("Use `true`, without quotes")
+	);
+	let inherit = directory_error("inherit: \"false\"\n");
+	assert_eq!(
+		inherit.correction.as_deref(),
+		Some("Use `false`, without quotes")
+	);
+	load(&[
+		(REPOSITORY, BASE),
+		(
+			"docs/source-sentry.yaml",
+			"root: true\nschedule:\n  grace: 2\n",
+		),
+	]);
+}
+
+#[test]
 fn a_version_is_a_whole_number() {
 	for written in ["1.10", "'1'", "-1"] {
 		let error = only_error(&[(REPOSITORY, &format!("version: {written}\n"))]);

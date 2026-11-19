@@ -163,6 +163,12 @@ pub enum ConfigErrorKind {
 		/// The value as written.
 		value: String,
 	},
+	/// A plain number or boolean, such as `123`, where text belongs.
+	#[error("YAML reads `{value}` as a number or a boolean, not as text")]
+	NotText {
+		/// The value as written.
+		value: String,
+	},
 	/// A float, string or negative number where a whole number belongs.
 	#[error("`{value}` is not a whole number")]
 	NotWholeNumber {
