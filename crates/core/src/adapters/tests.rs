@@ -71,6 +71,62 @@ fn rename_provenance_requires_canonical_rooted_document_paths() {
 	}
 }
 
+/// A recorder, reviewer or sealer is a name or `null`; a missing `by` is
+/// malformed in either adapter rather than read as nobody.
+#[test]
+fn every_by_must_be_written() {
+	use crate::adapters::lockfile::LocalLockfile;
+	let at = "2026-01-01T00:00:00Z";
+	let oid = "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709";
+	let cases = [
+		(
+			"renamed[0]",
+			serde_json::json!({"renamed": [{"from": "/old.md", "at": at}]}),
+			format!("  renamed:\n    - from: '/old.md'\n      at: {at}\n"),
+		),
+		(
+			"reviewed",
+			serde_json::json!({"reviewed": {"at": at}}),
+			format!("  reviewed:\n    at: {at}\n"),
+		),
+		(
+			"sources[0].reviewed",
+			serde_json::json!({"sources": [{"path": "a.rs", "oid": oid, "reviewed": {"at": at}}]}),
+			format!(
+				"  sources:\n    - path: a.rs\n      oid: '{oid}'\n      reviewed:\n        at: {at}\n"
+			),
+		),
+		(
+			"completed",
+			serde_json::json!({"completed": {"at": at}}),
+			format!("  completed:\n    at: {at}\n"),
+		),
+	];
+	for (field, declaration, yaml) in cases {
+		let bytes = serde_json::to_vec(&serde_json::json!({"schema": 1, "retired": {}, "documents": {"new.md": declaration}})).unwrap();
+		let error = LocalLockfile::parse(&RepoPath::ROOT, &bytes).unwrap_err();
+		let message = error.to_string();
+		assert!(message.contains(field), "{field}: {message}");
+		assert!(message.contains("missing field `by`"), "{field}: {message}");
+		let text = format!("---\nsource-sentry:\n{yaml}---\n");
+		let error =
+			frontmatter::read(&path("new.md"), text.as_bytes()).unwrap_err();
+		let message = error.to_string();
+		assert!(message.contains("missing field `by`"), "{field}: {message}");
+	}
+	let seal = serde_json::json!({"seal": {"at": at, "oid": oid}});
+	let bytes = serde_json::to_vec(&serde_json::json!({"schema": 1, "retired": {}, "documents": {"new.md": seal}})).unwrap();
+	let error = LocalLockfile::parse(&RepoPath::ROOT, &bytes).unwrap_err();
+	assert!(error.to_string().contains("missing field `by`"), "{error}");
+	let retired = serde_json::json!({"new.md": [{"retired": {"at": at}}]});
+	let bytes = serde_json::to_vec(
+		&serde_json::json!({"schema": 1, "retired": retired, "documents": {}}),
+	)
+	.unwrap();
+	let error = LocalLockfile::parse(&RepoPath::ROOT, &bytes).unwrap_err();
+	assert!(error.to_string().contains("missing field `by`"), "{error}");
+}
+
 #[test]
 fn adapters_use_the_config_spelling() {
 	for (adapter, name) in

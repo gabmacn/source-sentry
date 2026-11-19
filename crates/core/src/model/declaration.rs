@@ -20,6 +20,7 @@ pub struct Review {
 	pub at: Timestamp,
 	/// The reviewer's name, or `None` when nobody could be identified. It is
 	/// written as `null`, never omitted.
+	#[serde(deserialize_with = "required")]
 	pub by: Option<String>,
 }
 
@@ -30,11 +31,24 @@ pub struct Review {
 pub struct Rename {
 	/// When the rename was recorded, in UTC to the second.
 	pub at: Timestamp,
-	/// Who recorded it, or `None` when nobody could be identified.
+	/// Who recorded it, or `None` when nobody could be identified. Written as
+	/// `null`, never omitted.
+	#[serde(deserialize_with = "required")]
 	pub by: Option<String>,
 	/// The former document path: `/` starts at the declaration's project
 	/// root, and `:/` starts at the repository root.
 	pub from: String,
+}
+
+/// Reads an optional value whose key must still be present: serde treats a
+/// missing `Option` field as `None` unless it has its own deserializer, and a
+/// `by` that is absent is malformed rather than unknown.
+fn required<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+	T: Deserialize<'de>,
+{
+	Option::deserialize(deserializer)
 }
 
 impl Review {
@@ -66,7 +80,9 @@ pub fn whole_second(at: Timestamp) -> Timestamp {
 pub struct Seal {
 	/// When the record was sealed.
 	pub at: Timestamp,
-	/// Who sealed it, or `None` when nobody could be identified.
+	/// Who sealed it, or `None` when nobody could be identified. Written as
+	/// `null`, never omitted.
+	#[serde(deserialize_with = "required")]
 	pub by: Option<String>,
 	/// The record's canonical blob oid at sealing.
 	pub oid: ObjectId,
