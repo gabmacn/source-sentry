@@ -14,8 +14,9 @@ use crate::workspace::{Workspace, load};
 ///
 /// # Errors
 ///
-/// Exit 3 for a lockfile whose schema cannot be read or is unknown, and the
-/// refusals of confirmation; see [`crate::exit`].
+/// Exit 3 for a lockfile whose schema cannot be read or is unknown, or that
+/// is invalid at the current schema, and the refusals of confirmation; see
+/// [`crate::exit`].
 pub(super) fn run(
 	workspace: &Workspace,
 	args: &MigrateArgs,

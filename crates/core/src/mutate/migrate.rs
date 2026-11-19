@@ -1,17 +1,19 @@
 //! Schema migration of lockfiles.
 //!
 //! Lockfile schema 1 is the only schema so far, so nothing migrates yet. The
-//! framework is in place: `migrate` reads every lockfile's `schema` without
-//! interpreting anything else, reports it, plans nothing when every lockfile
-//! is current, and refuses a schema it does not know. When schema 2 exists,
-//! a lockfile at schema 1 is rewritten in [`migrate`], and its result is
+//! framework is in place: `migrate` reads every lockfile's `schema` before
+//! interpreting anything else, refuses a schema it does not know, validates
+//! a current lockfile as the adapters read it, reports every schema, and
+//! plans nothing when every lockfile is current. When schema 2 exists, a
+//! lockfile at schema 1 is rewritten in [`migrate`], and its result is
 //! validated by the adapters like every other plan.
 
 use serde_json::Value;
 
 use super::{MutateError, Planned};
-use crate::adapters::lockfile::SCHEMA;
-use crate::claims::Inventory;
+use crate::adapters::lockfile::{LocalLockfile, RemoteLockfile, SCHEMA};
+use crate::claims::{Inventory, LockfileKind};
+use crate::config::project_of;
 use crate::model::RepoPath;
 use crate::ports::{Snapshot, WritePlan};
 
@@ -33,16 +35,18 @@ pub struct LockfileSchema {
 	pub schema: u64,
 }
 
-/// Reports the schema of every lockfile in `inventory`, including those that
-/// failed to parse, and plans their migration to the current schema. Every
-/// lockfile is current today, so the plan is empty.
+/// Reports the schema of every lockfile in `inventory` and plans their
+/// migration to the current schema. A lockfile that failed to parse is
+/// refused rather than reported current. Every lockfile is current today, so
+/// the plan is empty.
 ///
 /// # Errors
 ///
 /// Refuses a lockfile that is not JSON or has no whole-number `schema`
-/// ([`MutateError::UnreadableSchema`]), and a schema that this version
-/// cannot migrate ([`MutateError::UnknownSchema`]). Fails when the backend
-/// cannot read a lockfile.
+/// ([`MutateError::UnreadableSchema`]), a schema that this version cannot
+/// migrate ([`MutateError::UnknownSchema`]), and a current lockfile that
+/// the adapters refuse ([`MutateError::InvalidLockfile`]). Fails when the
+/// backend cannot read a lockfile.
 pub fn migrate<S: Snapshot>(
 	snapshot: &S,
 	inventory: &Inventory,
@@ -61,6 +65,19 @@ pub fn migrate<S: Snapshot>(
 				current: SCHEMA,
 			});
 		}
+		let project = project_of(&inventory.projects, &lockfile.path);
+		let parsed = match &lockfile.kind {
+			LockfileKind::Local { directory } => {
+				LocalLockfile::parse_in_project(&project, directory, &bytes).map(drop)
+			}
+			LockfileKind::Remote { .. } => {
+				RemoteLockfile::parse_in_project(&project, &bytes).map(drop)
+			}
+		};
+		parsed.map_err(|error| MutateError::InvalidLockfile {
+			path: lockfile.path.clone(),
+			error,
+		})?;
 		lockfiles.push(LockfileSchema {
 			path: lockfile.path.clone(),
 			schema,

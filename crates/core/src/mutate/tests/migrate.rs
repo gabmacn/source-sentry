@@ -46,6 +46,27 @@ fn an_unknown_schema_is_refused() {
 }
 
 #[test]
+fn an_invalid_current_lockfile_is_refused() {
+	for (path, text) in [
+		(
+			"docs/source-sentry.lock",
+			r#"{"documents": "invalid", "schema": 1}"#,
+		),
+		(
+			".source-sentry/remotes/legal.lock",
+			r#"{"documents": {}, "retired": {}, "schema": 1, "extra": true}"#,
+		),
+	] {
+		let tree = Tree::new(&[(REPOSITORY, BASE), (path, text)]);
+		let error = migrate(&tree.snapshot, &tree.inventory).unwrap_err();
+		assert!(
+			matches!(&error, MutateError::InvalidLockfile { path: found, .. } if found.as_str() == path),
+			"{path}: {error:?}"
+		);
+	}
+}
+
+#[test]
 fn an_unreadable_schema_is_refused() {
 	let tree = Tree::new(&[(REPOSITORY, BASE), ("docs/source-sentry.lock", "{")]);
 	let error = migrate(&tree.snapshot, &tree.inventory).unwrap_err();

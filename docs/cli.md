@@ -722,7 +722,7 @@ source-sentry migrate [--dry-run] [--yes]
   copied declaration. The plan shows each predecessor and what is copied.
 - **`migrate`** upgrades lockfiles to the current schema. Schema 1 is the
   only one so far, so it confirms that every lockfile is current, and refuses
-  a schema it does not know.
+  a schema it does not know and a schema 1 lockfile that is invalid.
 
 ## Shell completions
 
