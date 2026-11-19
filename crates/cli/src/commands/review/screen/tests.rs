@@ -585,6 +585,30 @@ fn shortcuts_the_screen_does_not_have_are_ignored() {
 	);
 }
 
+/// A terminal that cannot be fully taken over is handed back at once, so
+/// that a failure to read the mouse does not leave it on the alternate
+/// screen with every key read as it is pressed.
+#[test]
+fn a_terminal_taken_over_in_part_is_handed_back() {
+	use std::cell::Cell;
+	use std::io;
+
+	let broken = || Err(io::Error::other("broken"));
+	let restored = Cell::new(0);
+	let restore = || restored.set(restored.get() + 1);
+
+	let failure = super::taken(|| Ok(()), broken, restore).unwrap_err();
+	assert_eq!(failure.message, "cannot read the mouse: broken");
+	assert_eq!(restored.get(), 1);
+
+	let failure = super::taken(broken, || Ok(()), restore).unwrap_err();
+	assert_eq!(failure.message, "cannot take over the terminal: broken");
+	assert_eq!(restored.get(), 2);
+
+	assert!(super::taken(|| Ok(()), || Ok(()), restore).is_ok());
+	assert_eq!(restored.get(), 2);
+}
+
 /// The wheel passes over documents in the sidebar without seeing them; a
 /// document it brings counts as seen once the reviewer acts while it is
 /// shown.

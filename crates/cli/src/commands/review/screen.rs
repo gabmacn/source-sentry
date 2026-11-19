@@ -80,11 +80,32 @@ fn review(app: &mut App, quiet: bool) -> Result<(), Failure> {
 /// Takes the terminal over: the alternate screen, every key as it is
 /// pressed, and the mouse for its wheel, its clicks and its position.
 fn take_over() -> Result<DefaultTerminal, Failure> {
-	let terminal = ratatui::try_init()
-		.map_err(|error| failed("cannot take over the terminal", &error))?;
-	execute!(io::stdout(), EnableMouseCapture)
-		.map_err(|error| failed("cannot read the mouse", &error))?;
-	Ok(terminal)
+	taken(
+		ratatui::try_init,
+		|| execute!(io::stdout(), EnableMouseCapture),
+		hand_back,
+	)
+}
+
+/// Takes the terminal over with `screen`, then `mouse`. When either fails,
+/// what was already taken is handed back with `restore`, so that the
+/// terminal is left as it was.
+fn taken<T>(
+	screen: impl FnOnce() -> io::Result<T>,
+	mouse: impl FnOnce() -> io::Result<()>,
+	restore: impl FnOnce(),
+) -> Result<T, Failure> {
+	let result = screen()
+		.map_err(|error| failed("cannot take over the terminal", &error))
+		.and_then(|terminal| {
+			mouse()
+				.map(|()| terminal)
+				.map_err(|error| failed("cannot read the mouse", &error))
+		});
+	if result.is_err() {
+		restore();
+	}
+	result
 }
 
 /// Hands the terminal back as it was.
