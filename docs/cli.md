@@ -339,7 +339,11 @@ starts, and any document may be opened at any time.
 
 A letter typed with `Ctrl` or `Alt` does nothing, apart from `Ctrl+C`, so
 that a shortcut meant for another program is not taken for the letter.
-`Ctrl` and `Alt` together still type, as AltGr does on Windows.
+`Ctrl` and `Alt` together still type, as AltGr does on Windows. Any
+other key that the screen does not use, such as `F1`, `Home`, `End`,
+`Insert` or `Delete`, withdraws a held answer and does nothing else: an
+open box stays open. `Shift`, `Ctrl`, `Alt` and the lock keys pressed alone
+are not keys in this sense.
 
 The arrow keys and Tab move in the list that has the focus. It starts in the
 sidebar, where the row under the cursor is marked in a strong blue. From a
@@ -452,7 +456,8 @@ since: the refusal names the file, and nothing is restored.
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been seen. `y` records the due ones; `i` includes the
 documents not due yet, which the list tags. The arrow keys, `PgUp`, `PgDn`
-and the wheel scroll the list; any other key goes back. A source that changes during the batch stops it, and a
+and the wheel scroll the list; any other key that the screen uses goes
+back. A source that changes during the batch stops it, and a
 document that cannot be compared is left out. A document counts as seen
 once the cursor stops on it: moved there by a key or a click, or acted on
 while it is shown. The wheel over the sidebar passes over documents

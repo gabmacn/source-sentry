@@ -587,6 +587,71 @@ fn shortcuts_the_screen_does_not_have_are_ignored() {
 	);
 }
 
+/// A key the screen does not use, such as F1, Home or Delete, withdraws a
+/// held answer, so that a later Enter records nothing, and does nothing
+/// else: a notice and an open box stay. A letter typed with Control or Alt
+/// still does nothing at all, and a modifier pressed alone is no key.
+#[test]
+fn a_key_the_screen_does_not_use_withdraws_a_held_answer() {
+	use ratatui::crossterm::event::{
+		KeyCode, KeyEvent, KeyModifiers, ModifierKeyCode,
+	};
+	let key = |code, modifiers| super::translate(KeyEvent::new(code, modifiers));
+	for code in [
+		KeyCode::F(1),
+		KeyCode::Home,
+		KeyCode::End,
+		KeyCode::Insert,
+		KeyCode::Delete,
+		KeyCode::Null,
+	] {
+		assert_eq!(key(code, KeyModifiers::NONE), Some(Key::Other), "{code:?}");
+	}
+	assert_eq!(key(KeyCode::F(5), KeyModifiers::CONTROL), Some(Key::Other));
+	assert_eq!(key(KeyCode::Char('1'), KeyModifiers::ALT), Some(Key::Other));
+	assert_eq!(key(KeyCode::Char('y'), KeyModifiers::CONTROL), None);
+	assert_eq!(
+		key(
+			KeyCode::Modifier(ModifierKeyCode::LeftShift),
+			KeyModifiers::SHIFT
+		),
+		None
+	);
+	assert_eq!(key(KeyCode::CapsLock, KeyModifiers::NONE), None);
+
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let reviewed =
+		|repo: &Repo| !repo.entry("docs/a.md")["sources"][0]["reviewed"].is_null();
+	press(&mut app, &[Key::Char('u')]);
+	let notice = app.notice.clone();
+	assert!(notice.is_some());
+	press(&mut app, &[Key::Char('y'), Key::Other]);
+	assert_eq!(app.armed, None);
+	press(&mut app, &[Key::Enter]);
+	assert!(
+		!reviewed(&repo),
+		"Enter after the withdrawal records nothing"
+	);
+
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('u'), Key::Other]);
+	assert_eq!(app.notice, notice);
+	press(&mut app, &[Key::Char('y'), Key::Other]);
+	assert_eq!(
+		(app.armed, app.cursor, app.focus),
+		(None, Cursor::Open(0), Focus::Sidebar)
+	);
+	for opens in [Key::Char('?'), Key::Char('a')] {
+		press(&mut app, &[opens, Key::Other]);
+		assert!(app.overlay.is_some(), "{opens:?}");
+		press(&mut app, &[Key::Escape]);
+	}
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert!(reviewed(&repo));
+}
+
 /// Behind the warning of a window too small for the layout, only quitting
 /// acts: Enter records nothing, no key opens or closes a box, and neither
 /// the wheel nor a click moves anything. A held answer and an open box wait

@@ -60,6 +60,9 @@ pub(super) enum Key {
 	Extend(bool),
 	/// The mouse wheel, turned down when `true`, over a part of the screen.
 	Wheel(bool, Area),
+	/// A key the screen does not use, such as a function key, Home or
+	/// Delete. It withdraws a held answer, and does nothing else.
+	Other,
 }
 
 /// The part of the screen the pointer is over.
@@ -1525,13 +1528,18 @@ impl<'a> App<'a> {
 	/// What a key does before the screen's own keys see it, or `None` to
 	/// leave it to them. Behind the warning of a window too small, only
 	/// quitting acts: a held answer, a box and everything else wait as they
-	/// were, unseen, for the window to grow again.
-	fn screened(&self, key: Key) -> Option<Flow> {
+	/// were, unseen, for the window to grow again. A key the screen does not
+	/// use withdraws a held answer, and does nothing else.
+	fn screened(&mut self, key: Key) -> Option<Flow> {
 		if !self.fits.get() {
 			return Some(match key {
 				Key::Interrupt | Key::Char('q' | 'Q') => Flow::Quit,
 				_ => Flow::Stay,
 			});
+		}
+		if key == Key::Other {
+			self.armed = None;
+			return Some(Flow::Stay);
 		}
 		None
 	}

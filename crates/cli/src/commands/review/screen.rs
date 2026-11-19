@@ -231,10 +231,12 @@ fn draw(terminal: &mut DefaultTerminal, app: &mut App) -> Result<(), Failure> {
 }
 
 /// The key of a press. Windows also reports releases, which are ignored.
-/// A character typed with Control or Alt is a shortcut the screen does not
+/// A letter typed with Control or Alt is a shortcut the screen does not
 /// have, except Control and C, so it is ignored rather than taken for the
 /// plain letter. Control and Alt together are kept: Windows reports `AltGr`
-/// that way, and some keyboards type characters such as `@` with it.
+/// that way, and some keyboards type characters such as `@` with it. Any
+/// other key the screen does not use is [`Key::Other`], which withdraws a
+/// held answer; a modifier or a lock key pressed alone is no key at all.
 fn translate(pressed: KeyEvent) -> Option<Key> {
 	if pressed.kind == KeyEventKind::Release {
 		return None;
@@ -250,6 +252,7 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 		{
 			Key::Char(character)
 		}
+		KeyCode::Char(character) if character.is_alphabetic() => return None,
 		KeyCode::Up if pressed.modifiers.contains(KeyModifiers::SHIFT) => {
 			Key::Extend(false)
 		}
@@ -270,7 +273,11 @@ fn translate(pressed: KeyEvent) -> Option<Key> {
 		KeyCode::PageUp => Key::PageUp,
 		KeyCode::PageDown => Key::PageDown,
 		KeyCode::Backspace => Key::Backspace,
-		_ => return None,
+		KeyCode::Modifier(_)
+		| KeyCode::CapsLock
+		| KeyCode::NumLock
+		| KeyCode::ScrollLock => return None,
+		_ => Key::Other,
 	})
 }
 
