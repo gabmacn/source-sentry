@@ -1340,6 +1340,12 @@ impl<'a> App<'a> {
 				));
 				return Ok(());
 			}
+			Undone::Interleaved(path) => {
+				self.notice = Some(format!(
+					"Another program changed {path} while that answer was being written, so the answer was not taken back."
+				));
+				return Ok(());
+			}
 			Undone::Withdrawn(reviews) => {
 				for (id, _) in &reviews {
 					self.cache.remove(id);

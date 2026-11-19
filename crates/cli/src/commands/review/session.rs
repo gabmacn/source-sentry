@@ -51,9 +51,12 @@ pub(super) struct Step {
 	/// sources alone.
 	pub(super) sources: Option<usize>,
 	/// Each file it wrote, with the contents before the answer and after it.
-	/// A file the answer created has nothing before, and cannot be restored;
-	/// nor can one that another program changed between two of its writes.
+	/// A file the answer created has nothing before, and cannot be restored.
 	files: BTreeMap<RepoPath, (Option<Vec<u8>>, Vec<u8>)>,
+	/// The files another program changed between two of its writes, for an
+	/// answer given to several documents at once: restoring them would erase
+	/// that change, so the answer cannot be taken back.
+	interleaved: BTreeSet<RepoPath>,
 }
 
 /// What an attempt to take back the newest answer did.
@@ -64,6 +67,9 @@ pub(super) enum Undone {
 	Withdrawn(Vec<(DocumentId, bool)>),
 	/// This file is no longer as the answer left it, so nothing was restored.
 	Changed(String),
+	/// Another program changed this file while the answer was being written,
+	/// between two of its writes, so nothing was restored.
+	Interleaved(String),
 }
 
 /// What identifies a comparison the reviewer was shown: each file's
@@ -458,6 +464,7 @@ impl<'a> Session<'a> {
 				Selection::Declared(specs) => Some(specs.len()),
 			},
 			files,
+			interleaved: BTreeSet::new(),
 		});
 		self.finished += 1;
 		Ok(Written::Recorded(reread))
@@ -489,7 +496,7 @@ impl<'a> Session<'a> {
 				match first.files.get_mut(&path) {
 					Some(held) => {
 						if before.as_ref() != Some(&held.1) {
-							held.0 = None;
+							first.interleaved.insert(path.clone());
 						}
 						held.1 = after;
 					}
@@ -514,6 +521,9 @@ impl<'a> Session<'a> {
 		let Some(step) = self.steps.last() else {
 			return Ok(Undone::Nothing);
 		};
+		if let Some(path) = step.interleaved.first() {
+			return Ok(Undone::Interleaved(self.workspace.display_path(path)));
+		}
 		let snapshot = self
 			.workspace
 			.repository

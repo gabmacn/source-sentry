@@ -451,7 +451,10 @@ picked rows, is one answer and is taken back whole. Answers are taken back
 in order, the newest first, and only within the session that recorded
 them; afterwards a review is an ordinary change of the lockfile, which git
 can restore. An answer is not taken back when a file it wrote has changed
-since: the refusal names the file, and nothing is restored.
+since: the refusal names the file, and nothing is restored. Nor is an
+answer given to several documents at once when another program changed one
+of its files between two of its writes, since restoring the file would
+erase that change; the refusal says so and names the file.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been seen. `y` records the due ones; `i` includes the

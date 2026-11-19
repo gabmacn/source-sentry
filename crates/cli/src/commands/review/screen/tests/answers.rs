@@ -408,8 +408,8 @@ fn a_reviewer_name_is_checked_before_it_is_remembered() {
 /// An answer given to several documents writes their lockfile once for
 /// each. Another program that changes the lockfile between two of those
 /// writes leaves the batch unable to restore it: taking the batch back would
-/// erase that change too, so the answer is kept and the refusal names the
-/// file.
+/// erase that change too, so the answer is kept and the refusal says so,
+/// naming the file.
 #[test]
 fn a_change_between_the_writes_of_a_batch_refuses_taking_it_back() {
 	use super::super::super::session::Undone;
@@ -433,8 +433,8 @@ fn a_change_between_the_writes_of_a_batch_refuses_taking_it_back() {
 	assert_eq!(app.session.steps().len(), 1);
 	let after = repo.read("source-sentry.lock");
 
-	let Undone::Changed(path) = app.session.undo().unwrap() else {
-		panic!("the batch was taken back");
+	let Undone::Interleaved(path) = app.session.undo().unwrap() else {
+		panic!("the batch was taken back, or refused as changed since");
 	};
 	assert_eq!(path, "source-sentry.lock");
 	assert_eq!(repo.read("source-sentry.lock"), after);
