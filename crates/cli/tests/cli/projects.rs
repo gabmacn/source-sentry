@@ -321,6 +321,43 @@ fn an_unknown_context_points_at_the_nested_projects_config() {
 	);
 }
 
+/// A context that only one project declares stops judgement in the other
+/// alone: `explain` shows the error, and exits 3, only for a subject of the
+/// project that lacks it.
+#[test]
+fn explain_shows_an_unknown_context_only_in_the_project_that_lacks_it() {
+	let repo = nested();
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1
+schedule: {grace: 5}
+define:
+  contexts:
+    strict:
+      fallback: fail
+",
+	);
+	repo.write("docs/root.md", "# Root\n");
+	repo.git(&["add", "."]);
+
+	let nested =
+		repo.run(&["explain", "app/guide.md", "--at", AT, "--context", "strict"]);
+	nested.expect_code(0);
+	assert!(!nested.stdout.contains("Diagnostics"), "{}", nested.stdout);
+	assert!(!nested.stdout.contains("not judged"), "{}", nested.stdout);
+
+	let root =
+		repo.run(&["explain", "docs/root.md", "--at", AT, "--context", "strict"]);
+	root.expect_code(3);
+	assert!(
+		root
+			.stdout
+			.contains("context `strict` is not declared in the project's config"),
+		"{}",
+		root.stdout
+	);
+}
+
 /// Messages about a nested project's contexts and settings name the
 /// project's config, where its contexts and project-wide settings are
 /// written.

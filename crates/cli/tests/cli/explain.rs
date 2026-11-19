@@ -95,3 +95,53 @@ fn explain_shows_and_exits_with_a_clock_that_cannot_be_dated() {
 	assert!(run.stdout.contains("Diagnostics"), "{}", run.stdout);
 	assert!(run.stdout.contains("future-dated"), "{}", run.stdout);
 }
+
+/// A context the project does not declare stops every subject in it being
+/// judged: `explain` shows that error under a document, an unclaimed file
+/// and a series, and exits 3 as `check` does.
+#[test]
+fn explain_shows_and_exits_with_an_unknown_context() {
+	let repo = TestRepo::init();
+	repo.write(
+		".source-sentry/source-sentry.yaml",
+		r"version: 1
+series:
+  versions:
+    pattern: 'docs/v(?P<version>\d+)\.md'
+    version-kind: integer
+    lifecycle: records-only
+",
+	);
+	repo.write("docs/v1.md", "# Version\n");
+	repo.reviewed_guide();
+	repo.write("docs/new-page.md", "# New\n");
+	repo.git(&["add", "docs/new-page.md"]);
+	repo
+		.run(&["check", "--at", AT, "--context", "prodution"])
+		.expect_code(3);
+	let subjects = ["docs/guide.md", "docs/new-page.md", "versions"];
+
+	for subject in subjects {
+		let run =
+			repo.run(&["explain", subject, "--at", AT, "--context", "prodution"]);
+		run.expect_code(3);
+		let text = &run.stdout;
+		let (_, diagnostics) = text
+			.split_once("\nDiagnostics\n")
+			.unwrap_or_else(|| panic!("no diagnostics for {subject} in:\n{text}"));
+		assert!(
+			diagnostics.contains(
+				"unknown-context  .source-sentry/source-sentry.yaml \
+				 `define.contexts`  context `prodution` is not declared"
+			),
+			"{subject}:\n{text}"
+		);
+	}
+
+	// Under the default context, the same subjects carry no diagnostics.
+	for subject in subjects {
+		let run = repo.run(&["explain", subject, "--at", AT]);
+		run.expect_code(0);
+		assert!(!run.stdout.contains("Diagnostics"), "{}", run.stdout);
+	}
+}

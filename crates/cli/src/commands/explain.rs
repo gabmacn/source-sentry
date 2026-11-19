@@ -4,7 +4,7 @@
 
 use std::fmt::Write as _;
 
-use source_sentry_core::claims::{Diagnostic, Mode, Severity};
+use source_sentry_core::claims::{Diagnostic, DiagnosticKind, Mode, Severity};
 use source_sentry_core::evaluate::{
 	CompletionState, DocumentState, DocumentSubject, Evaluation, LiveDocument,
 	RecordCheck, RecordState, SeriesSubject, SourceState, Subject, SubjectKind,
@@ -65,22 +65,38 @@ pub(super) fn run(
 	Ok(code)
 }
 
-/// The diagnostics about `subject`'s document, such as a clock that could
-/// not be dated, which `check` lists among all the others.
+/// The diagnostics about `subject`, which `check` lists among all the
+/// others: those about its document, such as a clock that could not be
+/// dated, and the errors of its project that stop it being judged. They keep
+/// the order `check` gives them.
 fn own_diagnostics<'a>(
 	evaluation: &'a Evaluation,
 	subject: &Subject,
 ) -> Vec<&'a Diagnostic> {
-	let Some(document) = subject.document() else {
-		return Vec::new();
-	};
+	let document = subject.document().map(|document| &document.document);
+	let no_context = evaluation.context.is_none();
 	evaluation
 		.diagnostics
 		.iter()
 		.filter(|diagnostic| {
-			diagnostic.document.as_ref() == Some(&document.document)
+			(document.is_some() && diagnostic.document.as_ref() == document)
+				|| (no_context && stops_judgement(diagnostic))
 		})
 		.collect()
+}
+
+/// Whether `diagnostic` is an error that leaves the evaluated project
+/// without a context, so that none of its subjects is judged. Only the
+/// evaluated project selects a context: the projects whose documents it
+/// cites never report one of these.
+fn stops_judgement(diagnostic: &Diagnostic) -> bool {
+	diagnostic.document.is_none()
+		&& matches!(
+			diagnostic.kind,
+			DiagnosticKind::UnknownContext
+				| DiagnosticKind::UnsupportedDefaultsVersion
+				| DiagnosticKind::BrokenDefaults
+		)
 }
 
 /// The subjects that `argument` names: a document by identity or path, an

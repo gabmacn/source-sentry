@@ -192,9 +192,12 @@ matched, the timing evidence and its next deadline. A document claimed twice
 is explained once per claim, and a series name defined in several scopes
 once per scope. It takes the same `--context`, `--rev` and `--at` as
 `check`, but it is not a gate: a failing subject still exits 0. The
-diagnostics about the subject follow, and an error among them sets the exit
-code as it would for `check`: 3, or 4 when, for example, a clock cannot be
-dated. A name that matches nothing exits 2.
+diagnostics about the subject follow: those about its document, and the
+errors of its own project that stop it being judged, such as a `--context`
+that the project does not declare. An error among them sets the exit code
+as it would for `check`: 3, or 4 when, for example, a clock cannot be
+dated. Diagnostics of other projects, and those that do not concern the
+subject, are left to `check`. A name that matches nothing exits 2.
 
 ## Reviewing
 
