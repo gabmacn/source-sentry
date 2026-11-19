@@ -94,6 +94,28 @@ that version's section, so a release cannot be made without one.
 - `Evaluation` in the `source-sentry-core` crate has a public field,
   `cited`, holding the documents of other projects that the evaluated
   documents cite, and a method, `upstream_subjects_of`.
+- Source Sentry uses the repository, working tree and index that git would
+  use from the same directory and environment, so `GIT_DIR`,
+  `GIT_WORK_TREE`, `core.worktree`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`
+  and `GIT_ALTERNATE_OBJECT_DIRECTORIES` apply, and a printed `git add`
+  stages the file in the repository that was changed.
+- Started outside the working tree that `GIT_WORK_TREE` names, relative
+  paths start at the working tree's root and are shown from it, as git takes
+  them, so printed `git` and `source-sentry` commands run as printed.
+- In a `pre-commit` hook, `check` counts the files of the commit in progress
+  as tracked, and a command that would create a file under `git commit -a`
+  or `git commit <paths>` is refused, since its intent-to-add mark would be
+  lost.
+- A starting directory inside the git directory, and a `GIT_COMMON_DIR`
+  other than the repository's own, are refused with exit 4.
+- `-C` refuses a path that is not a directory, as git does, instead of
+  running from the directory that contains the file.
+- `explain` shows under each subject the errors of its project that stop it
+  being judged, such as an unknown `--context`, and exits 3 for them as
+  `check` does, instead of exiting 0 with "not judged".
+- Replacement refs made with `git replace` are not applied anywhere: the
+  commit list of the review screen reads commits as stored, as the clocks
+  always did, so every clone gives the same result.
 
 ### Fixed
 
@@ -308,6 +330,21 @@ that version's section, so a release cannot be made without one.
   ideograph, or a combining mark to the right tab stop.
 - The confirmations of `review` count a document's comparison as unseen when
   its reviewed version changed outside the session since it was shown.
+- `GIT_ICASE_PATHSPECS` and git's other global pathspec settings no longer
+  make Source Sentry's git commands fail.
+- `review -C <path>` opens the document in the editor by its full path, so
+  the editor gets the right file, and reads the editor and pager settings
+  from the repository in use.
+- The advice to clear an assume-unchanged mark, and to renormalise a file
+  whose index holds CRLF, repeats `-C` and names the file from where the
+  command was run.
+- A remote document's clock no longer reads history older than it needs, so
+  a partial clone (`--filter=tree:0`) or an object database missing an old
+  commit or tree no longer stops `check` with exit 4 when recent commits
+  settle the clock, and checks of remote documents no longer read every
+  commit back to the root.
+- Moving a remote document to an owner in another project (`track --from
+  remote:a --to remote:b@other`) no longer restarts its clocks.
 
 ## [0.1.0] - 2026-11-14
 
