@@ -388,16 +388,23 @@ pub(super) fn draw(app: &App, buffer: &mut Buffer) -> Vec<(Rect, Target)> {
 		hover: app.hover,
 	};
 	pen.fill(area, Style::new().fg(CREAM).bg(INK));
-	if area.width < MINIMUM.0 || area.height < MINIMUM.1 {
+	// A window too small for the layout shows a warning alone, and the keys
+	// keep to quitting until it grows: see `App::fits`.
+	app
+		.fits
+		.set(area.width >= MINIMUM.0 && area.height >= MINIMUM.1);
+	if !app.fits.get() {
 		let note = format!(
 			"Source Sentry needs {} by {} cells; this window has {} by {}.",
 			MINIMUM.0, MINIMUM.1, area.width, area.height
 		);
+		let y = area.height.saturating_sub(1) / 2;
+		pen.text(1, y, &note, text(), area.width.saturating_sub(2));
 		pen.text(
 			1,
-			area.height / 2,
-			&note,
-			text(),
+			y + 1,
+			"Enlarge it to go on, or press q to quit.",
+			dim(),
 			area.width.saturating_sub(2),
 		);
 		return pen.hits;

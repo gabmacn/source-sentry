@@ -288,6 +288,8 @@ fn the_screen_shows_the_queue_the_changes_and_the_question() {
 		small.join("\n")
 	);
 
+	// The window grows again before the next key, as it must for keys to act.
+	drawn(&app, 120, 30);
 	press(&mut app, &[Key::Char('?')]);
 	assert!(shows(
 		&drawn(&app, 120, 30),
@@ -583,6 +585,75 @@ fn shortcuts_the_screen_does_not_have_are_ignored() {
 		typed('@', KeyModifiers::CONTROL | KeyModifiers::ALT),
 		Some(Key::Char('@'))
 	);
+}
+
+/// Behind the warning of a window too small for the layout, only quitting
+/// acts: Enter records nothing, no key opens or closes a box, and neither
+/// the wheel nor a click moves anything. A held answer and an open box wait
+/// as they were, and are there again once the window grows.
+#[test]
+fn behind_the_warning_of_a_small_window_only_quitting_acts() {
+	let repo = fixture();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let reviewed =
+		|repo: &Repo| !repo.entry("docs/a.md")["sources"][0]["reviewed"].is_null();
+	press(&mut app, &[Key::Char('y')]);
+	let small = drawn(&app, 60, 15);
+	assert!(shows(&small, "needs 80 by 20 cells"), "{small:#?}");
+	assert!(shows(&small, "press q to quit"), "{small:#?}");
+	assert!(!shows(&small, "a.md"), "{small:#?}");
+
+	let ignored = [
+		Key::Enter,
+		Key::Char('a'),
+		Key::Down,
+		Key::Escape,
+		Key::Char('u'),
+		Key::Char('?'),
+		Key::Char('r'),
+		Key::Char('e'),
+		Key::Wheel(true, Area::Sidebar),
+		Key::Wheel(true, Area::Pane),
+	];
+	for key in ignored {
+		assert_eq!(app.busy(key), None, "{key:?}");
+		press(&mut app, &[key]);
+	}
+	assert_eq!(app.click(Target::Cap(Key::Enter)).unwrap(), Flow::Stay);
+	app.drag(Target::Row(Cursor::Open(1)));
+	assert!(!reviewed(&repo));
+	assert_eq!(
+		(app.armed, app.cursor, &app.overlay, app.scroll),
+		(Some(false), Cursor::Open(0), &None, (0, 0))
+	);
+	assert!(app.picked.is_empty());
+
+	// The window grows: the answer is still held, and Enter records it.
+	let grown = drawn(&app, 120, 30);
+	assert!(shows(&grown, "a.md"), "{grown:#?}");
+	press(&mut app, &[Key::Enter]);
+	assert!(reviewed(&repo));
+
+	// A box open when the window shrinks stays open, and takes no key.
+	press(&mut app, &[Key::Char('a')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_))));
+	drawn(&app, 79, 30);
+	press(
+		&mut app,
+		&[Key::Char('y'), Key::Char('i'), Key::Escape, Key::Down],
+	);
+	assert!(matches!(app.overlay, Some(Overlay::All(_))));
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
+	assert!(shows(&drawn(&app, 120, 30), "Record all remaining"));
+
+	// Quitting acts, with a box open or not.
+	drawn(&app, 80, 19);
+	assert_eq!(app.key(Key::Char('q')).unwrap(), Flow::Quit);
+	assert_eq!(app.key(Key::Char('Q')).unwrap(), Flow::Quit);
+	assert_eq!(app.key(Key::Interrupt).unwrap(), Flow::Quit);
+	assert!(matches!(app.overlay, Some(Overlay::All(_))));
+	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
 }
 
 /// A terminal that cannot be fully taken over is handed back at once, so

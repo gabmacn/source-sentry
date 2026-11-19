@@ -281,6 +281,12 @@ rows, `review` takes over the screen. Elsewhere, and with `--plain`,
 consoles are taken to show 24-bit colour; other terminals announce it in
 `COLORTERM`. A session with nothing to review prints its closing alone.
 
+A window made smaller than 80 by 20 during the session shows only a
+warning. Until it is large enough again, only `q` and `Ctrl+C` act, and
+they quit; every other key, the wheel and a click do nothing, so that
+nothing is done out of sight. A held answer and an open box wait as they
+were, and are shown again once the window has room.
+
 The screen has four parts:
 
 - **A header** with the reviewer, the context, the number of projects

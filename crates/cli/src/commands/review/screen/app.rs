@@ -464,6 +464,10 @@ pub(super) struct App<'a> {
 	/// The screen's width as last drawn, where the changes and the document
 	/// wrap their lines, and so how far they scroll.
 	pub(super) columns: std::cell::Cell<u16>,
+	/// Whether the window held the layout when last drawn. While it does
+	/// not, the screen shows only a warning, and nothing but quitting acts,
+	/// so that nothing is done that the reviewer cannot see.
+	pub(super) fits: std::cell::Cell<bool>,
 	/// An answer waiting for Enter: `true` for a reread.
 	pub(super) armed: Option<bool>,
 	/// The box over the screen, if one is open.
@@ -531,6 +535,7 @@ impl<'a> App<'a> {
 			file: 0,
 			scroll: (0, 0),
 			columns: std::cell::Cell::new(super::draw::MINIMUM.0),
+			fits: std::cell::Cell::new(true),
 			armed: None,
 			overlay: None,
 			box_scroll: 0,
@@ -587,6 +592,9 @@ impl<'a> App<'a> {
 
 	/// What to tell the reviewer before a key whose work takes a moment.
 	pub(super) fn busy(&self, key: Key) -> Option<&'static str> {
+		if !self.fits.get() {
+			return None;
+		}
 		match (&self.overlay, key) {
 			(None, Key::Enter) if self.armed.is_some() => Some("Recording…"),
 			(None, Key::Char('a' | 'A'))
@@ -889,6 +897,9 @@ impl<'a> App<'a> {
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
 	pub(super) fn click(&mut self, target: Target) -> Result<Flow, Failure> {
+		if !self.fits.get() {
+			return Ok(Flow::Stay);
+		}
 		self.see_shown();
 		match target {
 			Target::Cap(key) => return self.key(key),
@@ -975,7 +986,7 @@ impl<'a> App<'a> {
 	/// Handles the pointer dragged over a row with its button held: every
 	/// row from where the button went down to this one is picked.
 	pub(super) fn drag(&mut self, target: Target) {
-		if self.overlay.is_some() {
+		if self.overlay.is_some() || !self.fits.get() {
 			return;
 		}
 		match target {
@@ -1511,12 +1522,29 @@ impl<'a> App<'a> {
 		self.overlay = overlay;
 	}
 
+	/// What a key does before the screen's own keys see it, or `None` to
+	/// leave it to them. Behind the warning of a window too small, only
+	/// quitting acts: a held answer, a box and everything else wait as they
+	/// were, unseen, for the window to grow again.
+	fn screened(&self, key: Key) -> Option<Flow> {
+		if !self.fits.get() {
+			return Some(match key {
+				Key::Interrupt | Key::Char('q' | 'Q') => Flow::Quit,
+				_ => Flow::Stay,
+			});
+		}
+		None
+	}
+
 	/// Handles one key.
 	///
 	/// # Errors
 	///
 	/// Fails when an evaluation or a write fails; the session then ends.
 	pub(super) fn key(&mut self, key: Key) -> Result<Flow, Failure> {
+		if let Some(flow) = self.screened(key) {
+			return Ok(flow);
+		}
 		// The wheel only looks: it keeps a held answer, a notice and a box.
 		// Over the sidebar it passes over documents without seeing them.
 		if let Key::Wheel(down, area) = key {
