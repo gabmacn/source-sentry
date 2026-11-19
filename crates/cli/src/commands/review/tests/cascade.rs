@@ -424,3 +424,38 @@ fn a_newly_stale_document_outside_the_batch_gets_an_individual_prompt() {
 	assert!(script.summary().contains("Recorded 1 review"));
 	assert!(script.summary().contains("1 document still needs review"));
 }
+
+/// A review that leaves its document waiting on an upstream one binds the
+/// versions it was shown. A source changed right after the write, before
+/// the evaluation that follows it, therefore presents the document again
+/// rather than being taken as part of the review.
+#[test]
+fn a_change_right_after_a_review_presents_the_document_again() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "up.md"}]},
+		"docs/up.md": {"sources": [{"path": "/src/b.rs"}]},
+	}));
+	repo.attest("docs/up.md");
+	repo.attest("docs/a.md");
+	repo.commit();
+	repo.write("src/b.rs", "changed upstream\n");
+	repo.write("src/a.rs", "changed\n");
+	let mut script = Script::new(
+		&repo,
+		[
+			Step::Answer(Some(Answer::Next)),
+			Step::Answer(Some(Answer::Yes)),
+			Step::ChangeAfterReview(
+				"src/a.rs",
+				"changed after the review\n".to_owned(),
+			),
+			Step::Answer(Some(Answer::Quit)),
+		],
+	);
+	repo.run(&[], &mut script).unwrap();
+	assert_eq!(
+		script.shown,
+		[local("docs/up.md"), local("docs/a.md"), local("docs/a.md")]
+	);
+	assert!(script.displays[2].contains("+ changed after the review"));
+}

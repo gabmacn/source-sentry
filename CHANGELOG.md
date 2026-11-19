@@ -360,6 +360,14 @@ that version's section, so a release cannot be made without one.
   commit back to the root.
 - Moving a remote document to an owner in another project (`track --from
   remote:a --to remote:b@other`) no longer restarts its clocks.
+- In the line mode of `review`, a source changed just after a review was
+  recorded, before the session evaluated again, no longer passes unasked
+  when the document still waits on an upstream document; the document is
+  shown again.
+- In the full-screen review, a document reviewed whole that still waits on
+  an upstream document moves to the other documents, as the guide says,
+  instead of staying in the queue to be reviewed again. It returns when its
+  sources or that upstream document change.
 
 ## [0.1.0] - 2026-11-14
 

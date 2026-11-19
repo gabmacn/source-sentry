@@ -262,10 +262,18 @@ impl<'a> Session<'a> {
 	}
 
 	/// Every eligible document that needs review, due or not, in queue
-	/// order, whatever was answered before: the full screen lets the
-	/// reviewer return to any, and marks those not due yet.
+	/// order: the full screen lets the reviewer return to any, and marks
+	/// those not due yet. Skipping is the line mode's alone, so only a
+	/// review counts here: a document reviewed whole that still waits on an
+	/// upstream document leaves the queue until its evidence changes.
 	pub(super) fn pending(&self) -> Result<Vec<DocumentId>, Failure> {
-		self.state.queue(&self.selected, &BTreeMap::new(), true)
+		let reviewed: BTreeMap<_, _> = self
+			.answered
+			.iter()
+			.filter(|(_, answer)| matches!(answer, Checkpoint::Reviewed(_)))
+			.map(|(id, answer)| (id.clone(), answer.clone()))
+			.collect();
+		self.state.queue(&self.selected, &reviewed, true)
 	}
 
 	/// Whether `id` is due, or waits on an upstream document that is.
@@ -579,16 +587,39 @@ impl<'a> Session<'a> {
 		Ok(Undone::Withdrawn(step.reviews))
 	}
 
-	/// Evaluates again after a written review, and remembers the resulting
-	/// state so that the line mode does not ask the same question twice.
-	pub(super) fn settle(&mut self, id: &DocumentId) -> Result<(), Failure> {
+	/// Evaluates again after a written review. A review of the whole
+	/// document that leaves it needing review, as when it waits on an
+	/// upstream document, is remembered so that it is not presented again
+	/// until its evidence changes. What is remembered is the sources as
+	/// `compared` bound them, not as this evaluation reads them, so a source
+	/// changed after the write, even before this evaluation, presents the
+	/// document again. A review of picked sources alone leaves it in the
+	/// queue, since another source may still need review.
+	pub(super) fn settle(
+		&mut self,
+		id: &DocumentId,
+		compared: &DocumentDiff,
+		selection: &Selection,
+	) -> Result<(), Failure> {
 		self.refresh()?;
+		if !matches!(selection, Selection::All) {
+			return Ok(());
+		}
 		if let Some(document) = self.state.documents.get(id)
 			&& document.pending
 		{
+			let mut stamp = document.stamp.clone();
+			for expectation in &compared.expectations {
+				if let Some(state) = stamp.sources.get_mut(expectation.path()) {
+					*state = match expectation {
+						Expectation::Present { oid, .. } => Some(oid.clone()),
+						Expectation::Absent { .. } => None,
+					};
+				}
+			}
 			self
 				.answered
-				.insert(id.clone(), Checkpoint::Reviewed(document.stamp.clone()));
+				.insert(id.clone(), Checkpoint::Reviewed(stamp));
 		}
 		Ok(())
 	}
@@ -609,7 +640,7 @@ impl<'a> Session<'a> {
 			}
 			Written::Recorded(reread) => {
 				ui.message(&self.recorded_notice(compared, reread));
-				self.settle(id)?;
+				self.settle(id, compared, &Selection::All)?;
 				Ok(true)
 			}
 		}

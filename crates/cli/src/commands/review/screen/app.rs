@@ -2130,7 +2130,11 @@ impl<'a> App<'a> {
 						describe::count(covered, "picked source", "picked sources")
 					);
 				}
-				self.session.settle(&id)?;
+				self.session.settle(
+					&id,
+					&compared,
+					selection.as_ref().unwrap_or(&Selection::All),
+				)?;
 				let was = self.cursor;
 				self.rebuild()?;
 				self.after(&id, was);
@@ -2252,7 +2256,9 @@ impl<'a> App<'a> {
 				}
 				Ok(Written::Recorded(_)) => {
 					recorded += 1;
-					if let Err(failure) = self.session.settle(&id) {
+					if let Err(failure) =
+						self.session.settle(&id, &compared, &Selection::All)
+					{
 						failed = Some(failure);
 						break;
 					}

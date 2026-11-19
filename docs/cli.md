@@ -453,7 +453,10 @@ opening a path or selecting text.
 review is bound to the source versions shown, exactly as in the line mode,
 and a source changed since refuses the write and shows the document again.
 The reviewed document then moves to the other documents, and the cursor to
-the next one that needs review. A document that needs nothing takes `r` but
+the next one that needs review. So does a document that still waits on an
+upstream one after its review, since reviewing it again would add nothing;
+it returns when one of its sources or that upstream document changes. A
+document that needs nothing takes `r` but
 no `y`; a sealed record can only be read.
 
 Each document is compared once, against the working tree as an evaluation

@@ -348,6 +348,7 @@ impl State {
 }
 
 /// Why a document's unchanged state must not be presented again.
+#[derive(Clone)]
 pub(super) enum Checkpoint {
 	/// `n` suppresses another question until a direct source changes.
 	Skipped(Stamp),

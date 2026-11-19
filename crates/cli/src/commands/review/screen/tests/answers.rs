@@ -474,3 +474,33 @@ fn a_comparison_from_another_reviewed_version_is_unseen() {
 	app.session.see(&a, &now);
 	assert!(app.session.has_seen(&a, &now));
 }
+
+/// A document reviewed whole that still waits on an upstream document
+/// moves to the other documents, as the line mode stops asking about it:
+/// another review would add nothing until its evidence changes.
+#[test]
+fn a_reviewed_document_waiting_on_an_upstream_one_leaves_the_queue() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {"sources": [{"path": "/src/a.rs"}, {"path": "up.md"}]},
+		"docs/up.md": {"sources": [{"path": "/src/b.rs"}]},
+	}));
+	repo.attest("docs/up.md");
+	repo.attest("docs/a.md");
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Attest"]);
+	repo.write("src/b.rs", "changed upstream\n");
+	repo.write("src/a.rs", "changed\n");
+	let (workspace, args) = (repo.workspace(), repo.args(&["docs/a.md"]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.open.len(), 1);
+
+	press(&mut app, &[Key::Char('y'), Key::Enter]);
+	assert_eq!(app.session.recorded.len(), 1);
+	assert_eq!(app.open, Vec::new());
+	assert!(
+		app
+			.others
+			.iter()
+			.any(|other| other.id.document.to_string() == "docs/a.md")
+	);
+}
