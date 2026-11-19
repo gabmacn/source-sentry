@@ -396,3 +396,36 @@ fn an_unreadable_declaration_of_a_cited_document_is_reported() {
 	assert_clean(&evaluation);
 	assert_eq!(facts(document(&evaluation, "docs/guide.md")), [Fact::Fresh]);
 }
+
+#[test]
+fn a_duplicate_version_is_reported_whichever_member_is_cited() {
+	let config = "version: 1\nseries:\n  audit:\n    pattern: \
+	              'v(?P<version>\\d+)\\.md'\n    version-kind: integer\n    \
+	              lifecycle: records-only\n";
+	let documents = json!({
+		"guide.md": reviewed("/code.rs", "v1"),
+		"v1.md": {},
+	});
+	let members = [("up/v01.md", "# V01\n"), ("up/v1.md", "# V1\n")];
+	for cited in ["up/v1.md", "up/v01.md"] {
+		let repo = citing(config, &documents, &[cited], &members);
+		let evaluation = repo.evaluate(day(1), None);
+		assert_eq!(
+			kinds(&evaluation),
+			[DiagnosticKind::DuplicateVersion],
+			"{cited}"
+		);
+		assert_eq!(
+			gates(&evaluation),
+			(
+				ExitCode::ConfigurationOrIntegrity,
+				ExitCode::ConfigurationOrIntegrity
+			),
+			"{cited}"
+		);
+	}
+
+	let unrelated = citing(config, &documents, &["up/guide.md"], &members);
+	let evaluation = unrelated.evaluate(day(1), None);
+	assert_clean(&evaluation);
+}

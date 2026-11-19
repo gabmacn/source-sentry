@@ -242,10 +242,16 @@ pub(super) fn narrowed(
 }
 
 /// Whether `diagnostic` concerns one of the `cited` documents: it is about
-/// one.
+/// one, or it is about a document and names a cited one among its other
+/// places, as a duplicate version names every member of its group but is
+/// about the first.
 fn concerns(diagnostic: &Diagnostic, cited: &BTreeSet<DocumentId>) -> bool {
-	diagnostic
-		.document
-		.as_ref()
-		.is_some_and(|document| cited.contains(document))
+	let Some(document) = &diagnostic.document else {
+		return false;
+	};
+	cited.contains(document)
+		|| diagnostic
+			.related
+			.iter()
+			.any(|location| cited.contains(&DocumentId::Local(location.file.clone())))
 }
