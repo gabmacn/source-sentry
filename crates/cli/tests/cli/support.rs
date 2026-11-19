@@ -188,6 +188,66 @@ impl TestRepo {
 		}
 	}
 
+	/// The temporary directory that holds the working tree, where a test can
+	/// make other directories beside it.
+	pub fn outer(&self) -> &Path {
+		self.root.path()
+	}
+
+	/// Runs `source-sentry` with `args` in `directory`, which may lie outside
+	/// the working tree, with `env` added to the isolated environment.
+	pub fn run_at(
+		&self,
+		directory: &Path,
+		args: &[&str],
+		env: &[(&str, &std::ffi::OsStr)],
+	) -> Run {
+		let mut command = Command::new(BINARY);
+		self.isolate(&mut command);
+		for (key, value) in env {
+			command.env(key, value);
+		}
+		let output = command
+			.args(args)
+			.current_dir(directory)
+			.env("NO_COLOR", "1")
+			.stdin(Stdio::null())
+			.output()
+			.expect("run source-sentry");
+		Run {
+			code: output.status.code().expect("an exit code"),
+			stdout: String::from_utf8(output.stdout).expect("UTF-8 stdout"),
+			stderr: String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+		}
+	}
+
+	/// Runs `git` with `args` in `directory`, which may lie outside the
+	/// working tree, with `env` added to the isolated environment, and
+	/// returns what it printed whatever its exit code.
+	pub fn git_at(
+		&self,
+		directory: &Path,
+		args: &[&str],
+		env: &[(&str, &std::ffi::OsStr)],
+	) -> Run {
+		let mut command = Command::new("git");
+		self.isolate(&mut command);
+		for (key, value) in env {
+			command.env(key, value);
+		}
+		let output = command
+			.args(args)
+			.current_dir(directory)
+			.stdin(Stdio::null())
+			.output()
+			.expect("run git");
+		Run {
+			code: output.status.code().expect("an exit code"),
+			stdout: String::from_utf8(output.stdout).expect("UTF-8 stdout"),
+			stderr: String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+		}
+	}
+
 	/// Runs `source-sentry` with `args` in the working tree, with standard
 	/// output connected to a pipe whose reading end is already closed, so
 	/// that nothing it writes there can be read. The returned standard output
@@ -215,6 +275,18 @@ impl TestRepo {
 	/// Runs a printed command through the platform's shell, with the tested
 	/// binary on PATH and the same isolated git configuration as other runs.
 	pub fn run_shell_in(&self, directory: &str, line: &str) -> Run {
+		self.run_shell_at(&self.path.join(directory), line, &[])
+	}
+
+	/// Runs a printed command like [`TestRepo::run_shell_in`], in
+	/// `directory`, which may lie outside the working tree, with `env` added
+	/// to the isolated environment.
+	pub fn run_shell_at(
+		&self,
+		directory: &Path,
+		line: &str,
+		env: &[(&str, &std::ffi::OsStr)],
+	) -> Run {
 		let mut command = if cfg!(windows) {
 			let mut command = Command::new("powershell");
 			command.args(["-NoProfile", "-NonInteractive", "-Command"]);
@@ -230,8 +302,11 @@ impl TestRepo {
 		paths.extend(std::env::split_paths(
 			&std::env::var_os("PATH").unwrap_or_default(),
 		));
+		for (key, value) in env {
+			command.env(key, value);
+		}
 		let output = command
-			.current_dir(self.path.join(directory))
+			.current_dir(directory)
 			.env("PATH", std::env::join_paths(paths).unwrap())
 			.env("NO_COLOR", "1")
 			.stdin(Stdio::null())

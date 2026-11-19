@@ -19,6 +19,8 @@ mod diff;
 #[cfg(test)]
 mod explain;
 #[cfg(test)]
+mod git_environment;
+#[cfg(test)]
 mod history;
 #[cfg(test)]
 mod init;

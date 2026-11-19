@@ -20,6 +20,18 @@ const REDIRECTING_VARIABLES: [&str; 4] = [
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 ];
 
+/// Environment variables that change how git reads every pathspec. They are
+/// a user's preference for the commands they type; Source Sentry's own
+/// pathspecs are exact, and git refuses `--literal-pathspecs`, which it
+/// passes, together with any of the others. They are removed from every
+/// child.
+const PATHSPEC_VARIABLES: [&str; 4] = [
+	"GIT_ICASE_PATHSPECS",
+	"GIT_GLOB_PATHSPECS",
+	"GIT_NOGLOB_PATHSPECS",
+	"GIT_LITERAL_PATHSPECS",
+];
+
 /// Configuration that turns the Git LFS filter driver into a no-op for one
 /// command, so that git applies only its built-in conversions to a path with
 /// `filter=lfs`. Git skips a driver whose commands are empty, and `required`
@@ -53,7 +65,8 @@ pub(crate) struct Finished {
 /// also sets `GIT_NO_LAZY_FETCH`, because a partial clone must never fetch
 /// during `check`; `GIT_OPTIONAL_LOCKS=0`, so that no command refreshes the
 /// index; and `GIT_NO_REPLACE_OBJECTS`, so that git reads objects as stored,
-/// as `git2` does, and ignores replacement refs.
+/// as `git2` does, and ignores replacement refs. The global pathspec
+/// settings are removed.
 #[derive(Clone, Debug)]
 pub(crate) struct Git {
 	git_dir: PathBuf,
@@ -98,7 +111,8 @@ impl Git {
 			})
 			.stdout(Stdio::piped())
 			.stderr(Stdio::piped());
-		for variable in REDIRECTING_VARIABLES {
+		for variable in REDIRECTING_VARIABLES.into_iter().chain(PATHSPEC_VARIABLES)
+		{
 			command.env_remove(variable);
 		}
 		match &self.work_dir {
