@@ -1,5 +1,8 @@
 //! A pending file's changes as rows, shared by every way of showing them.
 
+use ratatui::buffer::CellWidth as _;
+use ratatui::style::Style;
+use ratatui::text::Span;
 use similar::{ChangeTag, TextDiff};
 use source_sentry_core::model::ObjectId;
 use source_sentry_core::mutate::{Baseline, Current, EntryDiff};
@@ -133,21 +136,30 @@ fn short(oid: &ObjectId) -> String {
 }
 
 /// `text` with each tab replaced by spaces up to the next tab stop, so that
-/// indentation survives whatever is printed before the line.
+/// indentation survives whatever is printed before the line. Columns are the
+/// terminal's cells: a wide character takes two, a combining mark none.
 pub(super) fn expand_tabs(text: &str) -> String {
 	let mut expanded = String::with_capacity(text.len());
 	let mut column = 0;
-	for character in text.chars() {
-		if character == '\t' {
+	for (index, run) in text.split('\t').enumerate() {
+		if index > 0 {
 			let spaces = TAB_STOP - column % TAB_STOP;
 			expanded.extend(std::iter::repeat_n(' ', spaces));
 			column += spaces;
-		} else {
-			expanded.push(character);
-			column += 1;
 		}
+		expanded.push_str(run);
+		column += cells(run);
 	}
 	expanded
+}
+
+/// The cells `text` takes, grapheme by grapheme as the screen's grid counts
+/// them. A control character takes none, because the grid leaves it out.
+fn cells(text: &str) -> usize {
+	Span::raw(text)
+		.styled_graphemes(Style::new())
+		.map(|grapheme| usize::from(grapheme.symbol.cell_width()))
+		.sum()
 }
 
 #[cfg(test)]
@@ -161,5 +173,15 @@ mod tests {
 		assert_eq!(expand_tabs("ab\tc"), "ab  c");
 		assert_eq!(expand_tabs("\t\tx"), "        x");
 		assert_eq!(expand_tabs("plain"), "plain");
+	}
+
+	/// A column is a cell of the terminal: a wide character takes two, and
+	/// a combining mark none, so the tab after them still reaches its stop.
+	#[test]
+	fn tabs_count_the_cells_of_wide_and_combining_characters() {
+		assert_eq!(expand_tabs("界\tX"), "界  X");
+		assert_eq!(expand_tabs("e\u{301}\tX"), "e\u{301}   X");
+		assert_eq!(expand_tabs("界界\t界\tX"), "界界    界  X");
+		assert_eq!(expand_tabs("a\u{7}\tX"), "a\u{7}   X");
 	}
 }
