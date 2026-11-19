@@ -100,6 +100,15 @@ that version's section, so a release cannot be made without one.
   `source-sentry-git` crate adds `GitRepository::open_from_env`, which finds
   the repository as git does; `GitRepository::open` still ignores the
   environment.
+- `check` reports a remote identity that owner lockfiles of two projects
+  track at once as `double-claim`, in each of the projects, and `track`
+  refuses to track an identity that another project already tracks. Moving
+  it between projects with `track --from/--to` is unaffected.
+- A `renamed` list in a remote owner lockfile is refused
+  (`invalid-lockfile`), as `seal` and `completed` are.
+- `Inventory` in the `source-sentry-core` crate has a public field,
+  `elsewhere`, holding the remote identities that other projects' owner
+  lockfiles track.
 - Source Sentry uses the repository, working tree and index that git would
   use from the same directory and environment, so `GIT_DIR`,
   `GIT_WORK_TREE`, `core.worktree`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`
