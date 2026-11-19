@@ -353,3 +353,46 @@ fn the_other_projects_contexts_are_never_applied() {
 	assert_eq!(plain.diagnostics, under_failing.diagnostics);
 	assert_eq!(plain.summary, under_failing.summary);
 }
+
+#[test]
+fn an_unreadable_declaration_of_a_cited_document_is_reported() {
+	let unreadable =
+		"---\nsource-sentry:\n  unknown-field: true\n---\n# Source\n";
+	let repo = citing(
+		"version: 1\n",
+		&up_guide(),
+		&["up/source.md"],
+		&[("up/source.md", unreadable)],
+	);
+	let direct =
+		check_project(&repo.history, &repo.checkout(), "up", day(1)).unwrap();
+	assert!(
+		kinds(&direct).contains(&DiagnosticKind::InvalidDeclaration),
+		"{:#?}",
+		direct.diagnostics
+	);
+
+	let evaluation = repo.evaluate(day(1), None);
+	assert_eq!(kinds(&evaluation), [DiagnosticKind::InvalidDeclaration]);
+	assert_eq!(
+		evaluation.diagnostics[0].location.file,
+		path("up/source.md")
+	);
+	assert_eq!(
+		gates(&evaluation),
+		(
+			ExitCode::ConfigurationOrIntegrity,
+			ExitCode::ConfigurationOrIntegrity
+		)
+	);
+
+	let unrelated = citing(
+		"version: 1\n",
+		&up_guide(),
+		&["up/guide.md"],
+		&[("up/source.md", unreadable)],
+	);
+	let evaluation = unrelated.evaluate(day(1), None);
+	assert_clean(&evaluation);
+	assert_eq!(facts(document(&evaluation, "docs/guide.md")), [Fact::Fresh]);
+}

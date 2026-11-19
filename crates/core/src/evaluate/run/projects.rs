@@ -187,8 +187,17 @@ fn discover_cited<S: Snapshot>(
 			combined
 				.claims
 				.extend(cited.found.claims_of(&document).cloned());
-			if combined.claims.len() > before {
-				cited.documents.insert(document);
+			// A declaration that cannot be read leaves no claim, only its
+			// diagnostic, which must still reach the citing project.
+			let one = BTreeSet::from([document]);
+			if combined.claims.len() > before
+				|| cited
+					.found
+					.diagnostics
+					.iter()
+					.any(|diagnostic| concerns(diagnostic, &one))
+			{
+				cited.documents.extend(one);
 			}
 		}
 	}
@@ -200,17 +209,14 @@ fn discover_cited<S: Snapshot>(
 }
 
 /// `found` narrowed to the claims of `cited` documents: no other claim and
-/// no unclaimed file, and of discovery's diagnostics only those about a cited
-/// document. Lockfiles, tombstones, dependencies and series stay whole,
+/// no unclaimed file, and of discovery's diagnostics only those that
+/// [concern](concerns) a cited document. Lockfiles, tombstones, dependencies and series stay whole,
 /// because the cited documents' declaration sites, upstreams and series
 /// membership are read from them.
 pub(super) fn narrowed(
 	found: &Inventory,
 	cited: &BTreeSet<DocumentId>,
 ) -> Inventory {
-	let is_cited = |document: Option<&DocumentId>| {
-		document.is_some_and(|document| cited.contains(document))
-	};
 	Inventory {
 		project: found.project.clone(),
 		projects: found.projects.clone(),
@@ -222,15 +228,24 @@ pub(super) fn narrowed(
 		claims: found
 			.claims
 			.iter()
-			.filter(|claim| is_cited(Some(&claim.document)))
+			.filter(|claim| cited.contains(&claim.document))
 			.cloned()
 			.collect(),
 		unclaimed: Vec::new(),
 		diagnostics: found
 			.diagnostics
 			.iter()
-			.filter(|diagnostic| is_cited(diagnostic.document.as_ref()))
+			.filter(|diagnostic| concerns(diagnostic, cited))
 			.cloned()
 			.collect(),
 	}
+}
+
+/// Whether `diagnostic` concerns one of the `cited` documents: it is about
+/// one.
+fn concerns(diagnostic: &Diagnostic, cited: &BTreeSet<DocumentId>) -> bool {
+	diagnostic
+		.document
+		.as_ref()
+		.is_some_and(|document| cited.contains(document))
 }
