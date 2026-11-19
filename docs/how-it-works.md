@@ -726,7 +726,7 @@ reports it in each of those projects, and `track` refuses to create it.
 
 Source Sentry does not contact the services. Whether a remote document
 still exists is unknown to it, and a remote document cannot be a record or
-a member of a series. Owner names are labels for reports, not identities.
+a member of a series, nor be renamed. Owner names are labels for reports, not identities.
 
 ## What changes files
 

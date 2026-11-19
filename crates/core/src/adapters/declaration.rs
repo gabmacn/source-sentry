@@ -49,8 +49,8 @@ pub enum DeclarationError {
 		reason: &'static str,
 	},
 	/// A field that this kind of file must not carry: `seal` outside local
-	/// lockfiles, `url` outside remote lockfiles, or `completed` in a remote
-	/// lockfile.
+	/// lockfiles, `url` outside remote lockfiles, or `completed` or `renamed`
+	/// in a remote lockfile.
 	#[error("`{at}` is not allowed {site}: {reason}")]
 	NotAllowed {
 		/// The field.
@@ -347,7 +347,7 @@ impl Scope<'_> {
 /// The checks:
 ///
 /// - `seal` only in a local lockfile, `url` only in a remote one, and
-///   `completed` anywhere but a remote one;
+///   `completed` and `renamed` anywhere but a remote one;
 /// - each path source has `oid` and `reviewed` together, or neither;
 /// - each source and member path resolves within the repository, or, for a
 ///   remote document, is `/`-rooted, as its patterns are as well;
@@ -385,6 +385,9 @@ pub(super) fn validate(
 			"completed",
 			"remote documents cannot belong to a series",
 		));
+	}
+	if !declaration.renamed.is_empty() && matches!(scope, Scope::Remote(_)) {
+		return Err(not_allowed("renamed", "remote documents cannot be renamed"));
 	}
 	for (index, rename) in declaration.renamed.iter().enumerate() {
 		let field = at.key("renamed").index(index).key("from");

@@ -395,3 +395,46 @@ fn rename_refuses_to_move_the_sole_living_head_out_of_its_series() {
 			.expect_code(0);
 	}
 }
+
+/// `rename` never writes a rename marker into an owner lockfile, and one
+/// written by hand is refused, as `seal` and `completed` are there.
+#[test]
+fn a_rename_marker_in_an_owner_lockfile_is_refused() {
+	let repo = TestRepo::init();
+	repo
+		.run(&[
+			"track",
+			"abstract:video",
+			"--remote",
+			"legal",
+			"--source",
+			":/src/a.rs",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.run(&["check", "--at", AT]).expect_code(1);
+	let file = ".source-sentry/remotes/legal.lock";
+	let mut lockfile = lock(&repo, file);
+	lockfile["documents"]["abstract:video"]["renamed"] = serde_json::json!([
+		{"at": "2026-11-07T00:00:00Z", "by": null, "from": "/src/a.rs"}
+	]);
+	repo.write(file, &serde_json::to_string_pretty(&lockfile).unwrap());
+	let check = repo.run(&["check", "--at", AT]);
+	check.expect_code(3);
+	assert!(
+		check.stdout.contains(
+			"`documents[\"abstract:video\"].renamed` is not allowed in a remote \
+			 lockfile: remote documents cannot be renamed"
+		),
+		"{}",
+		check.stdout
+	);
+	let report = repo.run(&["check", "--at", AT, "--format", "json"]).json();
+	let diagnostics = report["diagnostics"].as_array().unwrap();
+	assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+	assert_eq!(diagnostics[0]["code"], "invalid-lockfile");
+	assert_eq!(
+		diagnostics[0]["location"]["field"],
+		"documents[\"abstract:video\"].renamed"
+	);
+}

@@ -694,6 +694,39 @@ fn remote_documents_cannot_be_records_or_series_entries() {
 	);
 }
 
+/// A remote document has no path to have been renamed from, and `rename`
+/// refuses remote identities, so an owner lockfile never carries `renamed`.
+#[test]
+fn remote_documents_cannot_carry_renames() {
+	let renamed = r#"{"renamed": [{"at": "2026-11-07T00:00:00Z", "by": null, "from": "/docs/old.md"}]}"#;
+	assert_eq!(
+		declaration_error(parse_remote(&one_document("abstract:video", renamed))),
+		DeclarationError::NotAllowed {
+			at: "documents[\"abstract:video\"].renamed".to_owned(),
+			site: Site::RemoteLockfile,
+			reason: "remote documents cannot be renamed",
+		}
+	);
+	// An empty list records no rename.
+	assert!(
+		parse_remote(&one_document("abstract:video", "{\"renamed\": []}")).is_ok()
+	);
+	// Writing refuses it too.
+	let mut lockfile = RemoteLockfile::default();
+	lockfile.documents.insert(
+		"abstract:video".parse().unwrap(),
+		Declaration {
+			renamed: vec![crate::model::Rename {
+				at: "2026-11-07T00:00:00Z".parse().unwrap(),
+				by: None,
+				from: "/docs/old.md".to_owned(),
+			}],
+			..Declaration::default()
+		},
+	);
+	assert!(lockfile.to_bytes().is_err());
+}
+
 // Writing.
 
 #[test]
