@@ -625,8 +625,8 @@ source-sentry migrate [--dry-run] [--yes]
 - **`--lockfile <directory>`** names a directory from the current directory,
   or by an absolute filesystem path; the flag alone chooses the nearest
   lockfile.
-- **`--cadence`** requires a valid date and recurrence rule. A malformed date
-  is invalid usage (exit 64); a parsed cadence that violates the schedule
+- **`--cadence`** requires a valid date, written exactly `YYYY-MM-DD`, and a
+  recurrence rule. A malformed date is invalid usage (exit 64); a parsed cadence that violates the schedule
   rules is refused (exit 2). Invalid cadences already written in configs or
   declarations remain configuration errors (exit 3).
 - **`--grace` and `--cadence`** postpone when a stale document is due. Under

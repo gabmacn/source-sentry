@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{Expectation, Placement, Target};
 use crate::adapters::Adapter;
@@ -155,7 +155,7 @@ pub enum MutateError {
 		/// The record.
 		document: DocumentId,
 		/// When it was sealed.
-		at: DateTime<Utc>,
+		at: Timestamp,
 	},
 	/// A file's canonical oid could not be computed, so none was guessed.
 	#[error(

@@ -82,7 +82,7 @@ fn check_project(
 	history: &FakeHistory,
 	snapshot: &FakeSnapshot,
 	start: &str,
-	at: chrono::DateTime<chrono::Utc>,
+	at: jiff::Timestamp,
 ) -> Result<Evaluation, BackendError> {
 	let configs = ConfigSet::load_project(snapshot, &path(start)).unwrap();
 	let inventory = discover(snapshot, &configs).unwrap();

@@ -5,7 +5,7 @@ mod tests;
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Days, Utc};
+use jiff::Timestamp;
 
 use super::clocks::{Answer, Answers, Requests, Slot, clock_diagnostic};
 use super::documents::{add_former_sites, local_lockfile_site, sites};
@@ -21,7 +21,7 @@ use crate::claims::{
 use crate::config::{Resolved, Series};
 use crate::evaluate::cadence::{self, CadenceStatus, Completion};
 use crate::evaluate::schedule::{
-	Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone,
+	Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone, add_days,
 };
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{DocumentId, Fact, Lifecycle, RepoPath, Review, Rule, Seal};
@@ -313,7 +313,7 @@ pub(super) fn finish(
 	plan: SeriesPlan<'_>,
 	answers: &Answers,
 	zone: Option<&TimeZone>,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Subject {
 	let SeriesPlan {
@@ -429,7 +429,7 @@ fn windows(
 	grace: u32,
 	zone: &TimeZone,
 	completions: &[MemberCompletion],
-	at: DateTime<Utc>,
+	at: Timestamp,
 ) -> Result<(CadenceStatus<RepoPath>, Option<Deadline>), ScheduleError> {
 	let completed: Vec<Completion<(RepoPath, usize)>> = completions
 		.iter()
@@ -493,20 +493,12 @@ fn next_deadline(
 	let last_day = match (open, status.windows.last()) {
 		(Some(last_day), _) => last_day,
 		(None, Some(last)) => {
-			let after_due = last
-				.due
-				.checked_add_days(Days::new(1))
-				.ok_or(ScheduleError::OutOfRange)?;
-			recurrence
-				.next_on_or_after(after_due)?
-				.checked_add_days(Days::new(u64::from(grace)))
-				.ok_or(ScheduleError::OutOfRange)?
+			let after_due = add_days(last.due, 1)?;
+			add_days(recurrence.next_on_or_after(after_due)?, grace)?
 		}
 		(None, None) => return Ok(None),
 	};
-	let after = last_day
-		.checked_add_days(Days::new(1))
-		.ok_or(ScheduleError::OutOfRange)?;
+	let after = add_days(last_day, 1)?;
 	Ok(Some(Deadline {
 		due: Some(last_day),
 		due_from: zone.start_of_day(last_day)?,

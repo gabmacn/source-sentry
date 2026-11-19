@@ -9,7 +9,7 @@ mod renames;
 mod schedules;
 mod series;
 
-use chrono::{DateTime, TimeDelta, TimeZone as _, Utc};
+use jiff::{SignedDuration, Timestamp};
 use serde_json::{Value, json};
 
 use super::{Evaluation, Subject, Timing, check};
@@ -47,8 +47,9 @@ define:
 ";
 
 /// Midnight UTC, `n` days after 1 January 2026.
-fn day(n: i64) -> DateTime<Utc> {
-	Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap() + TimeDelta::days(n)
+fn day(n: i64) -> Timestamp {
+	"2026-01-01T00:00:00Z".parse::<Timestamp>().unwrap()
+		+ SignedDuration::from_hours(24 * n)
 }
 
 /// The fake oid of `content`, as lockfiles write it.
@@ -115,7 +116,7 @@ impl Repo {
 	}
 
 	/// Evaluates a clean checkout at `at` under `context`.
-	fn evaluate(&self, at: DateTime<Utc>, context: Option<&str>) -> Evaluation {
+	fn evaluate(&self, at: Timestamp, context: Option<&str>) -> Evaluation {
 		evaluate(&self.history, &self.checkout(), at, context)
 	}
 }
@@ -124,7 +125,7 @@ impl Repo {
 fn evaluate(
 	history: &FakeHistory,
 	snapshot: &FakeSnapshot,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	context: Option<&str>,
 ) -> Evaluation {
 	let configs = match ConfigSet::load(snapshot) {
@@ -197,7 +198,7 @@ fn timing<'a>(
 }
 
 /// The commit and timestamp a started timing records.
-fn started(timing: &Timing) -> (&CommitId, DateTime<Utc>) {
+fn started(timing: &Timing) -> (&CommitId, Timestamp) {
 	let Timing::Started(clock) = timing else {
 		panic!("expected a started clock, got {timing:?}");
 	};

@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, fs, io};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use source_sentry_core::ports::{
 	BackendError, BackendErrorKind, Commit, CommitId, FirstParent, History,
 	ObjectId, RepoPath,
@@ -198,15 +198,14 @@ impl FirstParentWalk<'_> {
 			error::git(format!("cannot read the commit {id}"), source)
 		})?;
 		let seconds = commit.committer().when().seconds();
-		let committer_time = DateTime::<Utc>::from_timestamp(seconds, 0)
-			.ok_or_else(|| {
-				failure(
-					BackendErrorKind::Git,
-					format!(
-						"the commit {id} has an out-of-range committer date ({seconds})"
-					),
-				)
-			})?;
+		let committer_time = Timestamp::from_second(seconds).map_err(|_| {
+			failure(
+				BackendErrorKind::Git,
+				format!(
+					"the commit {id} has an out-of-range committer date ({seconds})"
+				),
+			)
+		})?;
 		let first_parent = if self.shallow_commits()?.contains(id.0.hex()) {
 			FirstParent::Shallow
 		} else if commit.parent_count() == 0 {

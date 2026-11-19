@@ -1,7 +1,7 @@
 //! Schedules resolved for an evaluation: what documents on one cadence share,
 //! and what each keeps for itself.
 
-use chrono::{NaiveDate, TimeZone as _, Utc};
+use jiff::civil::Date;
 
 use super::{REPOSITORY, Repo};
 use crate::config::ConfigSet;
@@ -71,7 +71,7 @@ fn deadlines_on_a_shared_cadence_keep_each_schedules_grace() {
 	let mut scopes = Scopes::new(&configs, None);
 	let zone = TimeZone::new("UTC").unwrap();
 	// A Wednesday.
-	let start = Utc.with_ymd_and_hms(2026, 1, 7, 12, 0, 0).unwrap();
+	let start: jiff::Timestamp = "2026-01-07T12:00:00Z".parse().unwrap();
 	let expected = [
 		(400, "2027-02-15"),
 		(20, "2026-02-02"),
@@ -83,7 +83,7 @@ fn deadlines_on_a_shared_cadence_keep_each_schedules_grace() {
 	for ((settings, schedule), (grace, due)) in
 		schedules(&mut scopes, &graces).iter().zip(expected)
 	{
-		let due: NaiveDate = due.parse().unwrap();
+		let due: Date = due.parse().unwrap();
 		let deadline = schedule.deadline(start, &zone).unwrap();
 		assert_eq!(deadline.due, Some(due), "grace {grace}");
 		let alone = EffectiveSchedule::new(&settings.schedule()).unwrap();

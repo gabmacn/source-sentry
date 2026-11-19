@@ -1,7 +1,7 @@
 //! A renamed document keeps the clocks of the documents that cite it: their
 //! drift is read at the path the source had at each commit.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde_json::{Value, json};
 
 use super::{
@@ -13,7 +13,10 @@ use crate::model::Fact;
 
 /// A rename marker from the project-rooted `from`.
 fn renamed(from: &str, n: i64) -> Value {
-	json!({"from": from, "at": day(n).to_rfc3339(), "by": null})
+	// Written with an explicit offset rather than `Z`, so that reading other
+	// spellings of UTC stays covered.
+	let at = day(n).strftime("%Y-%m-%dT%H:%M:%S+00:00").to_string();
+	json!({"from": from, "at": at, "by": null})
 }
 
 /// The docs lockfile: the tracked source document `source`, renamed through
@@ -120,7 +123,7 @@ fn a_rename_onto_a_path_with_the_attested_content_keeps_the_clock() {
 	assert_eq!(facts_before, [Fact::Stale, Fact::Due, Fact::Overdue]);
 	assert_eq!(
 		deadline_before.and_then(|deadline| deadline.due),
-		NaiveDate::from_ymd_opt(2026, 1, 10)
+		Date::new(2026, 1, 10).ok()
 	);
 
 	let lock = docs_lock(
@@ -489,7 +492,7 @@ fn a_rename_in_another_project_onto_the_attested_content_keeps_the_clock() {
 	assert_eq!(facts_before, [Fact::Stale, Fact::Due, Fact::Overdue]);
 	assert_eq!(
 		deadline_before.and_then(|deadline| deadline.due),
-		NaiveDate::from_ymd_opt(2026, 1, 10)
+		Date::new(2026, 1, 10).ok()
 	);
 
 	let (up, docs) = rename_in_up(":/up/s.md");

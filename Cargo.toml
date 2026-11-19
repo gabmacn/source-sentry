@@ -59,15 +59,21 @@ serde_path_to_error = "0.1"
 
 # SHA-256 for Git LFS pointers, which Source Sentry computes natively.
 sha2 = "0.11"
-# Parses dates and times in ISO 8601 format, including time zones.
-chrono = { version = "0.4", features = ["serde"] }
-# Time zones for schedules, with the IANA time zone database compiled in.
-# Only the bundled copy is read, never the system's, so Windows and Linux
-# apply the same rules. `chrono-tz` was passed over: its
-# latest release carries tzdata 2025b.
-jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
+# Dates, instants and time zones: parsing and printing RFC 3339 instants and
+# ISO 8601 dates, date arithmetic, and the time zones of schedules, with the
+# IANA time zone database compiled in. Only the bundled copy is read, never
+# the system's, so Windows and Linux apply the same rules. `chrono` was
+# replaced by it after being declared unmaintained (RUSTSEC-2026-0543), and
+# `chrono-tz` was passed over: its latest release carries tzdata 2025b.
+jiff = { version = "0.2", default-features = false, features = ["std", "serde", "tzdb-bundle-always"] }
 # Expands the RFC 5545 recurrence rules of cadences.
 rrule = "0.14"
+# Only for `rrule`, whose interface is written in `chrono`'s types. Dates are
+# converted in `evaluate::schedule::recurrence` alone, so no other code and no
+# public interface uses `chrono`. `rrule` also brings `chrono-tz`, which only
+# supplies its UTC zone here; schedules use `jiff`'s zones. Both go when
+# `rrule` stops needing them.
+chrono = { version = "0.4", default-features = false }
 
 # Line diffs rendered during review.
 similar = "3.2"

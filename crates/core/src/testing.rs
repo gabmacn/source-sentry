@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sha2::{Digest, Sha256};
 
 use crate::ports::{
@@ -57,7 +57,7 @@ pub fn path(path: &str) -> RepoPath {
 #[derive(Clone, Debug)]
 struct FakeCommit {
 	id: CommitId,
-	time: DateTime<Utc>,
+	time: Timestamp,
 	tree: BTreeMap<RepoPath, ObjectId>,
 }
 
@@ -86,7 +86,7 @@ impl FakeHistory {
 	/// every other file carries over from the previous commit.
 	pub fn commit(
 		&mut self,
-		time: DateTime<Utc>,
+		time: Timestamp,
 		changes: &[(&str, Option<&[u8]>)],
 	) -> CommitId {
 		let mut tree = self
@@ -362,12 +362,11 @@ impl Snapshot for FakeSnapshot {
 
 #[cfg(test)]
 mod tests {
-	use chrono::TimeZone as _;
 
 	use super::*;
 
-	fn time() -> DateTime<Utc> {
-		Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
+	fn time() -> Timestamp {
+		"2026-01-01T00:00:00Z".parse().unwrap()
 	}
 
 	/// Walks stop at the shallow boundary, but a commit below it is read by

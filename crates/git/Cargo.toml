@@ -15,7 +15,7 @@ categories = ["development-tools"]
 source-sentry-core.workspace = true
 git2.workspace = true
 sha2.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

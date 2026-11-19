@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::expectation::{Expectation, compare};
 use super::repo::{Repo, checked_reviewer};
@@ -36,7 +36,7 @@ pub struct AttestRequest {
 	/// unknown reviewer.
 	pub reviewer: Option<String>,
 	/// The instant of the review, which is truncated to the second.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 	/// Whether the whole document was reread, which alone updates the
 	/// document's own `reviewed`.
 	pub reread: bool,

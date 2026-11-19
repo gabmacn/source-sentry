@@ -17,6 +17,7 @@ mod series;
 pub use declaration::{
 	Cadence, CadenceSetting, Declaration, Lockfile, Member, PathSource,
 	PatternSource, Rename, Retired, Review, Schedule, Seal, SourceDecl,
+	parse_date, whole_second,
 };
 pub use identity::{DocumentId, IdentityError, RemoteIdentity, Service};
 pub use oid::{CommitId, HashAlgorithm, ObjectId, OidError};

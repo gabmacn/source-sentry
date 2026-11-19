@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{
 	Coverage, Elsewhere, Evaluation, SubjectKind, check_within, judge_all,
@@ -45,7 +45,7 @@ pub fn check<S: Snapshot, H: History>(
 	history: &H,
 	configs: &ConfigSet,
 	inventory: &Inventory,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	context: Option<&str>,
 ) -> Result<Evaluation, BackendError> {
 	let Discovered {
@@ -138,7 +138,7 @@ fn discover_cited<S: Snapshot>(
 	snapshot: &S,
 	configs: &ConfigSet,
 	inventory: &Inventory,
-	at: DateTime<Utc>,
+	at: Timestamp,
 ) -> Result<Discovered, BackendError> {
 	let mut unloaded = Vec::new();
 	let mut combined = inventory.clone();

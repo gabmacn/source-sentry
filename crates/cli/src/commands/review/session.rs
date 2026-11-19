@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::state::Key as DocumentId;
 use source_sentry_core::mutate::{
@@ -42,7 +42,7 @@ pub(super) enum Written {
 /// One answer's writes, kept so that the answer can be taken back.
 pub(super) struct Step {
 	/// When the answer was recorded.
-	pub(super) at: DateTime<Utc>,
+	pub(super) at: Timestamp,
 	/// The reviews it recorded, and whether each recorded a reread: one, or
 	/// several for an answer given to many documents at once.
 	pub(super) reviews: Vec<(DocumentId, bool)>,

@@ -39,7 +39,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::adapters::frontmatter;
 use crate::adapters::lockfile::{LocalLockfile, RemoteLockfile};
@@ -177,7 +177,7 @@ pub(super) struct Query {
 pub(super) fn starts<H: History>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[Query],
 ) -> Result<Vec<Result<ObligationStart, ClockError>>, BackendError> {
 	let reader = Reader {
@@ -617,7 +617,7 @@ fn identity_evidence<H: History>(
 pub(super) fn drifts<H: History>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[SourceQuery],
 	lineages: &[Option<Query>],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {

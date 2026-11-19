@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 
 use super::model::AppliedContext;
 use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location, Mode};
@@ -237,7 +237,7 @@ pub(super) fn time_zone(
 }
 
 /// A cadence's identity, for the cache: its DTSTART and its rule.
-type CadenceKey = (NaiveDate, String);
+type CadenceKey = (Date, String);
 
 /// Each scope's settings and rules, and each distinct cadence's validation,
 /// computed once per evaluation.

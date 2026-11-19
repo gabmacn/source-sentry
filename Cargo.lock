@@ -193,7 +193,6 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
- "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -1393,10 +1392,10 @@ name = "source-sentry"
 version = "0.1.0"
 dependencies = [
  "anstream",
- "chrono",
  "clap",
  "clap_complete",
  "inquire",
+ "jiff",
  "owo-colors",
  "ratatui",
  "serde_json",
@@ -1428,8 +1427,8 @@ dependencies = [
 name = "source-sentry-git"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "git2",
+ "jiff",
  "sha2",
  "source-sentry-core",
  "tempfile",

@@ -13,7 +13,7 @@ mod seal;
 mod succession;
 mod track;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::Expectation;
 use crate::claims::{Claim, Inventory, discover};
@@ -160,12 +160,12 @@ impl Tree {
 }
 
 /// The instant the tests pass in, with a fraction of a second to truncate.
-fn at() -> DateTime<Utc> {
+fn at() -> Timestamp {
 	"2026-11-07T12:34:56.789Z".parse().unwrap()
 }
 
 /// [`at`], truncated to the second, as reviews record it.
-fn second() -> DateTime<Utc> {
+fn second() -> Timestamp {
 	"2026-11-07T12:34:56Z".parse().unwrap()
 }
 

@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, SubsecRound, Utc};
-use serde::{Deserialize, Serialize};
+use jiff::{RoundMode, Timestamp, TimestampRound, Unit, civil::Date};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
 use super::{ClassName, ObjectId};
 
@@ -17,7 +17,7 @@ use super::{ClassName, ObjectId};
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Review {
 	/// The moment, in UTC, to the second.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 	/// The reviewer's name, or `None` when nobody could be identified. It is
 	/// written as `null`, never omitted.
 	pub by: Option<String>,
@@ -29,7 +29,7 @@ pub struct Review {
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Rename {
 	/// When the rename was recorded, in UTC to the second.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 	/// Who recorded it, or `None` when nobody could be identified.
 	pub by: Option<String>,
 	/// The former document path: `/` starts at the declaration's project
@@ -40,12 +40,24 @@ pub struct Rename {
 impl Review {
 	/// A review at `at`, truncated to the second, by `by`.
 	#[must_use]
-	pub fn new(at: DateTime<Utc>, by: Option<String>) -> Self {
+	pub fn new(at: Timestamp, by: Option<String>) -> Self {
 		Self {
-			at: at.trunc_subsecs(0),
+			at: whole_second(at),
 			by,
 		}
 	}
+}
+
+/// `at` without its fraction of a second: the start of the second it falls
+/// in, also for instants before 1970.
+#[must_use]
+pub fn whole_second(at: Timestamp) -> Timestamp {
+	let floor = TimestampRound::new()
+		.smallest(Unit::Second)
+		.mode(RoundMode::Floor);
+	// Rounding down cannot leave the supported range, whose first instant is
+	// a whole second, so `at` itself is never returned in practice.
+	at.round(floor).unwrap_or(at)
 }
 
 /// A record's seal: its canonical blob oid, and who sealed it when.
@@ -53,7 +65,7 @@ impl Review {
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Seal {
 	/// When the record was sealed.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 	/// Who sealed it, or `None` when nobody could be identified.
 	pub by: Option<String>,
 	/// The record's canonical blob oid at sealing.
@@ -133,11 +145,48 @@ impl<'de> Deserialize<'de> for CadenceSetting {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Cadence {
-	/// The first due date. Required, and date-only.
-	pub dtstart: NaiveDate,
+	/// The first due date. Required, and date-only: written exactly
+	/// `YYYY-MM-DD`, as [`parse_date`] reads it.
+	#[serde(deserialize_with = "date_only")]
+	pub dtstart: Date,
 	/// An RFC 5545 recurrence rule without time-of-day parts, `COUNT` or
 	/// `UNTIL`.
 	pub rrule: String,
+}
+
+/// Parses a date written exactly `YYYY-MM-DD`, such as `2026-12-01`.
+///
+/// Anything else is refused, including what a looser date parser would also
+/// read: a time of day or a time zone, which a date-only value must not drop
+/// silently, a sign, a year of more than four digits, single-digit months or
+/// days, and the basic format `20261201`.
+#[must_use]
+pub fn parse_date(text: &str) -> Option<Date> {
+	let bytes = text.as_bytes();
+	let shaped = bytes.len() == 10
+		&& bytes.iter().enumerate().all(|(index, byte)| {
+			if index == 4 || index == 7 {
+				*byte == b'-'
+			} else {
+				byte.is_ascii_digit()
+			}
+		});
+	if !shaped {
+		return None;
+	}
+	text.parse().ok()
+}
+
+/// Deserializes a date with [`parse_date`].
+fn date_only<'de, D: Deserializer<'de>>(
+	deserializer: D,
+) -> Result<Date, D::Error> {
+	let text = String::deserialize(deserializer)?;
+	parse_date(&text).ok_or_else(|| {
+		D::Error::custom(format!(
+			"`{text}` is not a date written YYYY-MM-DD, such as 2026-12-01"
+		))
+	})
 }
 
 /// One declared source: a single path, or a pattern.

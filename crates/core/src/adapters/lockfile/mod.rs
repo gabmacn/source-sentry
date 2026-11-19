@@ -589,8 +589,8 @@ fn canonical_order(declaration: &Declaration) -> Declaration {
 fn serialize(lockfile: &Lockfile) -> Vec<u8> {
 	// `serde_json` fails only when a `Serialize` implementation fails or a
 	// map key is not a string. Every map here is keyed by `String`, and the
-	// model's implementations (derived structs, strings, numbers and chrono's
-	// dates) never fail.
+	// model's implementations (derived structs, strings, numbers and jiff's
+	// dates and instants) never fail.
 	#[expect(
 		clippy::expect_used,
 		reason = "string-keyed maps of the model's types always serialize"

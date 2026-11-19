@@ -154,7 +154,7 @@ fn evaluate_snapshot<S: Snapshot>(
 	workspace: &Workspace,
 	snapshot: &S,
 	repository: &GitRepository,
-	at: chrono::DateTime<chrono::Utc>,
+	at: jiff::Timestamp,
 	context: &str,
 	report_invalid: bool,
 ) -> Result<(Evaluation, Option<ConfigSet>), Failure> {

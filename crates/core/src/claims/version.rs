@@ -3,9 +3,9 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 
-use crate::model::VersionKind;
+use crate::model::{VersionKind, parse_date};
 
 /// A series member's version, parsed by its series' [`VersionKind`].
 ///
@@ -29,7 +29,7 @@ enum Value {
 	Integer(Number),
 	/// The components, without trailing zero components.
 	Dotted(Vec<Number>),
-	Date(NaiveDate),
+	Date(Date),
 }
 
 /// A non-negative whole number of any size, kept as its decimal digits
@@ -144,24 +144,6 @@ fn parse_dotted(text: &str) -> Option<Vec<Number>> {
 	Some(components)
 }
 
-/// Parses exactly `YYYY-MM-DD`, which chrono's `%Y` alone would loosen
-/// with signs and longer years.
-fn parse_date(text: &str) -> Option<NaiveDate> {
-	let bytes = text.as_bytes();
-	let shaped = bytes.len() == 10
-		&& bytes.iter().enumerate().all(|(index, byte)| {
-			if index == 4 || index == 7 {
-				*byte == b'-'
-			} else {
-				byte.is_ascii_digit()
-			}
-		});
-	if !shaped {
-		return None;
-	}
-	NaiveDate::parse_from_str(text, "%Y-%m-%d").ok()
-}
-
 impl fmt::Display for Version {
 	/// The canonical spelling: no leading zeros, no trailing zero components,
 	/// and dates as `YYYY-MM-DD`. The value zero of a `dotted` version is
@@ -179,7 +161,7 @@ impl fmt::Display for Version {
 					.collect();
 				formatter.write_str(&text.join("."))
 			}
-			Value::Date(date) => write!(formatter, "{}", date.format("%Y-%m-%d")),
+			Value::Date(date) => write!(formatter, "{date}"),
 		}
 	}
 }

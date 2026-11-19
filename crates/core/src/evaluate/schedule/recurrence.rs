@@ -10,6 +10,11 @@
 //! the evaluator yielded them, before it asks the evaluator for more, so it
 //! sees exactly the dates a new expansion from DTSTART would yield, without
 //! computing them again.
+//!
+//! `rrule` works in `chrono`'s types, so this module is the only one that
+//! uses `chrono`: DTSTART is converted on the way in, and each occurrence on
+//! the way out. Everything else, including this module's interface, uses
+//! `jiff`.
 
 #[cfg(test)]
 mod tests;
@@ -17,18 +22,19 @@ mod tests;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use chrono::{Days, NaiveDate, NaiveTime, TimeZone as _};
+use chrono::{Datelike as _, NaiveDate, NaiveTime, TimeZone as _};
+use jiff::civil::Date;
 use rrule::{
 	Frequency, NWeekday, RRule, RRuleSet, RRuleSetIter, Tz, Unvalidated,
 };
 
-use super::ScheduleError;
+use super::{ScheduleError, add_days};
 use crate::model::Cadence;
 
 /// How far ahead, in days, a search for an occurrence looks: 146 097 days,
 /// exactly 400 Gregorian years, the period after which the calendar and its
 /// weekdays repeat. See the [module documentation](super#the-search-horizon).
-pub const HORIZON_DAYS: u64 = 146_097;
+pub const HORIZON_DAYS: u32 = 146_097;
 
 /// A validated cadence: a date-only recurrence rule and its DTSTART, which is
 /// the first occurrence.
@@ -39,7 +45,7 @@ pub const HORIZON_DAYS: u64 = 146_097;
 /// their DTSTART and rule are.
 #[derive(Clone)]
 pub struct Recurrence {
-	dtstart: NaiveDate,
+	dtstart: Date,
 	rule: String,
 	set: RRuleSet,
 	expansion: Arc<Mutex<Expansion>>,
@@ -76,7 +82,7 @@ impl fmt::Debug for Recurrence {
 struct Expansion {
 	/// Every occurrence the evaluator has yielded, in the order it yielded
 	/// them.
-	found: Vec<NaiveDate>,
+	found: Vec<Date>,
 	/// The evaluator, positioned after the last occurrence in `found`, or
 	/// `None` once it has yielded its last.
 	rest: Option<RRuleSetIter>,
@@ -96,9 +102,9 @@ enum Dates<'e> {
 }
 
 impl Iterator for Dates<'_> {
-	type Item = NaiveDate;
+	type Item = Date;
 
-	fn next(&mut self) -> Option<NaiveDate> {
+	fn next(&mut self) -> Option<Date> {
 		match self {
 			Self::Replay { expansion, next } => {
 				if let Some(&date) = expansion.found.get(*next) {
@@ -106,19 +112,23 @@ impl Iterator for Dates<'_> {
 					return Some(date);
 				}
 				let rest = expansion.rest.as_mut()?;
-				if let Some(occurrence) = rest.next() {
-					let date = occurrence.date_naive();
-					expansion.found.push(date);
-					*next += 1;
-					Some(date)
-				} else {
+				let Some(occurrence) = rest.next() else {
 					expansion.rest = None;
-					None
-				}
+					return None;
+				};
+				// Occurrences after 31 December 9999 cannot be represented, so
+				// the expansion ends there.
+				let Some(date) = from_naive(occurrence.date_naive()) else {
+					expansion.rest = None;
+					return None;
+				};
+				expansion.found.push(date);
+				*next += 1;
+				Some(date)
 			}
-			Self::Fresh(rest) => {
-				rest.next().map(|occurrence| occurrence.date_naive())
-			}
+			Self::Fresh(rest) => rest
+				.next()
+				.and_then(|occurrence| from_naive(occurrence.date_naive())),
 		}
 	}
 }
@@ -138,6 +148,9 @@ impl Recurrence {
 	///   plain and numbered weekdays, which the evaluator reads wrongly.
 	/// - [`ScheduleError::NoOccurrence`] when the rule has no occurrence within
 	///   [`HORIZON_DAYS`] of DTSTART, such as a rule matching only 30 February.
+	/// - [`ScheduleError::OutOfRange`] when DTSTART lies so close to 31
+	///   December 9999 that the search reaches past it without finding an
+	///   occurrence.
 	/// - [`ScheduleError::DtstartNotOccurrence`] when DTSTART is not an
 	///   occurrence of the rule.
 	pub fn new(cadence: &Cadence) -> Result<Self, ScheduleError> {
@@ -146,8 +159,8 @@ impl Recurrence {
 		check_date_only(rule, &parsed)?;
 		check_combinations(rule, &parsed)?;
 		check_supported(rule, &parsed)?;
-		let start =
-			Tz::UTC.from_utc_datetime(&cadence.dtstart.and_time(NaiveTime::MIN));
+		let start = Tz::UTC
+			.from_utc_datetime(&to_naive(cadence.dtstart)?.and_time(NaiveTime::MIN));
 		let set = parsed
 			.build(start)
 			.map_err(|error| invalid(rule, error.to_string()))?
@@ -177,7 +190,7 @@ impl Recurrence {
 
 	/// The first occurrence.
 	#[must_use]
-	pub fn dtstart(&self) -> NaiveDate {
+	pub fn dtstart(&self) -> Date {
 		self.dtstart
 	}
 
@@ -192,19 +205,19 @@ impl Recurrence {
 	///
 	/// # Errors
 	///
-	/// Fails with [`ScheduleError::NoOccurrence`] when no occurrence falls
-	/// within [`HORIZON_DAYS`] days on or after `date`.
-	pub fn next_on_or_after(
-		&self,
-		date: NaiveDate,
-	) -> Result<NaiveDate, ScheduleError> {
-		let limit = date
-			.checked_add_days(Days::new(HORIZON_DAYS))
-			.unwrap_or(NaiveDate::MAX);
+	/// - [`ScheduleError::NoOccurrence`] when no occurrence falls within
+	///   [`HORIZON_DAYS`] days on or after `date`.
+	/// - [`ScheduleError::OutOfRange`] when those days reach past 31 December
+	///   9999, the last date that can be represented, and no occurrence falls
+	///   before it. The next occurrence may then exist but cannot be written.
+	pub fn next_on_or_after(&self, date: Date) -> Result<Date, ScheduleError> {
+		let limit = add_days(date, HORIZON_DAYS);
 		let found =
 			self.with_dates(|mut dates| dates.find(|&occurrence| occurrence >= date));
-		match found {
-			Some(occurrence) if occurrence <= limit => Ok(occurrence),
+		match (found, limit) {
+			(Some(occurrence), Ok(limit)) if occurrence <= limit => Ok(occurrence),
+			(Some(occurrence), Err(_)) => Ok(occurrence),
+			(None, Err(_)) => Err(ScheduleError::OutOfRange),
 			_ => Err(ScheduleError::NoOccurrence {
 				rule: self.rule.clone(),
 				from: date,
@@ -215,11 +228,7 @@ impl Recurrence {
 	/// Every occurrence from `first` to `last`, both included, in order. The
 	/// list is empty when `last` precedes `first`.
 	#[must_use]
-	pub fn occurrences(
-		&self,
-		first: NaiveDate,
-		last: NaiveDate,
-	) -> Vec<NaiveDate> {
+	pub fn occurrences(&self, first: Date, last: Date) -> Vec<Date> {
 		self.with_dates(|dates| {
 			dates
 				.skip_while(|&occurrence| occurrence < first)
@@ -458,4 +467,26 @@ fn invalid(rule: &str, reason: impl Into<String>) -> ScheduleError {
 		rule: rule.to_owned(),
 		reason: reason.into(),
 	}
+}
+
+/// `date` as the `chrono` date that `rrule` expects. `chrono`'s range is
+/// wider than `jiff`'s, so the error is not expected in practice.
+fn to_naive(date: Date) -> Result<NaiveDate, ScheduleError> {
+	NaiveDate::from_ymd_opt(
+		i32::from(date.year()),
+		u32::from(date.month().unsigned_abs()),
+		u32::from(date.day().unsigned_abs()),
+	)
+	.ok_or(ScheduleError::OutOfRange)
+}
+
+/// An occurrence from `rrule` as a `jiff` date, or `None` when it lies
+/// outside the years -9999 to 9999.
+fn from_naive(date: NaiveDate) -> Option<Date> {
+	Date::new(
+		i16::try_from(date.year()).ok()?,
+		i8::try_from(date.month()).ok()?,
+		i8::try_from(date.day()).ok()?,
+	)
+	.ok()
 }

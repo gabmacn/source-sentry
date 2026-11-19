@@ -1,8 +1,9 @@
 //! The review journey: `track`, `attest`, a change, `check`, `diff`, and
 //! `attest` with the expectations `diff` printed.
 
-use chrono::{DateTime, SubsecRound as _, Utc};
+use jiff::Timestamp;
 use serde_json::json;
+use source_sentry_core::model::whole_second;
 
 use crate::support::{AT, TestRepo, document};
 
@@ -199,7 +200,7 @@ fn attest_without_expectations_binds_the_current_state() {
 		.expect_code(0);
 	repo.commit_at("2026-10-01T10:00:00Z");
 
-	let before = Utc::now().trunc_subsecs(0);
+	let before = whole_second(Timestamp::now());
 	let run = repo.run(&[
 		"attest",
 		"docs/guide.md",
@@ -209,7 +210,7 @@ fn attest_without_expectations_binds_the_current_state() {
 		"Legal Team",
 		"--yes",
 	]);
-	let after = Utc::now();
+	let after = Timestamp::now();
 	run.expect_code(0);
 	assert!(
 		run.stdout.contains("Binds the current state"),
@@ -221,7 +222,7 @@ fn attest_without_expectations_binds_the_current_state() {
 	let sources = &lockfile["documents"]["guide.md"]["sources"];
 	assert_eq!(sources[0]["reviewed"]["by"], "Legal Team");
 	// The review is dated when `attest` runs, to the second.
-	let at: DateTime<Utc> = sources[0]["reviewed"]["at"]
+	let at: Timestamp = sources[0]["reviewed"]["at"]
 		.as_str()
 		.expect("a review time")
 		.parse()

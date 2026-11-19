@@ -1,6 +1,4 @@
 //! History: first-parent walks, blob lookups and shallow boundaries.
-
-use chrono::{TimeZone as _, Utc};
 use source_sentry_core::ports::{
 	BackendErrorKind, Commit, FirstParent, HashAlgorithm, History as _, ObjectId,
 	RepoPath,
@@ -75,7 +73,7 @@ fn future_dated_commits_report_their_committer_time() {
 	);
 
 	let commits = walk(&repo);
-	let expected = Utc.with_ymd_and_hms(2099, 1, 1, 0, 0, 0).unwrap();
+	let expected: jiff::Timestamp = "2099-01-01T00:00:00Z".parse().unwrap();
 	assert_eq!(commits[0].committer_time, expected);
 }
 

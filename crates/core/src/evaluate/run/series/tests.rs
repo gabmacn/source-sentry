@@ -1,6 +1,6 @@
 //! Tests for choosing a series' next deadline from its evaluated windows.
 
-use chrono::{Days, NaiveDate};
+use jiff::{Span, Timestamp, civil::Date, tz::Offset};
 
 use super::next_deadline;
 use crate::evaluate::cadence::{CadenceStatus, Completion, Window};
@@ -8,8 +8,13 @@ use crate::evaluate::schedule::{Deadline, Recurrence, TimeZone};
 use crate::model::{Cadence, RepoPath};
 
 /// The first due date of every daily status built here.
-fn start() -> NaiveDate {
-	NaiveDate::from_ymd_opt(1500, 1, 1).unwrap()
+fn start() -> Date {
+	Date::new(1500, 1, 1).unwrap()
+}
+
+/// Noon UTC on `date`.
+fn noon(date: Date) -> Timestamp {
+	Offset::UTC.to_timestamp(date.at(12, 0, 0, 0)).unwrap()
 }
 
 /// A daily cadence from [`start`].
@@ -36,11 +41,11 @@ fn status(states: &[State]) -> CadenceStatus<RepoPath> {
 	let mut after = None;
 	for (index, &state) in states.iter().enumerate() {
 		let due = start()
-			.checked_add_days(Days::new(index.try_into().unwrap()))
+			.checked_add(Span::new().days(i64::try_from(index).unwrap()))
 			.unwrap();
 		let credit = (state == State::Credited).then(|| Completion {
 			entry: RepoPath::new(&format!("audit-{index}.md")).unwrap(),
-			at: due.and_hms_opt(12, 0, 0).unwrap().and_utc(),
+			at: noon(due),
 		});
 		if state == State::Missed {
 			missed.push(index);
@@ -78,16 +83,14 @@ fn deadline_by_membership(
 	let last_day = match (open, status.windows.last()) {
 		(Some(last_day), _) => last_day,
 		(None, Some(last)) => recurrence
-			.next_on_or_after(last.due.checked_add_days(Days::new(1)).unwrap())
+			.next_on_or_after(last.due.tomorrow().unwrap())
 			.unwrap(),
 		(None, None) => return None,
 	};
 	Some(Deadline {
 		due: Some(last_day),
 		due_from: zone.start_of_day(last_day).unwrap(),
-		overdue_from: zone
-			.start_of_day(last_day.checked_add_days(Days::new(1)).unwrap())
-			.unwrap(),
+		overdue_from: zone.start_of_day(last_day.tomorrow().unwrap()).unwrap(),
 		provisional: false,
 	})
 }

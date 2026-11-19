@@ -37,7 +37,7 @@
 #[cfg(test)]
 mod tests;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::{Timestamp, civil::Date};
 
 use super::schedule::{Recurrence, ScheduleError, TimeZone, add_days};
 
@@ -47,7 +47,7 @@ pub struct Completion<E> {
 	/// The entry's identifier.
 	pub entry: E,
 	/// The instant the entry completed.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 }
 
 /// One cadence window, (`after`, `last_day`], in local dates.
@@ -55,11 +55,11 @@ pub struct Completion<E> {
 pub struct Window<E> {
 	/// The previous due date, d₍ₖ₋₁₎, which the window excludes, or `None` for
 	/// the first window, which has no lower bound.
-	pub after: Option<NaiveDate>,
+	pub after: Option<Date>,
 	/// The window's due date, dₖ.
-	pub due: NaiveDate,
+	pub due: Date,
 	/// The last local date the window contains: `due` plus the grace period.
-	pub last_day: NaiveDate,
+	pub last_day: Date,
 	/// Whether the evaluation instant's local date is after `last_day`.
 	pub closed: bool,
 	/// The completion credited to this window, if any.
@@ -69,7 +69,7 @@ pub struct Window<E> {
 impl<E> Window<E> {
 	/// Whether the window contains the local date `date`.
 	#[must_use]
-	pub fn contains(&self, date: NaiveDate) -> bool {
+	pub fn contains(&self, date: Date) -> bool {
 		self.after.is_none_or(|after| after < date) && date <= self.last_day
 	}
 }
@@ -109,14 +109,14 @@ pub fn evaluate<E: Clone + PartialEq>(
 	grace: u32,
 	zone: &TimeZone,
 	completions: &[Completion<E>],
-	at: DateTime<Utc>,
+	at: Timestamp,
 ) -> Result<CadenceStatus<E>, ScheduleError> {
-	let today = zone.local_date(at)?;
-	let completions = in_completion_order(completions, zone)?;
+	let today = zone.local_date(at);
+	let completions = in_completion_order(completions, zone);
 	let latest = completions
 		.iter()
 		.map(|&(date, _)| date)
-		.fold(today, NaiveDate::max);
+		.fold(today, Date::max);
 	let mut windows = cadence_windows(cadence, grace, latest, today)?;
 
 	// With due dates in ascending order, the windows that contain a date are
@@ -167,10 +167,7 @@ pub fn evaluate<E: Clone + PartialEq>(
 /// last day is its due date plus the same grace period, so both ascend too:
 /// the windows that end on or after `date` are a suffix, and those that start
 /// before it are a prefix.
-fn containing<E>(
-	windows: &[Window<E>],
-	date: NaiveDate,
-) -> std::ops::Range<usize> {
+fn containing<E>(windows: &[Window<E>], date: Date) -> std::ops::Range<usize> {
 	let first = windows.partition_point(|window| window.last_day < date);
 	let end = windows
 		.partition_point(|window| window.after.is_none_or(|after| after < date));
@@ -182,7 +179,7 @@ fn containing<E>(
 fn in_completion_order<'c, E: PartialEq>(
 	completions: &'c [Completion<E>],
 	zone: &TimeZone,
-) -> Result<Vec<(NaiveDate, &'c Completion<E>)>, ScheduleError> {
+) -> Vec<(Date, &'c Completion<E>)> {
 	let mut ordered: Vec<&Completion<E>> = completions.iter().collect();
 	ordered.sort_by_key(|completion| completion.at);
 	let mut earliest: Vec<&Completion<E>> = Vec::with_capacity(ordered.len());
@@ -193,7 +190,7 @@ fn in_completion_order<'c, E: PartialEq>(
 	}
 	earliest
 		.into_iter()
-		.map(|completion| Ok((zone.local_date(completion.at)?, completion)))
+		.map(|completion| (zone.local_date(completion.at), completion))
 		.collect()
 }
 
@@ -203,8 +200,8 @@ fn in_completion_order<'c, E: PartialEq>(
 fn cadence_windows<E>(
 	cadence: &Recurrence,
 	grace: u32,
-	latest: NaiveDate,
-	today: NaiveDate,
+	latest: Date,
+	today: Date,
 ) -> Result<Vec<Window<E>>, ScheduleError> {
 	let mut due_dates = cadence.occurrences(cadence.dtstart(), latest);
 	if due_dates.last() != Some(&latest) {

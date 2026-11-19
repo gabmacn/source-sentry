@@ -1,7 +1,7 @@
 //! Live documents: drift, grace, cadence, timing, unattested declarations,
 //! pattern membership, `upstream-stale` and remote documents.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde_json::json;
 
 use super::{
@@ -112,10 +112,7 @@ fn a_reviewed_empty_patterns_new_match_starts_at_the_files_commit() {
 	let (commit, timestamp) =
 		started(timing(&evaluation, "docs/a.md", "src/a.rs"));
 	assert_eq!((commit, timestamp), (&added, day(5)));
-	assert_eq!(
-		subject.deadline.unwrap().due,
-		NaiveDate::from_ymd_opt(2026, 1, 9)
-	);
+	assert_eq!(subject.deadline.unwrap().due, Date::new(2026, 1, 9).ok());
 }
 
 /// The clock starts at the first change after the
@@ -143,7 +140,7 @@ fn drift_starts_at_the_first_change_and_grace_defers_the_deadline() {
 	let deadline = subject.deadline.unwrap();
 	// Drift on 6 January plus three days: due on 9 January, from its first
 	// instant, and overdue after its end.
-	assert_eq!(deadline.due, NaiveDate::from_ymd_opt(2026, 1, 9));
+	assert_eq!(deadline.due, Date::new(2026, 1, 9).ok());
 	assert_eq!(deadline.due_from, day(8));
 	assert_eq!(deadline.overdue_from, day(9));
 	assert!(!deadline.provisional);
@@ -177,7 +174,7 @@ fn a_cadence_moves_the_deadline_to_the_next_cadence_date() {
 	let subject = document(&evaluation, "docs/a.md");
 	assert_eq!(facts(subject), [Fact::Stale]);
 	let deadline = subject.deadline.unwrap();
-	assert_eq!(deadline.due, NaiveDate::from_ymd_opt(2026, 2, 1));
+	assert_eq!(deadline.due, Date::new(2026, 2, 1).ok());
 	assert_eq!(deadline.overdue_from, day(32));
 
 	let overdue = repo.evaluate(day(32), None);
@@ -284,7 +281,7 @@ fn an_unattested_document_starts_its_clock_at_its_declaration() {
 	let (commit, timestamp) = started(live.unattested.as_ref().unwrap());
 	assert_eq!((commit, timestamp), (&declared, day(2)));
 	// Declared on 3 January with five days of grace.
-	assert_eq!(a.deadline.unwrap().due, NaiveDate::from_ymd_opt(2026, 1, 8));
+	assert_eq!(a.deadline.unwrap().due, Date::new(2026, 1, 8).ok());
 
 	// No grace: overdue from the declaration's commit. Its unattested
 	// source has no clock of its own, and the document is never `stale`.
@@ -471,10 +468,7 @@ fn a_member_fresh_until_deleted_starts_at_the_deletion() {
 		started(timing(&evaluation, "docs/a.md", "src/m/two.rs"));
 	assert_eq!((commit, timestamp), (&deletion, day(4)));
 	// Deleted on 5 January with three days of grace.
-	assert_eq!(
-		subject.deadline.unwrap().due,
-		NaiveDate::from_ymd_opt(2026, 1, 8)
-	);
+	assert_eq!(subject.deadline.unwrap().due, Date::new(2026, 1, 8).ok());
 }
 
 /// A deletion is a later change, so a member that drifted before
@@ -626,7 +620,7 @@ fn uncommitted_drift_with_grace_has_a_provisional_deadline() {
 	let deadline = subject.deadline.unwrap();
 	assert!(deadline.provisional);
 	// 11 January plus three days.
-	assert_eq!(deadline.due, NaiveDate::from_ymd_opt(2026, 1, 14));
+	assert_eq!(deadline.due, Date::new(2026, 1, 14).ok());
 	assert_eq!(deadline.due_from, day(13));
 }
 
@@ -638,7 +632,7 @@ fn a_clock_dated_in_the_future_is_due_at_the_instant_of_evaluation() {
 	let mut repo = one_source(&json!({}));
 	repo.commit(5, &[("src/a.rs", Some("v2"))]);
 	// Twelve hours before the commit's date.
-	let at = day(5) - chrono::Duration::hours(12);
+	let at = day(5) - jiff::SignedDuration::from_hours(12);
 	let evaluation = repo.evaluate(at, None);
 	assert_clean(&evaluation);
 	let subject = document(&evaluation, "docs/a.md");

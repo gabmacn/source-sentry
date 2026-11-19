@@ -3,14 +3,15 @@
 
 use std::cell::{Cell, RefCell};
 
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use super::*;
 use crate::testing::{FakeHistory, fake_oid, path};
 
 /// Midnight UTC, `n` days after 1 January 2026.
-fn day(n: i64) -> DateTime<Utc> {
-	Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap() + TimeDelta::days(n)
+fn day(n: i64) -> Timestamp {
+	"2026-01-01T00:00:00Z".parse::<Timestamp>().unwrap()
+		+ SignedDuration::from_hours(24 * n)
 }
 
 fn working(history: &FakeHistory) -> Revision {
@@ -30,7 +31,7 @@ fn query(file: &str, attested: &[u8], current: &[u8]) -> DriftQuery {
 fn drift_one<H: History>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	query: DriftQuery,
 ) -> Result<Drift, ClockError> {
 	let mut outcomes = drift(history, revision, at, &[query]).unwrap();
@@ -38,7 +39,7 @@ fn drift_one<H: History>(
 	outcomes.remove(0)
 }
 
-fn started(commit: &CommitId, timestamp: DateTime<Utc>) -> ClockStart {
+fn started(commit: &CommitId, timestamp: Timestamp) -> ClockStart {
 	ClockStart {
 		commit: commit.clone(),
 		timestamp,
@@ -273,7 +274,7 @@ fn a_later_correctly_dated_commit_corrects_a_future_dated_drift_commit() {
 #[test]
 fn a_future_dated_head_within_the_tolerance_is_used_as_it_is() {
 	let at = day(10);
-	for ahead in [TimeDelta::hours(23), FUTURE_TOLERANCE] {
+	for ahead in [SignedDuration::from_hours(23), FUTURE_TOLERANCE] {
 		let mut history = FakeHistory::new();
 		history.commit(day(0), &[("src/a.rs", Some(b"A"))]);
 		let head = history.commit(at + ahead, &[("src/a.rs", Some(b"B"))]);
@@ -291,7 +292,7 @@ fn a_future_dated_head_within_the_tolerance_is_used_as_it_is() {
 #[test]
 fn a_future_dated_head_beyond_the_tolerance_is_an_error() {
 	let at = day(10);
-	let ahead = FUTURE_TOLERANCE + TimeDelta::seconds(1);
+	let ahead = FUTURE_TOLERANCE + SignedDuration::from_secs(1);
 	let mut history = FakeHistory::new();
 	history.commit(day(0), &[("src/a.rs", Some(b"A"))]);
 	let head = history.commit(at + ahead, &[("src/a.rs", Some(b"B"))]);

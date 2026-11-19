@@ -25,6 +25,43 @@ that version's section, so a release cannot be made without one.
 
 ### Changed
 
+- Dates and instants are now read and written with `jiff` instead of
+  `chrono`, which has been declared unmaintained (RUSTSEC-2026-0543).
+  Every instant Source Sentry has written reads back as before, unless its
+  year is negative, but hand-written instants in lockfiles, frontmatter
+  and `check --at` follow `jiff`'s rules. They may now use an offset
+  without a colon (`+0100`), a comma before the fraction, no seconds
+  (`2026-11-16T23:46Z`), or a bracketed time zone after the offset
+  (`2026-11-16T23:46:37Z[Europe/Madrid]`), where the offset alone decides
+  the instant. They may no longer have more than nine fractional digits,
+  spaces around the value, `UTC` in place of an offset, or a signed year
+  of fewer than six digits, such as `-0001`. A leap second, `23:59:60`, is
+  read as `23:59:59`.
+- An instant with a fraction of a second is written without trailing zeros,
+  `2026-11-16T23:46:37.01Z` rather than `2026-11-16T23:46:37.010Z`, in
+  lockfiles, JSON reports and frontmatter. Source Sentry records whole
+  seconds, so only instants written by hand are affected.
+- The messages for sealing a record that is already sealed, and for a clock
+  whose commit is dated in the future, write instants as
+  `2026-11-16T23:46:37Z`, as files do, rather than
+  `2026-11-16 23:46:37 UTC`.
+- A cadence's `dtstart`, in a config, in frontmatter or in a lockfile, and
+  the start date of `track --cadence`, must be written exactly
+  `YYYY-MM-DD`. Single-digit months and days, as in `2026-1-8`, and a sign,
+  as in `+2026-12-01`, are no longer read. A value with a time of day, such
+  as `2026-12-01T10:00:00`, is refused rather than cut down to its date.
+- Dates must fall within the years -9999 to 9999, and instants within
+  `-009999-01-02T01:59:59Z` to `9999-12-30T22:00:00Z`. A commit dated
+  outside that range is an error, and a cadence whose next due date would
+  fall after 31 December 9999 is a `date-out-of-range` error, where it used
+  to suggest a start date that could not be written.
+- The `source-sentry-core` and `source-sentry-git` crates use
+  `jiff::Timestamp` and `jiff::civil::Date` in their interfaces instead of
+  `chrono`'s `DateTime<Utc>` and `NaiveDate`. `TimeZone::local_date` and
+  `TimeZone::to_local` no longer return a `Result`, `to_local` returns a
+  `jiff::Zoned`, and `HORIZON_DAYS` is a `u32`. `model::parse_date` reads a
+  `YYYY-MM-DD` date, and `model::whole_second` drops the fraction of a
+  second from an instant.
 - A cadence's rule no longer accepts `BYWEEKDAY`, a synonym of `BYDAY`
   that RFC 5545 does not have. A rule that uses it is a configuration
   error whose message says to write `BYDAY`; the occurrences are the

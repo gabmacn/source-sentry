@@ -95,6 +95,23 @@ fn no_rule_may_target_fresh() {
 }
 
 #[test]
+fn a_cadence_start_with_a_time_of_day_is_refused() {
+	let error = directory_error(
+		"schedule:
+  cadence:
+    dtstart: 2026-01-01T10:00:00
+    rrule: 		 FREQ=DAILY
+",
+	);
+	assert!(
+		error
+			.to_string()
+			.contains("is not a date written YYYY-MM-DD"),
+		"{error:?}"
+	);
+}
+
+#[test]
 fn an_invalid_cadence_is_reported_without_any_document() {
 	let error = directory_error(
 		"schedule:\n  grace: 5\n  cadence:\n    dtstart: 2026-01-01\n    rrule: \

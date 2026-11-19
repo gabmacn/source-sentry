@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
 use clap::{ArgMatches, Args, Parser, Subcommand, ValueEnum};
+use jiff::Timestamp;
 use source_sentry_core::model::{ClassName, ObjectId, RemoteIdentity};
 use source_sentry_core::mutate::SourceSpec;
 use source_sentry_core::policy::Threshold;
@@ -208,7 +208,7 @@ pub(crate) struct EvaluationArgs {
 	pub(crate) rev: Option<String>,
 	/// The evaluation instant, in RFC 3339. By default, now.
 	#[arg(long, value_name = "INSTANT", value_parser = parse_instant)]
-	pub(crate) at: Option<DateTime<Utc>>,
+	pub(crate) at: Option<Timestamp>,
 }
 
 /// `check`.
@@ -588,10 +588,8 @@ fn parse_placement(value: &str) -> Result<PlacementArg, String> {
 }
 
 /// Reads an instant in RFC 3339, such as `2026-11-07T18:00:00Z`.
-fn parse_instant(value: &str) -> Result<DateTime<Utc>, String> {
-	DateTime::parse_from_rfc3339(value)
-		.map(|instant| instant.with_timezone(&Utc))
-		.map_err(|error| {
+fn parse_instant(value: &str) -> Result<Timestamp, String> {
+	value.parse::<Timestamp>().map_err(|error| {
 			format!("`{value}` is not an RFC 3339 instant, such as 2026-11-07T18:00:00Z ({error})")
 		})
 }

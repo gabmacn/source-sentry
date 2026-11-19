@@ -3,9 +3,9 @@
 
 use std::fmt::Write as _;
 
-use chrono::NaiveDate;
 use source_sentry_core::model::{
 	Cadence, CadenceSetting, ClassName, Declaration, Schedule, SourceDecl,
+	parse_date,
 };
 use source_sentry_core::mutate::{
 	CarriedTombstone, PatternMatches, Placement, Registered, Setting,
@@ -172,12 +172,11 @@ fn schedule(args: &TrackArgs) -> Result<Option<Schedule>, Failure> {
 				"--cadence takes two values: <dtstart> <rrule>",
 			));
 		};
-		let dtstart =
-			NaiveDate::parse_from_str(dtstart, "%Y-%m-%d").map_err(|_| {
-				Failure::usage(format!(
-					"the cadence's start `{dtstart}` is not a date such as 2026-12-01"
-				))
-			})?;
+		let dtstart = parse_date(dtstart).ok_or_else(|| {
+			Failure::usage(format!(
+				"the cadence's start `{dtstart}` is not a date written YYYY-MM-DD, such as 2026-12-01"
+			))
+		})?;
 		CadenceSetting::Set(Cadence {
 			dtstart,
 			rrule: rrule.clone(),

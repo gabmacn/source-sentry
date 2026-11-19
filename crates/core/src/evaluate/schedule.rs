@@ -25,8 +25,13 @@
 //! leap-day rule, such as `FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29`, which skips
 //! 2100, 2200 and 2300. A rule with a larger interval can, in theory, leave a
 //! gap of more than 400 years between occurrences; a search that crosses such
-//! a gap fails with [`ScheduleError::NoOccurrence`]. Occurrences end in the
-//! year 10 000, where the evaluator stops.
+//! a gap fails with [`ScheduleError::NoOccurrence`].
+//!
+//! Dates end on 31 December 9999. A search whose horizon reaches past that
+//! day and finds no occurrence before it fails with
+//! [`ScheduleError::OutOfRange`] rather than
+//! [`ScheduleError::NoOccurrence`], because the next occurrence may exist
+//! but cannot be represented.
 //!
 //! # Deadlines
 //!
@@ -56,7 +61,7 @@ mod zone;
 #[cfg(test)]
 mod tests;
 
-use chrono::{DateTime, Days, NaiveDate, Utc};
+use jiff::{Span, Timestamp, civil::Date};
 
 pub use self::{
 	recurrence::{HORIZON_DAYS, Recurrence},
@@ -122,7 +127,7 @@ pub enum ScheduleError {
 		/// The rule as written.
 		rule: String,
 		/// The date the search started from.
-		from: NaiveDate,
+		from: Date,
 	},
 	/// DTSTART is not an occurrence of the rule, so the first due date would be
 	/// ambiguous.
@@ -134,9 +139,9 @@ pub enum ScheduleError {
 		/// The rule as written.
 		rule: String,
 		/// The declared DTSTART.
-		dtstart: NaiveDate,
+		dtstart: Date,
 		/// The rule's first occurrence after DTSTART.
-		first: NaiveDate,
+		first: Date,
 	},
 	/// A date or instant fell outside the supported calendar, the years -9999
 	/// to 9999.
@@ -182,7 +187,7 @@ impl EffectiveSchedule {
 	///   calendar, for example because of an enormous grace period.
 	pub fn deadline(
 		&self,
-		start: DateTime<Utc>,
+		start: Timestamp,
 		zone: &TimeZone,
 	) -> Result<Deadline, ScheduleError> {
 		if self.grace == 0 && self.cadence.is_none() {
@@ -193,7 +198,7 @@ impl EffectiveSchedule {
 				provisional: false,
 			});
 		}
-		let earliest = add_days(zone.local_date(start)?, self.grace)?;
+		let earliest = add_days(zone.local_date(start), self.grace)?;
 		let due = match &self.cadence {
 			Some(cadence) => cadence.next_on_or_after(earliest)?,
 			None => earliest,
@@ -212,13 +217,13 @@ impl EffectiveSchedule {
 pub struct Deadline {
 	/// The last local day on which the document is on time, or `None` when it
 	/// is due at once.
-	pub due: Option<NaiveDate>,
+	pub due: Option<Date>,
 	/// The first instant at which the document is due: the first instant of
 	/// `due`, or the drift start when it is due at once.
-	pub due_from: DateTime<Utc>,
+	pub due_from: Timestamp,
 	/// The first instant at which the document is overdue: the first instant of
 	/// the local day after `due`, or the drift start when it is due at once.
-	pub overdue_from: DateTime<Utc>,
+	pub overdue_from: Timestamp,
 	/// Whether the deadline comes from a provisional clock: a change that
 	/// exists only in the working tree, dated as if committed at the instant
 	/// of evaluation. A provisional deadline decides `due`, never `overdue`.
@@ -229,13 +234,13 @@ pub struct Deadline {
 impl Deadline {
 	/// Whether the document is due at `at`.
 	#[must_use]
-	pub fn is_due(&self, at: DateTime<Utc>) -> bool {
+	pub fn is_due(&self, at: Timestamp) -> bool {
 		at >= self.due_from
 	}
 
 	/// Whether the document is overdue at `at`.
 	#[must_use]
-	pub fn is_overdue(&self, at: DateTime<Utc>) -> bool {
+	pub fn is_overdue(&self, at: Timestamp) -> bool {
 		at >= self.overdue_from
 	}
 }
@@ -246,11 +251,9 @@ impl Deadline {
 ///
 /// Fails with [`ScheduleError::OutOfRange`] when the result is not a
 /// representable date.
-pub(super) fn add_days(
-	date: NaiveDate,
-	days: u32,
-) -> Result<NaiveDate, ScheduleError> {
-	date
-		.checked_add_days(Days::new(u64::from(days)))
-		.ok_or(ScheduleError::OutOfRange)
+pub(super) fn add_days(date: Date, days: u32) -> Result<Date, ScheduleError> {
+	Span::new()
+		.try_days(i64::from(days))
+		.and_then(|span| date.checked_add(span))
+		.map_err(|_| ScheduleError::OutOfRange)
 }

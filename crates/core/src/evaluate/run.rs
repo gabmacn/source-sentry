@@ -37,7 +37,7 @@ mod tests;
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 pub use self::model::{
 	AppliedContext, AppliedRule, CompletionState, DocumentState, DocumentSubject,
@@ -99,7 +99,7 @@ fn check_within<S: Snapshot, H: History>(
 	history: &H,
 	configs: &ConfigSet,
 	inventory: &Inventory,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	coverage: Coverage<'_>,
 	elsewhere: &Elsewhere<'_>,
 ) -> Result<Evaluation, BackendError> {
@@ -228,7 +228,7 @@ fn check_local<S: Snapshot, H: History>(
 	history: &H,
 	configs: &ConfigSet,
 	inventory: &Inventory,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	coverage: Coverage<'_>,
 ) -> Result<Evaluation, BackendError> {
 	check_within(
@@ -315,7 +315,7 @@ fn awaiting_in_series(
 #[must_use]
 pub fn unloadable(
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	errors: &[ConfigError],
 ) -> Evaluation {
 	let diagnostics: Vec<Diagnostic> = errors

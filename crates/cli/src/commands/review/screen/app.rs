@@ -847,7 +847,7 @@ impl<'a> App<'a> {
 					.map(|review| {
 						format!(
 							"{} by {}",
-							review.at.format("%Y-%m-%d %H:%M"),
+							review.at.strftime("%Y-%m-%d %H:%M"),
 							review.by.as_deref().unwrap_or("nobody named")
 						)
 					});
@@ -1201,7 +1201,7 @@ impl<'a> App<'a> {
 				|review| {
 					format!(
 						"reviewed {} by {}",
-						review.at.format("%Y-%m-%d %H:%M"),
+						review.at.strftime("%Y-%m-%d %H:%M"),
 						review.by.as_deref().unwrap_or("nobody named")
 					)
 				},
@@ -1308,7 +1308,7 @@ impl<'a> App<'a> {
 							.join(", ")
 					),
 				};
-				(step.at.format("%H:%M").to_string(), label)
+				(step.at.strftime("%H:%M").to_string(), label)
 			})
 			.collect()
 	}
@@ -1424,7 +1424,7 @@ impl<'a> App<'a> {
 		let reviewed = source
 			.reviewed
 			.as_ref()
-			.map(|review| review.at.format("%Y-%m-%d %H:%M").to_string());
+			.map(|review| review.at.strftime("%Y-%m-%d %H:%M").to_string());
 		let (since, head) = match (timing, reviewed) {
 			(Some(Timing::Started(clock)), Some(at)) => (
 				Some(&clock.start.commit),

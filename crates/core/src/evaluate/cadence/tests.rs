@@ -1,6 +1,6 @@
 //! Tests for series cadence windows, credits, overdue and missed.
 
-use chrono::{DateTime, Days, NaiveDate, Utc};
+use jiff::{Span, Timestamp, civil::Date, tz::Offset};
 
 use super::{
 	CadenceStatus, Completion, Window, cadence_windows, evaluate,
@@ -11,12 +11,16 @@ use crate::{
 	model::Cadence,
 };
 
-fn date(text: &str) -> NaiveDate {
+fn date(text: &str) -> Date {
 	text.parse().expect("valid test date")
 }
 
-fn instant(text: &str) -> DateTime<Utc> {
+fn instant(text: &str) -> Timestamp {
 	text.parse().expect("valid test instant")
+}
+
+fn days(count: u64) -> Span {
+	Span::new().days(i64::try_from(count).expect("a test count of days"))
 }
 
 fn recurrence(dtstart: &str, rrule: &str) -> Recurrence {
@@ -272,14 +276,14 @@ fn evaluate_by_scanning<E: Clone + PartialEq>(
 	grace: u32,
 	zone: &TimeZone,
 	completions: &[Completion<E>],
-	at: DateTime<Utc>,
+	at: Timestamp,
 ) -> Result<CadenceStatus<E>, ScheduleError> {
-	let today = zone.local_date(at)?;
-	let completions = in_completion_order(completions, zone)?;
+	let today = zone.local_date(at);
+	let completions = in_completion_order(completions, zone);
 	let latest = completions
 		.iter()
 		.map(|&(date, _)| date)
-		.fold(today, NaiveDate::max);
+		.fold(today, Date::max);
 	let mut windows = cadence_windows(cadence, grace, latest, today)?;
 	for &(date, completion) in &completions {
 		if let Some(window) = windows
@@ -367,22 +371,21 @@ fn credits_match_a_search_from_the_first_window() {
 				for zone in &zones {
 					for _ in 0..4 {
 						let span = numbers.below(3_000);
-						let today =
-							cadence.dtstart().checked_add_days(Days::new(span)).unwrap();
-						let at = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
+						let today = cadence.dtstart().checked_add(days(span)).unwrap();
+						let at = Offset::UTC.to_timestamp(today.at(12, 0, 0, 0)).unwrap();
 						let count = numbers.below(40);
 						let completions: Vec<Completion<String>> = (0..count)
 							.map(|_| {
 								let day = cadence
 									.dtstart()
-									.checked_sub_days(Days::new(30))
+									.checked_sub(days(30))
 									.unwrap()
-									.checked_add_days(Days::new(numbers.below(span + 90)))
+									.checked_add(days(numbers.below(span + 90)))
 									.unwrap();
-								let hour = u32::try_from(numbers.below(24)).unwrap();
+								let hour = i8::try_from(numbers.below(24)).unwrap();
 								Completion {
 									entry: format!("entry-{}", numbers.below(count)),
-									at: day.and_hms_opt(hour, 0, 0).unwrap().and_utc(),
+									at: Offset::UTC.to_timestamp(day.at(hour, 0, 0, 0)).unwrap(),
 								}
 							})
 							.collect();

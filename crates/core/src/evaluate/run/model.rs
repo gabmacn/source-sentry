@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::claims::{Diagnostic, Mode, SeriesMember, Unclaimed};
 use crate::config::{Origin, Resolved, Scope, Series};
@@ -43,7 +43,7 @@ pub struct Evaluation {
 	/// The evaluated snapshot.
 	pub revision: Revision,
 	/// The evaluation instant, against which every deadline is measured.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 	/// The schema and default-policy version, with its origin.
 	pub version: Resolved<u32>,
 	/// The configured time zone, as written, with its origin.

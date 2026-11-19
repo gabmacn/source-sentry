@@ -1,6 +1,6 @@
 //! `retire`: replacing a lockfile entry with a tombstone.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::edits::Edits;
 use super::repo::{
@@ -20,7 +20,7 @@ pub struct RetireRequest {
 	/// Who retires it, which the CLI passes in as it does for `attest`.
 	pub by: Option<String>,
 	/// When, which is truncated to the second.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 }
 
 /// What retiring records.

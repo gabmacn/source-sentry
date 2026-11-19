@@ -1,19 +1,19 @@
 //! Tests for cadences, time zones and deadlines.
 
-use chrono::{DateTime, Duration, NaiveDate, Timelike, Utc};
+use jiff::{SignedDuration, Timestamp, civil::Date};
 
 use super::{Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone};
 use crate::model::{Cadence, CadenceSetting, Schedule};
 
-fn date(text: &str) -> NaiveDate {
+fn date(text: &str) -> Date {
 	text.parse().expect("valid test date")
 }
 
-fn dates(texts: &[&str]) -> Vec<NaiveDate> {
+fn dates(texts: &[&str]) -> Vec<Date> {
 	texts.iter().map(|text| date(text)).collect()
 }
 
-fn instant(text: &str) -> DateTime<Utc> {
+fn instant(text: &str) -> Timestamp {
 	text.parse().expect("valid test instant")
 }
 
@@ -467,15 +467,12 @@ fn local_dates_follow_the_time_zone() {
 	let late_evening = instant("2026-03-28T23:30:00Z");
 	assert_eq!(
 		zone("Europe/Madrid").local_date(late_evening),
-		Ok(date("2026-03-29")),
+		date("2026-03-29"),
 	);
-	assert_eq!(
-		TimeZone::utc().local_date(late_evening),
-		Ok(date("2026-03-28"))
-	);
+	assert_eq!(TimeZone::utc().local_date(late_evening), date("2026-03-28"));
 	assert_eq!(
 		zone("America/Sao_Paulo").local_date(instant("2026-03-29T02:00:00Z")),
-		Ok(date("2026-03-28")),
+		date("2026-03-28"),
 	);
 }
 
@@ -528,21 +525,31 @@ fn a_repeated_midnight_starts_the_day_at_its_first_occurrence() {
 
 #[test]
 fn instants_display_with_the_local_offset() {
-	let local = zone("Europe/Madrid")
-		.to_local(instant("2026-07-01T12:00:00Z"))
-		.expect("in range");
-	assert_eq!(local.offset().local_minus_utc(), 2 * 3600);
+	let local = zone("Europe/Madrid").to_local(instant("2026-07-01T12:00:00Z"));
+	assert_eq!(local.offset().seconds(), 2 * 3600);
 	assert_eq!(local.hour(), 14);
 }
 
 #[test]
-fn instants_beyond_the_supported_calendar_are_errors() {
+fn every_instant_has_a_local_date() {
 	assert_eq!(
-		TimeZone::utc().local_date(DateTime::<Utc>::MAX_UTC),
+		TimeZone::utc().local_date(Timestamp::MIN),
+		date("-009999-01-02"),
+	);
+	assert_eq!(
+		TimeZone::utc().local_date(Timestamp::MAX),
+		date("9999-12-30"),
+	);
+}
+
+#[test]
+fn days_that_start_beyond_the_supported_range_are_errors() {
+	assert_eq!(
+		TimeZone::utc().start_of_day(Date::MAX),
 		Err(ScheduleError::OutOfRange),
 	);
 	assert_eq!(
-		TimeZone::utc().start_of_day(NaiveDate::MAX),
+		TimeZone::utc().start_of_day(Date::MIN),
 		Err(ScheduleError::OutOfRange),
 	);
 }
@@ -604,9 +611,9 @@ fn zero_grace_without_a_cadence_is_due_at_once() {
 		}
 	);
 	assert!(due.is_overdue(start));
-	assert!(!due.is_overdue(start - Duration::seconds(1)));
+	assert!(!due.is_overdue(start - SignedDuration::from_secs(1)));
 	assert!(due.is_due(start));
-	assert!(!due.is_due(start - Duration::seconds(1)));
+	assert!(!due.is_due(start - SignedDuration::from_secs(1)));
 }
 
 #[test]

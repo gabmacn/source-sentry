@@ -19,7 +19,8 @@ mod untrack;
 pub(crate) use check::diagnostic_lines;
 pub(crate) use diff::shell_word;
 
-use chrono::{DateTime, SubsecRound as _, Utc};
+use jiff::Timestamp;
+use source_sentry_core::model::whole_second;
 use source_sentry_core::ports::Snapshot as _;
 
 use crate::cli::{Cli, Command};
@@ -113,8 +114,8 @@ fn explain_path(
 
 /// The current instant, to the second: the evaluation instant of `check`
 /// without `--at`, and the time of every review, seal and retirement.
-fn now() -> DateTime<Utc> {
-	Utc::now().trunc_subsecs(0)
+fn now() -> Timestamp {
+	whole_second(Timestamp::now())
 }
 
 /// Who reviews, seals, retires or renames: the name given, or else the one

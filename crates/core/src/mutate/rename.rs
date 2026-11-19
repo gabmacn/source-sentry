@@ -20,7 +20,7 @@ pub struct RenameRequest {
 	/// Who records the rename; names containing `@` are refused.
 	pub by: Option<String>,
 	/// When it is recorded, truncated to the second.
-	pub at: chrono::DateTime<chrono::Utc>,
+	pub at: jiff::Timestamp,
 	/// The declared document whose file has already been moved.
 	pub old: DocumentId,
 	/// Its tracked destination, without an independent declaration.

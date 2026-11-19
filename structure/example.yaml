@@ -22,7 +22,8 @@ source-sentry:
     # A dated deadline becomes overdue at the start of the next local day.
     grace: 14
     cadence:
-      dtstart: 2026-12-01 # The first due date; it must satisfy the rule.
+      # The first due date, written YYYY-MM-DD; it must satisfy the rule.
+      dtstart: 2026-12-01
       # An RFC 5545 rule value, without `RRULE:` or other properties, that
       # never ends: no COUNT or UNTIL. Frequencies must be DAILY or coarser,
       # with no BYHOUR, BYMINUTE or BYSECOND. RFC combinations are checked;

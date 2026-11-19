@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::clocks::{Answers, ClockContext, Requests, Slot};
 use super::hashing::Hashes;
@@ -548,7 +548,7 @@ pub(super) fn add_former_sites(
 pub(super) struct Finisher<'a> {
 	pub(super) answers: &'a Answers,
 	pub(super) zone: Option<&'a TimeZone>,
-	pub(super) at: DateTime<Utc>,
+	pub(super) at: Timestamp,
 	pub(super) diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -657,7 +657,7 @@ impl Finisher<'_> {
 fn live_facts(
 	unattested: Option<&Timing>,
 	sources: &[SourceReport],
-	at: DateTime<Utc>,
+	at: Timestamp,
 ) -> (BTreeSet<Fact>, Option<Deadline>) {
 	let mut facts = BTreeSet::new();
 	let mut deadlines = Vec::new();

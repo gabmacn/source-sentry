@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::history::{Query, drifts, starts};
 use super::model::{StartedClock, Timing};
@@ -89,7 +89,7 @@ impl Requests {
 		&self,
 		history: &H,
 		revision: &Revision,
-		at: DateTime<Utc>,
+		at: Timestamp,
 	) -> Result<Answers, BackendError> {
 		let answers = Answers {
 			drift: drifts(history, revision, at, &self.drift, &self.lineages)?,
@@ -182,7 +182,7 @@ pub(super) struct ClockContext<'a> {
 	/// The declaration the clocks belong to, with its written field lines.
 	pub(super) claim: &'a Claim,
 	/// The instant of evaluation.
-	pub(super) at: DateTime<Utc>,
+	pub(super) at: Timestamp,
 }
 
 impl ClockContext<'_> {
@@ -229,7 +229,7 @@ impl ClockContext<'_> {
 	/// evaluation. A clock dated in the future, within the tolerance that
 	/// lets it be used, would otherwise make a change due later than it
 	/// landed. When it is overdue does not change.
-	fn clamped(&self, start: DateTime<Utc>, deadline: Deadline) -> Deadline {
+	fn clamped(&self, start: Timestamp, deadline: Deadline) -> Deadline {
 		if start <= self.at {
 			return deadline;
 		}
@@ -250,7 +250,7 @@ impl ClockContext<'_> {
 	/// cannot be computed, which is reported.
 	fn deadline(
 		&self,
-		start: DateTime<Utc>,
+		start: Timestamp,
 		diagnostics: &mut Vec<Diagnostic>,
 	) -> Option<Deadline> {
 		let (schedule, zone) = (self.schedule?, self.zone?);

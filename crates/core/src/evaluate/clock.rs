@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use crate::ports::{
 	BackendError, BackendErrorKind, Commit, CommitId, FirstParent, History,
@@ -29,7 +29,7 @@ mod tests;
 /// It keeps a runner whose clock lags a developer's from failing a fresh
 /// push. A timestamp further in the future is a [`FutureDated`] error; the
 /// evaluation instant is never substituted for it.
-pub const FUTURE_TOLERANCE: TimeDelta = TimeDelta::hours(24);
+pub const FUTURE_TOLERANCE: SignedDuration = SignedDuration::from_hours(24);
 
 /// A condition asked of each commit on a first-parent walk, for
 /// [`trailing_runs`].
@@ -134,7 +134,7 @@ pub struct RunStart {
 	pub commit: CommitId,
 	/// The minimum committer time over the first-parent commits from
 	/// `commit` to the walk's first commit, both included.
-	pub suffix_minimum: DateTime<Utc>,
+	pub suffix_minimum: Timestamp,
 }
 
 impl RunStart {
@@ -146,11 +146,8 @@ impl RunStart {
 	///
 	/// Returns [`FutureDated`], naming the commit, when the suffix minimum
 	/// lies more than [`FUTURE_TOLERANCE`] after `at`.
-	pub fn into_clock(
-		self,
-		at: DateTime<Utc>,
-	) -> Result<ClockStart, FutureDated> {
-		if self.suffix_minimum.signed_duration_since(at) > FUTURE_TOLERANCE {
+	pub fn into_clock(self, at: Timestamp) -> Result<ClockStart, FutureDated> {
+		if self.suffix_minimum.duration_since(at) > FUTURE_TOLERANCE {
 			return Err(FutureDated {
 				commit: self.commit,
 				timestamp: self.suffix_minimum,
@@ -246,7 +243,7 @@ where
 
 	let mut walk = history.first_parent_walk(from);
 	let mut expected = from.clone();
-	let mut suffix_minimum: Option<DateTime<Utc>> = None;
+	let mut suffix_minimum: Option<Timestamp> = None;
 	let mut lookup = BlobLookup::new(predicates, running.iter().map(|run| run.0));
 	loop {
 		let commit = next_commit(&mut walk, &expected)?;
@@ -416,7 +413,7 @@ pub struct ClockStart {
 	/// The suffix minimum of committer times from `commit` to the evaluated
 	/// revision, which is at most [`FUTURE_TOLERANCE`] after the evaluation
 	/// instant.
-	pub timestamp: DateTime<Utc>,
+	pub timestamp: Timestamp,
 }
 
 /// A clock's timestamp would lie more than [`FUTURE_TOLERANCE`] after the
@@ -430,16 +427,16 @@ pub struct ClockStart {
 	"the clock that starts at commit {commit} would be dated {timestamp}, more \
 	 than {hours} hours after the evaluation instant {instant}; a later, \
 	 correctly dated commit resolves this",
-	hours = FUTURE_TOLERANCE.num_hours()
+	hours = FUTURE_TOLERANCE.as_hours()
 )]
 pub struct FutureDated {
 	/// The commit at which the clock would start.
 	pub commit: CommitId,
 	/// The suffix minimum of committer times from `commit` to the evaluated
 	/// revision.
-	pub timestamp: DateTime<Utc>,
+	pub timestamp: Timestamp,
 	/// The evaluation instant.
-	pub instant: DateTime<Utc>,
+	pub instant: Timestamp,
 }
 
 /// Why one query's clock could not be determined. Each is an operational
@@ -574,7 +571,7 @@ impl Drift {
 pub fn drift<H: History>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[DriftQuery],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
 	drift_of(history, revision, at, queries)
@@ -602,7 +599,7 @@ pub fn drift<H: History>(
 pub fn drift_sources<H: History>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[SourceQuery],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
 	drift_of(history, revision, at, queries)
@@ -623,7 +620,7 @@ pub fn drift_sources<H: History>(
 pub(crate) fn drift_sources_along<H, P>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[SourceQuery],
 	along: impl FnMut(usize) -> Option<P>,
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError>
@@ -638,7 +635,7 @@ where
 fn drift_of<H: History, Q: Attested>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[Q],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
 	search(history, revision, at, queries, |_| None::<Drifted<'static>>)
@@ -649,7 +646,7 @@ fn drift_of<H: History, Q: Attested>(
 fn search<H, Q, P>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	queries: &[Q],
 	mut along: impl FnMut(usize) -> Option<P>,
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError>
@@ -793,7 +790,7 @@ pub enum ObligationStart {
 pub fn introduced_at<H, P>(
 	history: &H,
 	revision: &Revision,
-	at: DateTime<Utc>,
+	at: Timestamp,
 	predicates: &mut [P],
 ) -> Result<Vec<Result<ObligationStart, ClockError>>, BackendError>
 where

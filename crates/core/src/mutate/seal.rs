@@ -1,6 +1,6 @@
 //! `seal`: making a lockfile-tracked document a record.
 
-use chrono::{DateTime, SubsecRound, Utc};
+use jiff::Timestamp;
 
 use super::edits::Edits;
 use super::repo::{Repo, checked_reviewer};
@@ -18,7 +18,7 @@ pub struct SealRequest {
 	/// Who seals it, which the CLI passes in as it does for `attest`.
 	pub by: Option<String>,
 	/// When, which is truncated to the second.
-	pub at: DateTime<Utc>,
+	pub at: Timestamp,
 }
 
 /// What a seal records.
@@ -92,7 +92,7 @@ pub fn seal<S: Snapshot>(
 		});
 	}
 	let seal = Seal {
-		at: request.at.trunc_subsecs(0),
+		at: crate::model::whole_second(request.at),
 		by,
 		oid: repo.oid(path)?,
 	};

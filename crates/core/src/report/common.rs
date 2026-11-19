@@ -1,7 +1,7 @@
 //! Shapes shared by the reports: origins, locations, revisions, diagnostics
 //! and clocks.
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use jiff::Timestamp;
 use serde::{Serialize, Serializer};
 
 use crate::claims::{Diagnostic, Location};
@@ -122,8 +122,8 @@ pub fn directory(path: &RepoPath) -> String {
 
 /// An instant, in RFC 3339 and UTC, with fractional seconds only when they
 /// are not zero.
-pub(super) fn instant(at: DateTime<Utc>) -> String {
-	at.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+pub(super) fn instant(at: Timestamp) -> String {
+	at.to_string()
 }
 
 /// Where a diagnostic points.

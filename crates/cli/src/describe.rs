@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 
-use chrono::{DateTime, Timelike as _, Utc};
+use jiff::Timestamp;
 use source_sentry_core::claims::Location;
 use source_sentry_core::config::{Origin, Scope};
 use source_sentry_core::evaluate::schedule::Deadline;
@@ -34,17 +34,17 @@ pub(crate) fn short_commit(commit: &CommitId) -> &str {
 
 /// An instant for people: `2026-11-07 18:00 UTC`, with seconds when they
 /// are not zero.
-pub(crate) fn instant(at: DateTime<Utc>) -> String {
-	if at.second() == 0 && at.nanosecond() == 0 {
-		at.format("%Y-%m-%d %H:%M UTC").to_string()
+pub(crate) fn instant(at: Timestamp) -> String {
+	if at.as_second().rem_euclid(60) == 0 && at.subsec_nanosecond() == 0 {
+		at.strftime("%Y-%m-%d %H:%M UTC").to_string()
 	} else {
-		at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+		at.strftime("%Y-%m-%d %H:%M:%S UTC").to_string()
 	}
 }
 
 /// The date of an instant, in UTC.
-pub(crate) fn date(at: DateTime<Utc>) -> String {
-	at.format("%Y-%m-%d").to_string()
+pub(crate) fn date(at: Timestamp) -> String {
+	at.strftime("%Y-%m-%d").to_string()
 }
 
 /// What was evaluated: `working tree on 4f3c2a1`, or `commit 4f3c2a1`.
@@ -123,7 +123,7 @@ pub(crate) fn inheritance_hint(
 /// A deadline is called missed only once it has passed at `at`. A document
 /// that is overdue only because a source's timing is unknown reads
 /// `overdue, timing unknown`, whatever deadline its other sources set.
-pub(crate) fn facts(subject: &Subject, at: DateTime<Utc>) -> String {
+pub(crate) fn facts(subject: &Subject, at: Timestamp) -> String {
 	let has = |fact: Fact| subject.facts.contains(&fact);
 	let mut phrases = Vec::new();
 	for &fact in &subject.facts {
@@ -169,7 +169,7 @@ pub(crate) fn facts(subject: &Subject, at: DateTime<Utc>) -> String {
 
 /// Whether `deadline` has passed at `at`. A provisional deadline is never
 /// missed, as it never makes a document overdue.
-fn is_missed(deadline: &Deadline, at: DateTime<Utc>) -> bool {
+fn is_missed(deadline: &Deadline, at: Timestamp) -> bool {
 	!deadline.provisional && deadline.is_overdue(at)
 }
 
@@ -532,7 +532,7 @@ pub(crate) fn scope(workspace: &Workspace, value: &Scope) -> String {
 mod tests {
 	use std::collections::BTreeSet;
 
-	use chrono::{DateTime, NaiveDate, Utc};
+	use jiff::{Timestamp, civil::Date};
 	use source_sentry_core::claims::Mode;
 	use source_sentry_core::config::DocumentDefaults;
 	use source_sentry_core::evaluate::schedule::Deadline;
@@ -545,10 +545,8 @@ mod tests {
 	use super::facts;
 
 	/// An instant written in RFC 3339.
-	fn instant(text: &str) -> DateTime<Utc> {
-		DateTime::parse_from_rfc3339(text)
-			.expect("a valid instant")
-			.with_timezone(&Utc)
+	fn instant(text: &str) -> Timestamp {
+		text.parse().expect("a valid instant")
 	}
 
 	/// A path in the repository.
@@ -559,7 +557,7 @@ mod tests {
 	/// The deadline of a source whose timing is known: review by 2026-12-15.
 	fn known_deadline(provisional: bool) -> Deadline {
 		Deadline {
-			due: Some(NaiveDate::from_ymd_opt(2026, 12, 15).expect("a valid date")),
+			due: Some(Date::new(2026, 12, 15).expect("a valid date")),
 			due_from: instant("2026-12-15T00:00:00Z"),
 			overdue_from: instant("2026-12-16T00:00:00Z"),
 			provisional,

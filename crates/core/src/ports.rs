@@ -7,12 +7,12 @@
 //! with `git2`, `git hash-object` and native LFS pointers.
 //!
 //! The core takes them as generic parameters, for example
-//! `fn check<S: Snapshot, H: History>(snapshot: &S, history: &H, at: DateTime<Utc>, context: &str)`.
+//! `fn check<S: Snapshot, H: History>(snapshot: &S, history: &H, at: Timestamp, context: &str)`.
 //! `History` returns an `impl Iterator`, so the traits are not object-safe; generics are intended.
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sha2::{Digest as _, Sha256};
 
 // The value types that cross the boundary are defined in `model`, which owns
@@ -123,7 +123,7 @@ pub struct Commit {
 	/// The commit's ID.
 	pub id: CommitId,
 	/// The committer date, which the suffix minimum over later commits uses.
-	pub committer_time: DateTime<Utc>,
+	pub committer_time: Timestamp,
 	/// Where the walk continues.
 	pub first_parent: FirstParent,
 }

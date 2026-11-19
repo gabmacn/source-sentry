@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 
 use super::{
@@ -183,7 +183,7 @@ series:
       grace: 14
 ";
 
-fn instant(text: &str) -> DateTime<Utc> {
+fn instant(text: &str) -> Timestamp {
 	text.parse().unwrap()
 }
 

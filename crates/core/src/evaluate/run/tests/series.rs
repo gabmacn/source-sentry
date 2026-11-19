@@ -1,6 +1,6 @@
 //! Series: `awaiting-seal`, living heads and cadence.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde_json::json;
 
 use super::{
@@ -201,10 +201,7 @@ fn series_cadence_gives_overdue_and_missed() {
 	assert!(windows.overdue);
 	assert_eq!(windows.missed, [0]);
 	// The window that ended on 1 March is the one overdue.
-	assert_eq!(
-		audits.deadline.unwrap().due,
-		NaiveDate::from_ymd_opt(2026, 3, 1)
-	);
+	assert_eq!(audits.deadline.unwrap().due, Date::new(2026, 3, 1).ok());
 	assert_eq!(outcome(audits), Outcome::Warn);
 	assert_eq!(
 		gates(&evaluation),

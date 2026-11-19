@@ -18,7 +18,7 @@
 
 use std::fmt::Write as _;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use jiff::Timestamp;
 
 use crate::model::{
 	CadenceSetting, ClassName, Declaration, Review, Schedule, SourceDecl,
@@ -116,10 +116,7 @@ impl Out<'_> {
 			CadenceSetting::Remove => self.line(2, "cadence: null"),
 			CadenceSetting::Set(cadence) => {
 				self.line(2, "cadence:");
-				self.line(
-					3,
-					&format!("dtstart: {}", cadence.dtstart.format("%Y-%m-%d")),
-				);
+				self.line(3, &format!("dtstart: {}", cadence.dtstart));
 				self.line(3, &format!("rrule: {}", quote(&cadence.rrule)));
 			}
 		}
@@ -161,8 +158,8 @@ fn flow<'a>(items: impl Iterator<Item = &'a str>) -> String {
 }
 
 /// An RFC 3339 timestamp in UTC, such as `2026-11-07T15:02:44Z`.
-fn timestamp(at: &DateTime<Utc>) -> String {
-	at.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+fn timestamp(at: &Timestamp) -> String {
+	at.to_string()
 }
 
 /// `value` as a quoted YAML scalar that reads back as exactly `value`.

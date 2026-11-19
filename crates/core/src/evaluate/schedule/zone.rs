@@ -3,10 +3,9 @@
 
 use std::{fmt, str::FromStr};
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Utc};
 use jiff::{
-	Timestamp,
-	civil::{self, Time},
+	Timestamp, Zoned,
+	civil::{Date, Time},
 	tz::{AmbiguousOffset, TimeZoneDatabase},
 };
 use serde::{Deserialize, Serialize};
@@ -70,17 +69,9 @@ impl TimeZone {
 	}
 
 	/// The local date at `instant`.
-	///
-	/// # Errors
-	///
-	/// Fails with [`ScheduleError::OutOfRange`] when `instant` lies outside the
-	/// years -9999 to 9999.
-	pub fn local_date(
-		&self,
-		instant: DateTime<Utc>,
-	) -> Result<NaiveDate, ScheduleError> {
-		let local = self.zone.to_datetime(to_timestamp(instant)?);
-		from_civil_date(local.date())
+	#[must_use]
+	pub fn local_date(&self, instant: Timestamp) -> Date {
+		self.zone.to_datetime(instant).date()
 	}
 
 	/// The first instant of the local day `date`.
@@ -94,13 +85,11 @@ impl TimeZone {
 	///
 	/// # Errors
 	///
-	/// Fails with [`ScheduleError::OutOfRange`] when the day lies outside the
-	/// years -9999 to 9999.
-	pub fn start_of_day(
-		&self,
-		date: NaiveDate,
-	) -> Result<DateTime<Utc>, ScheduleError> {
-		let midnight = to_civil_date(date)?.to_datetime(Time::midnight());
+	/// Fails with [`ScheduleError::OutOfRange`] when that instant lies outside
+	/// the supported range, `-009999-01-02T01:59:59Z` to
+	/// `9999-12-30T22:00:00.999999999Z`.
+	pub fn start_of_day(&self, date: Date) -> Result<Timestamp, ScheduleError> {
+		let midnight = date.to_datetime(Time::midnight());
 		let start = match self.zone.to_ambiguous_timestamp(midnight).offset() {
 			AmbiguousOffset::Unambiguous { offset } => offset.to_timestamp(midnight),
 			// `before` is the offset in force before the clocks fall back, which
@@ -120,27 +109,16 @@ impl TimeZone {
 					.map(|transition| transition.timestamp())
 					.find(|&instant| self.zone.to_datetime(instant) >= midnight);
 				// A gap always has a transition; this guards against corrupt data.
-				return from_timestamp(transition.ok_or(ScheduleError::OutOfRange)?);
+				return transition.ok_or(ScheduleError::OutOfRange);
 			}
 		};
-		from_timestamp(start.map_err(|_| ScheduleError::OutOfRange)?)
+		start.map_err(|_| ScheduleError::OutOfRange)
 	}
 
-	/// `instant` as a local date and time, with the offset in force at that
-	/// instant, for display.
-	///
-	/// # Errors
-	///
-	/// Fails with [`ScheduleError::OutOfRange`] when `instant` lies outside the
-	/// years -9999 to 9999.
-	pub fn to_local(
-		&self,
-		instant: DateTime<Utc>,
-	) -> Result<DateTime<FixedOffset>, ScheduleError> {
-		let offset = self.zone.to_offset(to_timestamp(instant)?);
-		let offset = FixedOffset::east_opt(offset.seconds())
-			.ok_or(ScheduleError::OutOfRange)?;
-		Ok(instant.with_timezone(&offset))
+	/// `instant` as a local date and time in this zone, for display.
+	#[must_use]
+	pub fn to_local(&self, instant: Timestamp) -> Zoned {
+		instant.to_zoned(self.zone.clone())
 	}
 }
 
@@ -184,43 +162,4 @@ impl From<TimeZone> for String {
 	fn from(zone: TimeZone) -> Self {
 		zone.name
 	}
-}
-
-/// `instant` as a `jiff` timestamp, to the second. Dates and day boundaries
-/// never depend on the fraction of a second.
-fn to_timestamp(instant: DateTime<Utc>) -> Result<Timestamp, ScheduleError> {
-	Timestamp::from_second(instant.timestamp())
-		.map_err(|_| ScheduleError::OutOfRange)
-}
-
-/// A `jiff` timestamp as a `chrono` instant.
-fn from_timestamp(
-	timestamp: Timestamp,
-) -> Result<DateTime<Utc>, ScheduleError> {
-	let nanoseconds = u32::try_from(timestamp.subsec_nanosecond())
-		.map_err(|_| ScheduleError::OutOfRange)?;
-	DateTime::from_timestamp(timestamp.as_second(), nanoseconds)
-		.ok_or(ScheduleError::OutOfRange)
-}
-
-/// A `chrono` date as a `jiff` civil date.
-fn to_civil_date(date: NaiveDate) -> Result<civil::Date, ScheduleError> {
-	let out_of_range = |_| ScheduleError::OutOfRange;
-	civil::Date::new(
-		i16::try_from(date.year()).map_err(out_of_range)?,
-		i8::try_from(date.month()).map_err(out_of_range)?,
-		i8::try_from(date.day()).map_err(out_of_range)?,
-	)
-	.map_err(|_| ScheduleError::OutOfRange)
-}
-
-/// A `jiff` civil date as a `chrono` date.
-fn from_civil_date(date: civil::Date) -> Result<NaiveDate, ScheduleError> {
-	let out_of_range = |_| ScheduleError::OutOfRange;
-	NaiveDate::from_ymd_opt(
-		i32::from(date.year()),
-		u32::try_from(date.month()).map_err(out_of_range)?,
-		u32::try_from(date.day()).map_err(out_of_range)?,
-	)
-	.ok_or(ScheduleError::OutOfRange)
 }

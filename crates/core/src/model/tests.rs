@@ -232,3 +232,46 @@ fn frontmatter_example_parses() {
 		SourceDecl::Path(_) => panic!("the third source is a pattern"),
 	}
 }
+
+#[test]
+fn dates_are_read_only_as_yyyy_mm_dd() {
+	assert_eq!(
+		parse_date("2026-12-01"),
+		Some(jiff::civil::date(2026, 12, 1))
+	);
+	assert_eq!(parse_date("0001-01-01"), Some(jiff::civil::date(1, 1, 1)));
+	for text in [
+		"2026-12-01T10:00:00",
+		"2026-12-01T10:00:00+01:00[Europe/Madrid]",
+		"20261201",
+		"2026-1-8",
+		"+2026-12-01",
+		"-000001-01-01",
+		"2026-02-30",
+		" 2026-12-01",
+		"2026-12-01 ",
+	] {
+		assert_eq!(parse_date(text), None, "{text}");
+	}
+}
+
+#[test]
+fn a_cadence_start_is_read_only_as_yyyy_mm_dd() {
+	let cadence = |dtstart: &str| {
+		serde_json::from_value::<Cadence>(serde_json::json!({
+			"dtstart": dtstart,
+			"rrule": "FREQ=DAILY",
+		}))
+	};
+	assert_eq!(
+		cadence("2026-12-01").unwrap().dtstart,
+		jiff::civil::date(2026, 12, 1)
+	);
+	let error = cadence("2026-12-01T10:00:00").unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("`2026-12-01T10:00:00` is not a date written YYYY-MM-DD"),
+		"{error}"
+	);
+}

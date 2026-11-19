@@ -1,6 +1,6 @@
 //! Explicit path boundaries on a backwards declaration-history walk.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{Query, Site, SiteKind};
 use crate::model::{
@@ -42,7 +42,7 @@ struct Link {
 	/// The former repository identity.
 	from: RepoPath,
 	/// Informational instant, used only to identify the exact marker.
-	at: DateTime<Utc>,
+	at: Timestamp,
 	/// Informational recorder, used only to identify the exact marker.
 	by: Option<String>,
 }
