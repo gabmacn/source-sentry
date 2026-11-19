@@ -502,6 +502,15 @@ line, relative paths start in the current directory, and `-C` changes it.
 > **Why.** A leading slash makes root-relative paths explicit, and `:/`
 > and `-C` mean what they mean in git, which users already know.
 
+**The repository is the one git would use** from the effective starting
+directory, with the same environment: Source Sentry asks git, so `GIT_DIR`,
+`GIT_WORK_TREE`, `GIT_INDEX_FILE` and git's other repository variables
+apply as they do for git, and a printed `git` command reaches the same
+repository. When the starting directory lies outside the working tree,
+which `GIT_WORK_TREE` allows, relative paths start at the working tree's
+root and are shown from it, as git takes them.
+[`cli.md`](cli.md#the-repository) lists the variables.
+
 A source may lie outside its document's project, but never outside the
 repository.
 
@@ -766,6 +775,8 @@ purpose and reviewed as such.
 ## What is not supported
 
 - Submodules, and files behind a clean filter other than Git LFS.
+- A bare repository without `GIT_WORK_TREE`, and a `GIT_COMMON_DIR` other
+  than the common directory that the git directory names itself.
 - Git LFS pointers that use extensions.
 - Paths that are not valid UTF-8. A commit that holds such a path cannot be
   checked, and such a name in an older commit's `.source-sentry/remotes` is

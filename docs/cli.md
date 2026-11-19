@@ -10,8 +10,9 @@ source-sentry help [<command>]
 
 - `-C <path>` runs as if started in that directory, as in git. Relative
   arguments and project selection start there. Relative and absolute
-  filesystem paths are accepted. Without it, use the current directory,
-  searching upward for the repository as git does.
+  filesystem paths are accepted. Without it, use the current directory.
+  The repository is the one git would use from there; see
+  [The repository](#the-repository).
 - `--color` defaults to `auto`, which respects `NO_COLOR` and redirected
   output.
 - `--quiet` prints only errors and what was asked for: the JSON of
@@ -67,6 +68,45 @@ Document commands select the document's project; remote identities select
 the project containing the effective starting directory. See
 [`structure/README.md`](../structure/README.md#projects) for configuration
 sharing through explicit preset imports.
+
+### The repository
+
+Source Sentry works on the repository, working tree and index that `git`
+would use, started in the same directory with the same environment: it asks
+git which they are. Git's variables apply as they do for git:
+
+- `GIT_DIR` and `GIT_WORK_TREE`, and `core.worktree`, choose the repository
+  and its working tree. Without them, the repository is searched for upward
+  from the effective starting directory, within the limits that
+  `GIT_CEILING_DIRECTORIES` and `GIT_DISCOVERY_ACROSS_FILESYSTEM` set.
+- `GIT_INDEX_FILE` names the index, whose files are the tracked ones. A
+  relative value starts at the working tree's root, as for git's commands
+  that read and write the index.
+- `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` name the
+  object directories that history is read from.
+- `GIT_COMMON_DIR` is followed only to the common directory that the git
+  directory names itself; another one is refused.
+- `GIT_NAMESPACE` changes nothing, as for git's local commands. The global
+  pathspec settings, such as `GIT_ICASE_PATHSPECS`, do not affect Source
+  Sentry's own git commands.
+
+The commands printed for copying, such as `git add`, therefore reach the
+same repository when they are run in the same place and environment.
+
+A bare repository needs a working tree from `GIT_WORK_TREE`, even with
+`--rev`. A starting directory inside the git directory, a working tree that
+does not exist, and a directory where git finds no repository or refuses
+one, for example because of `safe.directory`, are refused. Each of these
+exits 4, with git's reason where git gives one.
+
+In a `pre-commit` hook, `source-sentry -C <path> check` works on the commit
+in progress: the files that git's index for the commit holds are the
+tracked ones. Their contents are still read from the working tree, so an
+edit that is not staged counts. `git commit -a` and `git commit <paths>`
+give the hook a temporary index, which git discards when the commit ends;
+there, a command that would create a file is refused before anything is
+written, since the file's intent-to-add mark would be lost. A change that
+only rewrites files is applied.
 
 ## Checking
 
@@ -777,7 +817,8 @@ New files are marked intent-to-add in git's index, so the next `check` reads
 them; stage their contents with the rest of your change. A change that git
 could not record is refused before anything is written: a new file that git
 ignores, or a path outside a sparse checkout, behind a symbolic link or
-inside a submodule.
+inside a submodule, and any new file while git commits with a temporary
+index (see [The repository](#the-repository)).
 
 These commands exit with:
 
