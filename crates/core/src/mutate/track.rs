@@ -626,8 +626,9 @@ fn unclaimed_local<S: Snapshot>(
 	unclaimed(repo, &DocumentId::Local(path.clone()))
 }
 
-/// Checks that nothing claims `document`, and that discovery reports no
-/// configuration or integrity error about it.
+/// Checks that nothing claims `document`, in this project or, for a remote
+/// identity, in another project's owner lockfiles, and that discovery
+/// reports no configuration or integrity error about it.
 ///
 /// # Errors
 ///
@@ -641,6 +642,15 @@ fn unclaimed<S: Snapshot>(
 		.inventory
 		.claims_of(document)
 		.map(Claim::location)
+		.chain(
+			repo
+				.inventory
+				.elsewhere
+				.get(document)
+				.into_iter()
+				.flatten()
+				.cloned(),
+		)
 		.collect();
 	if !sites.is_empty() {
 		return Err(MutateError::AlreadyClaimed {

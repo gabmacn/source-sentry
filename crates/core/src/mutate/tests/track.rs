@@ -281,6 +281,51 @@ fn an_already_claimed_document_is_refused() {
 	);
 }
 
+/// An identity may appear in only one owner lockfile in the repository, so
+/// one that another project tracks cannot be tracked here as well.
+#[test]
+fn a_remote_identity_that_another_project_tracks_is_refused() {
+	let tree = fixture(&[
+		(
+			"app/.source-sentry/source-sentry.yaml",
+			"version: 1
+",
+		),
+		(
+			"app/.source-sentry/remotes/team.lock",
+			&lockfile(&[("abstract:video", "{}")], &[]),
+		),
+	]);
+	let error = track(
+		&tree.snapshot,
+		&tree.configs,
+		&tree.inventory,
+		&request(
+			remote("abstract:video"),
+			Target::Remote {
+				project: crate::model::RepoPath::ROOT,
+				owner: "legal".to_owned(),
+			},
+			vec![source("/src/a.rs")],
+		),
+	)
+	.unwrap_err();
+	let MutateError::AlreadyClaimed { document, sites } = &error else {
+		panic!("expected a refusal of a second claim, got {error:?}");
+	};
+	assert_eq!(document, &remote("abstract:video"));
+	assert_eq!(
+		sites
+			.iter()
+			.map(|site| (site.file.as_str(), site.field.as_deref()))
+			.collect::<Vec<_>>(),
+		[(
+			"app/.source-sentry/remotes/team.lock",
+			Some(r#"documents["abstract:video"]"#)
+		)]
+	);
+}
+
 /// A document used as a source must be lockfile-tracked.
 #[test]
 fn a_source_of_another_document_cannot_go_on_file() {

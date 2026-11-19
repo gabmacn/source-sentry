@@ -332,6 +332,132 @@ fn a_remote_identity_in_two_owner_lockfiles_is_a_double_claim() {
 	);
 }
 
+/// An identity may appear in only one owner lockfile in the repository, so
+/// the same identity in two projects' owner lockfiles is a double claim,
+/// reported with both lockfiles whichever project is discovered.
+#[test]
+fn a_remote_identity_in_two_projects_is_a_double_claim_in_each() {
+	let entry = [("abstract:video", "{}")];
+	let files = [
+		(".source-sentry/remotes/legal.lock", lockfile(&entry, &[])),
+		(
+			"app/.source-sentry/source-sentry.yaml",
+			"version: 1
+"
+			.to_owned(),
+		),
+		(
+			"app/.source-sentry/remotes/team.lock",
+			lockfile(&entry, &[]),
+		),
+		// Another identity, and another namespace, in a third project.
+		(
+			"lib/.source-sentry/source-sentry.yaml",
+			"version: 1
+"
+			.to_owned(),
+		),
+		(
+			"lib/.source-sentry/remotes/sales.lock",
+			lockfile(&[("abstract:other", "{}"), ("miro:video", "{}")], &[]),
+		),
+	];
+	let video = DocumentId::Remote(RemoteIdentity::Abstract("video".to_owned()));
+	for (start, own, other) in [
+		(
+			"",
+			".source-sentry/remotes/legal.lock",
+			"app/.source-sentry/remotes/team.lock",
+		),
+		(
+			"app",
+			"app/.source-sentry/remotes/team.lock",
+			".source-sentry/remotes/legal.lock",
+		),
+	] {
+		let inventory = discover_owned(&files, start);
+		let diagnostic = only(&inventory, DiagnosticKind::DoubleClaim);
+		assert_eq!(diagnostic.document.as_ref(), Some(&video));
+		assert_eq!(diagnostic.location.file, path(own));
+		assert_eq!(
+			diagnostic
+				.related
+				.iter()
+				.map(|location| (location.file.as_str(), location.field.as_deref()))
+				.collect::<Vec<_>>(),
+			[(other, Some(r#"documents["abstract:video"]"#))]
+		);
+		assert_eq!(
+			diagnostic.message,
+			format!(
+				"`abstract:video` is claimed 2 times: in {own} at `documents[\"abstract:video\"]`, and in {other} at `documents[\"abstract:video\"]`. A document has exactly one declaration, so keep one and remove the others; `track --from` moves a declaration between modes and lockfiles"
+			)
+		);
+		// The other project's claim is no claim of this one.
+		assert_eq!(inventory.claims_of(&video).count(), 1);
+	}
+	assert_clean(&discover_owned(&files, "lib"));
+}
+
+/// A remote identity that only another project tracks is recorded as
+/// tracked elsewhere, and is no claim of this project.
+#[test]
+fn a_remote_identity_of_another_project_is_tracked_elsewhere() {
+	let files = [
+		(
+			"app/.source-sentry/source-sentry.yaml",
+			"version: 1
+"
+			.to_owned(),
+		),
+		(
+			"app/.source-sentry/remotes/team.lock",
+			lockfile(&[("abstract:video", "{}")], &[]),
+		),
+		// Owner lockfiles below a project root belong to no project.
+		(
+			"docs/.source-sentry/remotes/legal.lock",
+			lockfile(&[("abstract:stray", "{}")], &[]),
+		),
+		// Another project's owner lockfile that does not parse is that
+		// project's fault, not this one's.
+		(
+			"lib/.source-sentry/source-sentry.yaml",
+			"version: 1
+"
+			.to_owned(),
+		),
+		(
+			"lib/.source-sentry/remotes/sales.lock",
+			r#"{"schema": 7}"#.to_owned(),
+		),
+	];
+	let root = discover_owned(&files, "");
+	assert_clean(&root);
+	assert_eq!(root.claims, []);
+	assert_eq!(
+		root
+			.elsewhere
+			.iter()
+			.map(|(document, locations)| (
+				document.to_string(),
+				locations
+					.iter()
+					.map(|location| location.file.to_string())
+					.collect::<Vec<_>>()
+			))
+			.collect::<Vec<_>>(),
+		[(
+			"abstract:video".to_owned(),
+			vec!["app/.source-sentry/remotes/team.lock".to_owned()]
+		)]
+	);
+	assert_eq!(
+		discover_owned(&files, "app").elsewhere,
+		std::collections::BTreeMap::new()
+	);
+}
+
 #[test]
 fn a_remote_identity_retired_in_another_owner_lockfile_is_an_error() {
 	let inventory = inventory(&[

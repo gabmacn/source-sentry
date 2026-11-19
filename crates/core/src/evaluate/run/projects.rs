@@ -228,6 +228,7 @@ pub(super) fn narrowed(
 		revision: found.revision.clone(),
 		lockfiles: found.lockfiles.clone(),
 		tombstones: found.tombstones.clone(),
+		elsewhere: found.elsewhere.clone(),
 		dependencies: found.dependencies.clone(),
 		series: found.series.clone(),
 		claims: found

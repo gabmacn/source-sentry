@@ -12,7 +12,9 @@ use crate::config::ConfigSet;
 use crate::evaluate::schedule::EffectiveSchedule;
 use crate::model::DocumentId;
 
-/// Reports double claims, identities that two owner lockfiles share, entries
+/// Reports double claims, including a remote identity that another project's
+/// owner lockfiles track too, as `elsewhere` lists them, identities that two
+/// owner lockfiles share, entries
 /// outside their lockfile's authority, listed documents that the snapshot
 /// lacks, undeclared classes, and invalid schedules, including those of
 /// sealed records.
@@ -22,10 +24,11 @@ pub(super) fn validate(
 	lockfiles: &[LockfileInfo],
 	claims: &[Claim],
 	tombstones: &[Tombstone],
+	elsewhere: &BTreeMap<DocumentId, BTreeSet<Location>>,
 	configs: &ConfigSet,
 	diagnostics: &mut Vec<Diagnostic>,
 ) {
-	double_claims(claims, diagnostics);
+	double_claims(claims, elsewhere, diagnostics);
 	shared_remote_identities(claims, tombstones, diagnostics);
 	authority(lockfiles, claims, tombstones, diagnostics);
 	for claim in claims {
@@ -74,16 +77,29 @@ fn site(claim: &Claim) -> String {
 	}
 }
 
-/// Reports every document claimed more than once.
-fn double_claims(claims: &[Claim], diagnostics: &mut Vec<Diagnostic>) {
+/// Reports every document claimed more than once, in this project or, for
+/// a remote identity, in another project's owner lockfiles as well.
+fn double_claims(
+	claims: &[Claim],
+	elsewhere: &BTreeMap<DocumentId, BTreeSet<Location>>,
+	diagnostics: &mut Vec<Diagnostic>,
+) {
 	for group in claims.chunk_by(|left, right| left.document == right.document) {
 		let [first, rest @ ..] = group else {
 			continue;
 		};
-		if rest.is_empty() {
+		let others = elsewhere.get(&first.document).into_iter().flatten();
+		if rest.is_empty() && others.clone().next().is_none() {
 			continue;
 		}
-		let sites: Vec<String> = group.iter().map(site).collect();
+		let sites: Vec<String> = group
+			.iter()
+			.map(site)
+			.chain(others.clone().map(|location| match &location.field {
+				Some(field) => format!("{} at `{field}`", location.file),
+				None => location.file.to_string(),
+			}))
+			.collect();
 		diagnostics.push(
 			Diagnostic::new(
 				DiagnosticKind::DoubleClaim,
@@ -93,11 +109,17 @@ fn double_claims(claims: &[Claim], diagnostics: &mut Vec<Diagnostic>) {
 					 declaration, so keep one and remove the others; `track --from` \
 					 moves a declaration between modes and lockfiles",
 					first.document,
-					group.len(),
+					sites.len(),
 					sites.join(", and in ")
 				),
 			)
-			.with_related(rest.iter().map(Claim::location).collect())
+			.with_related(
+				rest
+					.iter()
+					.map(Claim::location)
+					.chain(others.cloned())
+					.collect(),
+			)
 			.about(first.document.clone()),
 		);
 	}

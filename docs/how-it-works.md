@@ -718,6 +718,12 @@ Remote documents are kept in one lockfile per **owner**, under
 > host, and a file per owner lets `CODEOWNERS` protect, for example, the
 > legal team's reviews.
 
+An identity is tracked in one owner lockfile only, in the whole
+repository. A remote document may move between owners, in its project or
+into another, but the same identity in two owner lockfiles at once is a
+double claim, even when they belong to different projects: `check`
+reports it in each of those projects, and `track` refuses to create it.
+
 Source Sentry does not contact the services. Whether a remote document
 still exists is unknown to it, and a remote document cannot be a record or
 a member of a series. Owner names are labels for reports, not identities.

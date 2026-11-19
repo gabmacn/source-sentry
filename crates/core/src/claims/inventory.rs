@@ -35,6 +35,11 @@ pub struct Inventory {
 	pub claims: Vec<Claim>,
 	/// Every tombstone, sorted by document, then by lockfile.
 	pub tombstones: Vec<Tombstone>,
+	/// Every remote identity that another project's owner lockfiles track,
+	/// with the entries that track it there. An identity may appear in only
+	/// one owner lockfile in the repository, so one that this project
+	/// tracks too is a [`DoubleClaim`](super::DiagnosticKind::DoubleClaim).
+	pub elsewhere: BTreeMap<DocumentId, BTreeSet<Location>>,
 	/// Every edge from a document to a source that is itself a
 	/// lockfile-tracked document, sorted and without repeats.
 	/// Sealed records contribute none.
@@ -82,6 +87,21 @@ impl Inventory {
 			))
 		});
 		self.tombstones.dedup();
+		for (document, locations) in other.elsewhere {
+			self
+				.elsewhere
+				.entry(document)
+				.or_default()
+				.extend(locations);
+		}
+		// An entry of a project combined here is one of this inventory's
+		// claims now, not a claim elsewhere.
+		let claimed: BTreeSet<Location> =
+			self.claims.iter().map(Claim::location).collect();
+		self.elsewhere.retain(|_, locations| {
+			locations.retain(|location| !claimed.contains(location));
+			!locations.is_empty()
+		});
 		self.dependencies.extend(other.dependencies);
 		self.dependencies.sort();
 		self.dependencies.dedup();

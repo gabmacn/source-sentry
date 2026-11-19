@@ -648,7 +648,10 @@ source-sentry migrate [--dry-run] [--yes]
 ```
 
 - **The default target** of `track` is the nearest lockfile, or a new one in
-  the document's directory. A remote identity requires `--remote`.
+  the document's directory. A remote identity requires `--remote`. A remote
+  identity is tracked in one owner lockfile in the whole repository, so
+  `track` refuses one that another project's owner lockfile already holds;
+  `--from` and `--to` move it there instead.
 - **`track` on a tracked document** adds to its declaration where it is:
   - new sources, unattested: a reviewed document is stale until they are
     reviewed, and one never reviewed stays unattested;

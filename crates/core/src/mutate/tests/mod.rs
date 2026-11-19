@@ -147,6 +147,14 @@ impl Tree {
 		claims[0]
 	}
 
+	/// The inventory of the project rooted at `project`, whose configs must
+	/// be valid.
+	fn project(&self, project: &str) -> Inventory {
+		let configs =
+			ConfigSet::load_project(&self.snapshot, &path(project)).unwrap();
+		discover(&self.snapshot, &configs).unwrap()
+	}
+
 	/// Asserts that discovery found nothing wrong.
 	fn assert_clean(&self) {
 		let fatal: Vec<_> = self

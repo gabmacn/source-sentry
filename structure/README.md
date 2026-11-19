@@ -171,6 +171,11 @@ differences:
 - **`url`** may be added to any document, for convenience. It never changes
   the document's identity.
 - **`retired` keys hold the same non-empty, ordered lists of tombstones.**
+- **An identity is tracked in one owner lockfile only, in the whole
+  repository.** The same identity in two owner lockfiles is a
+  `double-claim`, whether they belong to one project or to two; `check`
+  reports it in each project concerned. A move between projects' owners
+  takes the entry out of one owner lockfile and into the other at once.
 - **`seal` and `completed` are forbidden**, including in every tombstone:
   remote documents cannot be records or series members.
 

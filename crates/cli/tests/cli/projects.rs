@@ -931,3 +931,85 @@ fn a_cited_documents_errors_reach_the_citing_report() {
 	assert_eq!(codes(&zone), ["invalid-time-zone"], "{zone:#}");
 	assert_eq!(zone["diagnostics"][0]["location"]["project"], "app");
 }
+
+/// One remote identity may be tracked in only one owner lockfile in the
+/// repository: `track` refuses a second project's claim, and `check` reports
+/// one that arrives otherwise, as from a merge, in both projects. A move
+/// between projects leaves one claim.
+#[test]
+fn a_remote_identity_tracked_in_two_projects_is_a_double_claim() {
+	let repo = TestRepo::init();
+	repo.write("app/.source-sentry/source-sentry.yaml", "version: 1\n");
+	let track = [
+		"track",
+		"abstract:video",
+		"--remote",
+		"legal",
+		"--source",
+		":/src/a.rs",
+		"--yes",
+	];
+	repo.run(&track).expect_code(0);
+	let moved = repo.run(&[
+		"track",
+		"abstract:video",
+		"--from",
+		"remote:legal",
+		"--to",
+		"remote:team@app",
+		"--yes",
+	]);
+	moved.expect_code(0);
+	// The document is unattested, a warning, and only `app` tracks it.
+	repo.run_in(".", &["check", "--at", AT]).expect_code(0);
+	repo.run_in("app", &["check", "--at", AT]).expect_code(1);
+
+	let refused = repo.run(&track);
+	refused.expect_code(2);
+	assert!(
+		refused.stderr.contains(
+			"`abstract:video` is already tracked \
+			 (app/.source-sentry/remotes/team.lock"
+		),
+		"{}",
+		refused.stderr
+	);
+	assert!(!repo.exists(".source-sentry/remotes/legal.lock"));
+
+	let team = repo.read("app/.source-sentry/remotes/team.lock");
+	repo.write(".source-sentry/remotes/legal.lock", &team);
+	for (start, own, other) in [
+		(
+			".",
+			".source-sentry/remotes/legal.lock",
+			"app/.source-sentry/remotes/team.lock",
+		),
+		(
+			"app",
+			"app/.source-sentry/remotes/team.lock",
+			".source-sentry/remotes/legal.lock",
+		),
+	] {
+		let check = repo.run_in(start, &["check", "--at", AT]);
+		check.expect_code(3);
+		let output = format!("{}{}", check.stdout, check.stderr);
+		assert!(output.contains("double-claim"), "{output}");
+		assert!(
+			output.contains(&format!(
+				"`abstract:video` is claimed 2 times: in {own} at \
+				 `documents[\"abstract:video\"]`, and in {other} at"
+			)),
+			"{output}"
+		);
+		let report = repo
+			.run_in(start, &["check", "--at", AT, "--format", "json"])
+			.json();
+		let diagnostics = report["diagnostics"].as_array().unwrap();
+		assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+		assert_eq!(diagnostics[0]["code"], "double-claim");
+		let related = diagnostics[0]["related"].as_array().unwrap();
+		assert_eq!(related.len(), 1, "{related:#?}");
+		let project = if start == "." { "app" } else { "." };
+		assert_eq!(related[0]["project"], project);
+	}
+}

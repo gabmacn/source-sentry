@@ -20,7 +20,9 @@
 //!   `.source-sentry/` is read for one.
 //!
 //! A document claimed twice, or a remote identity in two owner lockfiles, is
-//! an integrity error. A listed local document that the
+//! an integrity error. Owner lockfiles of every other project are read for
+//! their identities alone, because one identity may appear in only one
+//! owner lockfile in the repository. A listed local document that the
 //! snapshot lacks is a configuration error, or an integrity error for a
 //! sealed record.
 //!
@@ -59,6 +61,7 @@
 
 mod case;
 mod diagnostic;
+mod elsewhere;
 pub(crate) mod graph;
 mod inventory;
 mod pattern;
@@ -132,6 +135,7 @@ pub fn discover<S: Snapshot>(
 		&mut diagnostics,
 	)?;
 	stranded::read(snapshot, configs, &tracked, &mut found, &mut diagnostics)?;
+	let elsewhere = elsewhere::read(snapshot, configs, &tracked)?;
 	let read::Found {
 		lockfiles,
 		mut claims,
@@ -152,6 +156,7 @@ pub fn discover<S: Snapshot>(
 		&lockfiles,
 		&claims,
 		&tombstones,
+		&elsewhere,
 		configs,
 		&mut diagnostics,
 	);
@@ -177,6 +182,7 @@ pub fn discover<S: Snapshot>(
 		lockfiles,
 		claims,
 		tombstones,
+		elsewhere,
 		dependencies,
 		unclaimed,
 		series,

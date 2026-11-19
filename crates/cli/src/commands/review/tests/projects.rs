@@ -1,6 +1,6 @@
 //! Review traversal under independent project configurations.
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::super::{Answer, session};
 use super::support::{Repo, Script, local};
@@ -31,24 +31,36 @@ fn traverses_nested_projects_with_context_fallback() {
 	);
 }
 
-/// Identical remote identities in different projects are separate queue entries.
+/// One remote identity in two projects' owner lockfiles is a double claim,
+/// which stops the review as any other integrity error does.
 #[test]
-fn remote_identity_collisions_remain_separate_between_projects() {
+fn a_remote_identity_in_two_projects_stops_the_review() {
 	let repo = Repo::new(json!({}));
 	let lock = r#"{"schema":1,"documents":{"abstract:same":{}},"retired":{}}"#;
 	repo.write(".source-sentry/remotes/team.lock", lock);
-	repo.write("app/.source-sentry/source-sentry.yaml", "version: 1\n");
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1
+",
+	);
 	repo.write("app/.source-sentry/remotes/team.lock", lock);
 	repo.commit();
 	let mut script = Script::answers(&repo, &[Answer::Yes, Answer::Yes]);
-	repo.run(&[], &mut script).unwrap();
-	assert_eq!(script.shown.len(), 2);
+	let error = repo.run(&[], &mut script).unwrap_err();
+	assert_eq!(error.code, 3);
+	assert!(
+		error.message.contains(
+			"double-claim: `abstract:same` is claimed 2 times: in .source-sentry/remotes/team.lock"
+		),
+		"{}",
+		error.message
+	);
+	assert_eq!(script.shown, []);
 	for file in [
 		".source-sentry/remotes/team.lock",
 		"app/.source-sentry/remotes/team.lock",
 	] {
-		let lock: Value = serde_json::from_str(&repo.read(file)).unwrap();
-		assert!(lock["documents"]["abstract:same"]["reviewed"].is_object());
+		assert_eq!(repo.read(file), lock);
 	}
 }
 

@@ -5,7 +5,7 @@ use super::{
 	path, remote, seal_of,
 };
 use crate::adapters::lockfile::LocalLockfile;
-use crate::claims::Mode;
+use crate::claims::{DiagnosticKind, Mode};
 use crate::evaluate::settings::SettingOrigin;
 use crate::model::DocumentId;
 use crate::mutate::{
@@ -516,6 +516,60 @@ fn between_owners_with_a_preview() {
 	assert_eq!(
 		after.inventory.tombstones[0].lockfile,
 		path(".source-sentry/remotes/marketing.lock")
+	);
+}
+
+/// A move to an owner in another project leaves one claim in the
+/// repository, so neither project reports a double claim. A document that
+/// two projects already track is refused, as any other double claim is.
+#[test]
+fn between_projects_one_claim_remains() {
+	let files = [
+		(REPOSITORY, BASE),
+		("app/.source-sentry/source-sentry.yaml", BASE),
+		(
+			".source-sentry/remotes/legal.lock",
+			&lockfile(&[("abstract:video", "{}")], &[]),
+		),
+	];
+	let tree = Tree::new(&files);
+	let document = remote("abstract:video");
+	let from = Placement::Remote {
+		project: crate::model::RepoPath::ROOT,
+		owner: "legal".to_owned(),
+	};
+	let to = Target::Remote {
+		project: path("app"),
+		owner: "team".to_owned(),
+	};
+	let move_it = |tree: &Tree| {
+		track_from(
+			&tree.snapshot,
+			&tree.configs,
+			&tree.inventory,
+			&request(std::slice::from_ref(&document), from.clone(), to.clone()),
+		)
+	};
+	let after = tree.apply(&move_it(&tree).unwrap().plan);
+	after.assert_clean();
+	assert_eq!(after.inventory.claims_of(&document).count(), 0);
+	let app = after.project("app");
+	assert!(!app.has_errors(), "{:#?}", app.diagnostics);
+	assert_eq!(app.claims_of(&document).count(), 1);
+
+	let mut doubled = files.to_vec();
+	let entry = lockfile(&[("abstract:video", "{}")], &[]);
+	doubled.push(("app/.source-sentry/remotes/sales.lock", &entry));
+	let tree = Tree::new(&doubled);
+	let error = move_it(&tree).unwrap_err();
+	let MutateError::DocumentHasErrors { diagnostics, .. } = &error else {
+		panic!("expected a refusal of a double claim, got {error:?}");
+	};
+	assert!(
+		diagnostics
+			.iter()
+			.all(|diagnostic| diagnostic.kind == DiagnosticKind::DoubleClaim),
+		"{diagnostics:#?}"
 	);
 }
 
