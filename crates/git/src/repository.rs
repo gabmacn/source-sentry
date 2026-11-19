@@ -383,6 +383,38 @@ impl GitRepository {
 		}
 	}
 
+	/// The value of a git setting as git reads it, with every level and
+	/// include it honours, or `None` when no configuration sets it.
+	///
+	/// # Errors
+	///
+	/// Fails with [`BackendErrorKind::GitExecutable`] when `git` cannot run or
+	/// fails, and with [`BackendErrorKind::Git`] when the value is not UTF-8.
+	pub fn config_value(
+		&self,
+		key: &str,
+	) -> Result<Option<String>, BackendError> {
+		let args = ["config", "--get", key];
+		let finished = self.git.run(&args, None)?;
+		match finished.status.code() {
+			Some(0) => {}
+			// Git exits with 1 when the key is unset.
+			Some(1) => return Ok(None),
+			_ => return Err(exit_failure(&args, &finished)),
+		}
+		let mut value = String::from_utf8(finished.stdout).map_err(|source| {
+			caused(
+				BackendErrorKind::Git,
+				format!("git's `{key}` is not UTF-8"),
+				source,
+			)
+		})?;
+		if value.ends_with('\n') {
+			value.pop();
+		}
+		Ok(Some(value))
+	}
+
 	/// The working-tree files that git neither tracks nor ignores, sorted:
 	/// `git ls-files --others --exclude-standard`. Snapshots list the index
 	/// only, so `check` uses this to name what it leaves out.

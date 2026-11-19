@@ -22,7 +22,7 @@ use crate::workspace::{Workspace, load};
 /// A tracked fixture repository, never the product repository.
 pub(in crate::commands::review) struct Repo {
 	/// Owns the directory until the session and its snapshots have closed.
-	pub(super) directory: TempDir,
+	pub(in crate::commands::review) directory: TempDir,
 	/// Empty global git configuration, outside the tracked fixture files.
 	global: tempfile::NamedTempFile,
 }

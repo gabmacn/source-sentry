@@ -3,10 +3,10 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use source_sentry_core::model::DocumentId;
+use source_sentry_core::model::{DocumentId, RepoPath};
 use source_sentry_core::mutate::DocumentDiff;
 
 use crate::exit::{self, Failure};
@@ -67,15 +67,14 @@ pub(super) fn edit(
 			"no editor is configured; set VISUAL, EDITOR or git's core.editor",
 		)
 	})?;
-	let path = workspace.display_path(path);
-	// Prefix relative paths so a file beginning with `-` is never an option.
-	let path = Path::new(&path);
-	let target = if path.is_absolute() {
-		path.to_path_buf()
-	} else {
-		Path::new(".").join(path)
-	};
-	launch(&editor, &target)
+	launch(&editor, &edit_target(workspace, path))
+}
+
+/// The file an editor opens for `path`: absolute, because the editor runs in
+/// the process's own directory, not the effective one that `-C` names, and
+/// never read as an option, even when its name begins with `-`.
+fn edit_target(workspace: &Workspace, path: &RepoPath) -> PathBuf {
+	workspace.file(path)
 }
 
 /// The editor chain: VISUAL, EDITOR, then git's effective core.editor.
@@ -113,33 +112,15 @@ fn configured(
 			}
 		}
 	}
-	let directory = workspace.repository.work_dir().ok_or_else(|| {
-		Failure::new(exit::OPERATIONAL, "review needs a working tree")
-	})?;
-	let result = Command::new("git")
-		.arg("-C")
-		.arg(directory)
-		.args(["config", "--get", key])
-		.output()
-		.map_err(|error| {
-			failed("cannot read git's viewer configuration", &error)
-		})?;
-	if result.status.code() == Some(1) {
-		return Ok(None);
-	}
-	if !result.status.success() {
-		return Err(Failure::new(
-			exit::OPERATIONAL,
-			format!(
-				"cannot read git's {key}: {}",
-				String::from_utf8_lossy(&result.stderr).trim()
-			),
-		));
-	}
-	let value = String::from_utf8(result.stdout).map_err(|error| {
-		failed("git's viewer configuration is not valid UTF-8", &error)
-	})?;
-	Ok((!value.trim().is_empty()).then(|| value.trim().to_owned()))
+	let value = workspace
+		.repository
+		.config_value(key)
+		.map_err(|error| Failure::backend(&error))?;
+	Ok(
+		value
+			.filter(|value| !value.trim().is_empty())
+			.map(|value| value.trim().to_owned()),
+	)
 }
 
 /// Runs an editor or pager shell command with the file as a separate argument
@@ -268,6 +249,25 @@ mod tests {
 		};
 		launch(&command, &target).unwrap();
 		assert_eq!(fs::read_to_string(&target).unwrap().trim(), "edited");
+	}
+
+	/// The editor is given the document's absolute path, because it runs in
+	/// the process's own directory, which differs from the effective one
+	/// when `-C` names another.
+	#[test]
+	fn the_editor_opens_the_document_wherever_review_started() {
+		let repo = Repo::new(json!({"docs/a.md": {}}));
+		let workspace = crate::workspace::Workspace::open(Some(
+			&repo.directory.path().join("docs"),
+		))
+		.unwrap();
+		let path = source_sentry_core::model::RepoPath::new("docs/a.md").unwrap();
+		let target = super::edit_target(&workspace, &path);
+		assert!(target.is_absolute(), "{}", target.display());
+		assert_eq!(
+			fs::read(&target).unwrap(),
+			fs::read(repo.directory.path().join("docs/a.md")).unwrap()
+		);
 	}
 
 	/// A failed editor reports the process status instead of recording a review.
