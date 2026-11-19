@@ -327,3 +327,29 @@ fn path_overview_uses_source_for_review_pattern_selectors() {
 			.expect_code(64);
 	}
 }
+
+/// `-C` names a directory: a regular file is refused, as git refuses it,
+/// instead of being taken for the directory to start in.
+#[test]
+fn a_file_given_to_dash_c_is_refused() {
+	let repo = TestRepo::init();
+	repo.git(&["add", "docs/guide.md"]);
+	for args in [
+		&["-C", "docs/guide.md", "check", "--at", AT][..],
+		&["-C", "docs/guide.md", "explain", "guide.md"][..],
+	] {
+		let run = repo.run(args);
+		run.expect_code(4);
+		assert!(
+			run
+				.stderr
+				.contains("`docs/guide.md`: it is not a directory"),
+			"{}",
+			run.stderr
+		);
+		assert!(run.stdout.is_empty(), "{}", run.stdout);
+	}
+	repo
+		.run(&["-C", "docs", "check", "--at", AT])
+		.expect_code(0);
+}

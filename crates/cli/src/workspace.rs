@@ -42,8 +42,8 @@ impl Workspace {
 	///
 	/// # Errors
 	///
-	/// Exit 4 when no repository is found, it is bare, or a directory cannot
-	/// be resolved.
+	/// Exit 4 when no repository is found, it is bare, a directory cannot be
+	/// resolved, or `repo` is not a directory.
 	pub(crate) fn open(repo: Option<&Path>) -> Result<Self, Failure> {
 		// The current directory is joined and opened as given: a verbatim
 		// `\\?\` path, which canonicalizing produces on Windows, keeps `..`
@@ -55,6 +55,19 @@ impl Workspace {
 		let current = working.canonicalize().map_err(|error| {
 			io_failure("cannot resolve the current directory", &error)
 		})?;
+		// `-C` names the directory to start in, as in git, which refuses
+		// any other kind of file.
+		if let Some(path) = repo
+			&& !current.is_dir()
+		{
+			return Err(Failure::new(
+				crate::exit::OPERATIONAL,
+				format!(
+					"cannot change to `{}`: it is not a directory",
+					path.display()
+				),
+			));
+		}
 		let start = working.clone();
 		let repository =
 			GitRepository::open(&start).map_err(|error| Failure::backend(&error))?;
