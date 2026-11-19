@@ -322,14 +322,16 @@ impl<'a> Canonicalizer<'a> {
 			return Ok(id);
 		}
 		if self.assume_unchanged(path)? {
+			let clear = self
+				.repository
+				.advised_command(&["update-index", "--no-assume-unchanged"], &[path]);
 			return Err(failure(
 				BackendErrorKind::Git,
 				format!(
 					"`{path}` is an edited placeholder of a symbolic link that is \
 					 marked assume-unchanged, so git does not compare it with the \
 					 index, and what `git add` would store for it cannot be \
-					 computed; clear the mark with `git update-index \
-					 --no-assume-unchanged -- {path}` and check again"
+					 computed; clear the mark with `{clear}` and check again"
 				),
 			));
 		}

@@ -38,7 +38,16 @@ pub struct GitRepository {
 	common_dir: PathBuf,
 	prefix: Option<RepoPath>,
 	index_file: Option<PathBuf>,
+	command_style: Option<Box<CommandStyle>>,
 }
+
+/// Writes a git command that a message advises the user to run: given its
+/// arguments and the repository paths it names, it returns the command line.
+///
+/// A program that runs git elsewhere than in the working tree's root, such
+/// as after `-C`, sets one with [`GitRepository::set_command_style`], so that
+/// the advice runs as written where the user is.
+pub type CommandStyle = dyn Fn(&[&str], &[&RepoPath]) -> String + Send + Sync;
 
 impl std::fmt::Debug for GitRepository {
 	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -208,7 +217,35 @@ impl GitRepository {
 			common_dir,
 			prefix,
 			index_file: None,
+			command_style: None,
 		})
+	}
+
+	/// Sets how messages write the git commands they advise. Without one,
+	/// a command is written to run in the working tree's root: `git`, the
+	/// arguments, `--` and the repository paths.
+	pub fn set_command_style(
+		&mut self,
+		style: impl Fn(&[&str], &[&RepoPath]) -> String + Send + Sync + 'static,
+	) {
+		self.command_style = Some(Box::new(style));
+	}
+
+	/// A git command for a message, written in the style that
+	/// [`GitRepository::set_command_style`] set.
+	pub(crate) fn advised_command(
+		&self,
+		arguments: &[&str],
+		paths: &[&RepoPath],
+	) -> String {
+		if let Some(style) = &self.command_style {
+			return style(arguments, paths);
+		}
+		let mut words = vec!["git"];
+		words.extend(arguments);
+		words.push("--");
+		words.extend(paths.iter().map(|path| path.as_str()));
+		words.join(" ")
 	}
 
 	/// Where the directory that [`GitRepository::open_from_env`] started in

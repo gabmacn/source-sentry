@@ -105,6 +105,27 @@ impl Workspace {
 		let scope = repository.prefix().cloned().unwrap_or_default();
 		let mut current = root.clone();
 		current.extend(scope.components());
+		// The backend's own advice names git commands too; they are written
+		// as this workspace writes them, to run where the user started.
+		let repo_argument = repo.map(Path::to_path_buf);
+		let mut repository = repository;
+		{
+			let (root, root_shown, current, repo_argument) = (
+				root.clone(),
+				root_shown.clone(),
+				current.clone(),
+				repo_argument.clone(),
+			);
+			repository.set_command_style(move |arguments, paths| {
+				git_command_line(
+					repo_argument.as_deref(),
+					arguments,
+					paths
+						.iter()
+						.map(|path| relative_path(&root, &root_shown, &current, path)),
+				)
+			});
+		}
 		Ok(Self {
 			scope,
 			projects,
@@ -112,7 +133,7 @@ impl Workspace {
 			root,
 			root_shown,
 			current,
-			repo_argument: repo.map(Path::to_path_buf),
+			repo_argument,
 		})
 	}
 
@@ -245,32 +266,7 @@ impl Workspace {
 
 	/// `path` relative to the effective directory, with `/` separators.
 	pub(crate) fn display_path(&self, path: &RepoPath) -> String {
-		let target: Vec<String> = self
-			.root
-			.components()
-			.map(|component| component.as_os_str().to_string_lossy().into_owned())
-			.chain(path.components().map(str::to_owned))
-			.collect();
-		let current: Vec<String> = self
-			.current
-			.components()
-			.map(|component| component.as_os_str().to_string_lossy().into_owned())
-			.collect();
-		let common = target
-			.iter()
-			.zip(&current)
-			.take_while(|(left, right)| left == right)
-			.count();
-		if common == 0 {
-			return self.root_shown.join(path.as_str()).display().to_string();
-		}
-		let mut parts: Vec<&str> = vec![".."; current.len() - common];
-		parts.extend(target[common..].iter().map(String::as_str));
-		if parts.is_empty() {
-			".".to_owned()
-		} else {
-			parts.join("/")
-		}
+		relative_path(&self.root, &self.root_shown, &self.current, path)
 	}
 
 	/// Where `path` is in the filesystem, for reading a working-tree file.
@@ -295,19 +291,11 @@ impl Workspace {
 		arguments: &[&str],
 		paths: &[&RepoPath],
 	) -> String {
-		let mut words = vec!["git".to_owned()];
-		if let Some(repo) = self.repo_argument() {
-			words.push("-C".to_owned());
-			words.push(repo.display().to_string());
-		}
-		words.extend(arguments.iter().map(|argument| (*argument).to_owned()));
-		words.push("--".to_owned());
-		words.extend(paths.iter().map(|path| self.display_path(path)));
-		words
-			.iter()
-			.map(|word| crate::commands::shell_word(word))
-			.collect::<Vec<_>>()
-			.join(" ")
+		git_command_line(
+			self.repo_argument(),
+			arguments,
+			paths.iter().map(|path| self.display_path(path)),
+		)
 	}
 
 	/// A local document as a Source Sentry command argument, displayed from
@@ -341,6 +329,63 @@ impl Workspace {
 			},
 		)
 	}
+}
+
+/// `path` relative to `current`, a directory below the working tree `root`,
+/// with `/` separators; `root_shown` spells the root for an absolute path.
+fn relative_path(
+	root: &Path,
+	root_shown: &Path,
+	current: &Path,
+	path: &RepoPath,
+) -> String {
+	let target: Vec<String> = root
+		.components()
+		.map(|component| component.as_os_str().to_string_lossy().into_owned())
+		.chain(path.components().map(str::to_owned))
+		.collect();
+	let current: Vec<String> = current
+		.components()
+		.map(|component| component.as_os_str().to_string_lossy().into_owned())
+		.collect();
+	let common = target
+		.iter()
+		.zip(&current)
+		.take_while(|(left, right)| left == right)
+		.count();
+	if common == 0 {
+		return root_shown.join(path.as_str()).display().to_string();
+	}
+	let mut parts: Vec<&str> = vec![".."; current.len() - common];
+	parts.extend(target[common..].iter().map(String::as_str));
+	if parts.is_empty() {
+		".".to_owned()
+	} else {
+		parts.join("/")
+	}
+}
+
+/// A git command for a hint: `git`, then `-C` and `repo_argument` when
+/// given, then `arguments`, then `--` and the displayed `paths`, each word
+/// quoted for the shell.
+fn git_command_line(
+	repo_argument: Option<&Path>,
+	arguments: &[&str],
+	paths: impl Iterator<Item = String>,
+) -> String {
+	let mut words = vec!["git".to_owned()];
+	if let Some(repo) = repo_argument {
+		words.push("-C".to_owned());
+		words.push(repo.display().to_string());
+	}
+	words.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+	words.push("--".to_owned());
+	words.extend(paths);
+	words
+		.iter()
+		.map(|word| crate::commands::shell_word(word))
+		.collect::<Vec<_>>()
+		.join(" ")
 }
 
 /// Resolves source spellings. A single leading `/` denotes the repository

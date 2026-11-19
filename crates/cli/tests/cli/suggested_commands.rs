@@ -169,3 +169,43 @@ fn the_untracked_file_hint_adds_it_where_it_was_run() {
 		"docs/source-sentry.lock"
 	);
 }
+
+/// The advice to clear the assume-unchanged mark that keeps git from
+/// comparing an edited placeholder of a symbolic link repeats `-C` and
+/// names the path from the directory git starts in, so that it runs as
+/// printed.
+#[test]
+fn the_assume_unchanged_advice_runs_where_it_was_printed() {
+	let repo = TestRepo::init();
+	repo.git(&["config", "core.symlinks", "false"]);
+	repo.write("src/target.txt", "content\n");
+	let link = repo.path().join("src/link");
+	std::fs::write(&link, "x\r\ny\r\n").unwrap();
+	let blob = repo.git(&["hash-object", "-w", "--no-filters", "src/link"]);
+	repo.git(&[
+		"update-index",
+		"--add",
+		"--cacheinfo",
+		&format!("120000,{blob},src/link"),
+	]);
+	repo.write(".gitattributes", "src/link text=auto ident\n");
+	repo.commit_at("2026-10-01T10:00:00Z");
+	repo
+		.run(&["track", "docs/guide.md", "--source", "/src/link", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-02T10:00:00Z");
+	repo.git(&["update-index", "--assume-unchanged", "src/link"]);
+	std::fs::write(&link, "$Id: expanded-value $\r\nnew-target\r\n").unwrap();
+
+	let check = ["-C", "../docs", "check", "--at", crate::support::AT];
+	let refused = repo.run_in("src", &check);
+	refused.expect_code(4);
+	let command = quoted(&refused.stderr, "git -C");
+	assert_eq!(
+		command, "git -C ../docs update-index --no-assume-unchanged -- ../src/link",
+		"{}",
+		refused.stderr
+	);
+	repo.run_shell_in("src", command).expect_code(0);
+	assert_ne!(repo.run_in("src", &check).code, 4);
+}

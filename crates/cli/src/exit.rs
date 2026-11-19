@@ -110,7 +110,16 @@ impl Failure {
 	/// that an earlier command created and git does not track yet: snapshots
 	/// list git's index, so the hint says to add it.
 	pub(crate) fn apply(workspace: &Workspace, error: &ApplyError) -> Self {
-		let mut message = chain(error);
+		let mut message = match error {
+			// The advice names a command, which is written to run where the
+			// user started.
+			ApplyError::Unverifiable { path, reason } => format!(
+				"cannot verify {}: {}",
+				workspace.display_path(path),
+				render::canonical_problem(workspace, path, reason)
+			),
+			_ => chain(error),
+		};
 		if !matches!(error, ApplyError::RollbackFailed { .. }) {
 			message.push_str("; nothing was changed");
 		}
@@ -173,4 +182,55 @@ fn chain(error: &dyn Error) -> String {
 		source = cause.source();
 	}
 	message
+}
+
+#[cfg(test)]
+mod tests {
+	use std::process::Command;
+
+	use source_sentry_core::model::RepoPath;
+	use source_sentry_core::ports::Canonical;
+
+	use super::*;
+
+	/// The advice for a file that changed to CRLF in the index while a plan
+	/// was applied repeats `-C` and names the file from where git starts.
+	#[test]
+	fn the_renormalize_advice_of_a_refused_plan_runs_where_printed() {
+		let directory = tempfile::tempdir().unwrap();
+		let root = directory.path();
+		std::fs::create_dir_all(root.join("docs")).unwrap();
+		std::fs::create_dir_all(root.join("src")).unwrap();
+		std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
+		for args in [&["init", "--quiet"][..], &["add", "src/a.rs"]] {
+			let status = Command::new("git")
+				.args(args)
+				.current_dir(root)
+				.env_remove("GIT_DIR")
+				.env_remove("GIT_WORK_TREE")
+				.env_remove("GIT_INDEX_FILE")
+				.status()
+				.unwrap();
+			assert!(status.success());
+		}
+		let docs = root.join("docs");
+		let workspace = Workspace::open(Some(&docs)).unwrap();
+		let error = ApplyError::Unverifiable {
+			path: RepoPath::new("src/a.rs").unwrap(),
+			reason: Canonical::CrlfInIndex,
+		};
+		let failure = Failure::apply(&workspace, &error);
+		assert_eq!(failure.code, OPERATIONAL);
+		let expected = workspace.git_command(
+			&["add", "--renormalize"],
+			&[&RepoPath::new("src/a.rs").unwrap()],
+		);
+		assert!(expected.contains("-- ../src/a.rs"), "{expected}");
+		assert!(failure.message.contains(&expected), "{}", failure.message);
+		assert!(
+			failure.message.starts_with("cannot verify ../src/a.rs:"),
+			"{}",
+			failure.message
+		);
+	}
 }

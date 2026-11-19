@@ -51,6 +51,16 @@ fn diagnostics(workspace: &Workspace, diagnostics: &[Diagnostic]) -> String {
 
 mod mutation;
 
+/// What a non-oid canonical value of `path` means, and how to fix it, with
+/// any command written to run where the user started.
+pub(super) fn canonical_problem(
+	workspace: &Workspace,
+	path: &source_sentry_core::model::RepoPath,
+	canonical: &source_sentry_core::ports::Canonical,
+) -> String {
+	mutation::canonical_problem(workspace, path, canonical)
+}
+
 /// A planner refusal whose structured paths belong to this invocation.
 /// With the inventory the planner read, a suggested command can name the
 /// lockfile that would hold the document.

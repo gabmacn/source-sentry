@@ -55,6 +55,6 @@ mod snapshot;
 mod write;
 
 pub use log::{PathCommit, PathCommits};
-pub use repository::GitRepository;
+pub use repository::{CommandStyle, GitRepository};
 pub use snapshot::{CommitSnapshot, WorkingTreeSnapshot};
 pub use write::{ApplyError, Unwritable};

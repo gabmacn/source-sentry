@@ -669,7 +669,7 @@ fn on_file_to_lockfile(
 }
 
 /// What a non-oid canonical value means, and how to fix it.
-fn canonical_problem(
+pub(super) fn canonical_problem(
 	workspace: &Workspace,
 	path: &RepoPath,
 	canonical: &Canonical,
