@@ -178,8 +178,9 @@ differences:
   takes the entry out of one owner lockfile and into the other at once.
 - **`seal` and `completed` are forbidden**, including in every tombstone:
   remote documents cannot be records or series members.
-- **`renamed` is forbidden**: remote documents cannot be renamed. `rename`
-  refuses remote identities, and a move between owners keeps the identity.
+- **Non-empty `renamed` lists are forbidden**: remote documents cannot be
+  renamed. `rename` refuses remote identities, and a move between owners
+  keeps the identity.
 
 Sources of remote documents must start with `/` or `:/`, because a remote
 document has no directory to be relative to.

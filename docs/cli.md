@@ -9,7 +9,7 @@ source-sentry help [<command>]
 ```
 
 - `-C <path>` runs as if started in that directory, as in git. Relative
-  arguments and project selection start there. Relative and absolute
+  arguments and project selection normally start there. Relative and absolute
   filesystem paths are accepted. Without it, use the current directory.
   The repository is the one git would use from there; see
   [The repository](#the-repository).
@@ -35,7 +35,7 @@ Document arguments, `init` paths, `--lockfile` directories,
 paths start in the current directory, as in git. Absolute paths use the
 platform's native form: `/home/me/project/docs/guide.md` on Unix, or
 `C:\project\docs\guide.md` on Windows. A leading `/` has its filesystem
-meaning. `-C` changes the effective starting directory for every relative
+meaning. `-C` changes the effective starting directory for each relative
 argument.
 
 Source spellings, given to `--source` of `track`, `untrack`, `diff` and
@@ -55,7 +55,9 @@ Human output displays paths relative to the effective starting directory,
 including diagnostic locations and commands printed for copying. When the
 effective starting directory lies outside the working tree, which
 `GIT_WORK_TREE` allows, relative paths start at the working tree's root and
-are displayed relative to it, as git takes them. Quoted
+are displayed relative to it, as git takes them. Relative document, source,
+placement and other repository paths, and project selection, also start at
+the working tree's root in that case. Quoted
 source declarations retain their spelling. JSON subjects and diagnostic
 locations include `project`, the repository path of the project root (`.`
 for the repository project), and paths relative to that project. A source
