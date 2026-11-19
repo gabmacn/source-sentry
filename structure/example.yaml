@@ -1,5 +1,7 @@
 # Source Sentry reads only the `source-sentry` key of a document's frontmatter,
 # and leaves every other key untouched.
+# Quote text that YAML would read as a number or boolean, such as '123' or
+# 'true'. A review's `by` is required; use `null` when nobody is identified.
 source-sentry:
   # When someone last reread the whole document, and who.
   reviewed:
@@ -15,7 +17,8 @@ source-sentry:
   # Overrides grace and cadence separately; omitted fields stay inherited.
   # Set `cadence: null` to remove an inherited cadence.
   schedule:
-    # Grace counts calendar days from the local date when drift started.
+    # Grace is an unquoted whole number. It counts calendar days from the
+    # local date when drift started.
     # Without cadence, positive grace sets the due date to that date plus
     # grace; zero grace makes the document due at once. With cadence, the
     # due date is the first recurrence on or after that date plus grace.

@@ -106,6 +106,9 @@ Each document has the same fields as a declaration in frontmatter
 (`example.yaml`), plus **`seal`**: `at`, `by` and `oid`. A sealed document is
 a record, which must never change.
 
+A review, seal or rename entry must include `by`; use `null` when nobody
+can be identified. This also applies to completion and retirement entries.
+
 **`completed`**, also allowed in frontmatter, holds `at` and `by` for a
 living-series entry's first complete source review. The preset example
 explains how committed completion and seal markers credit series windows.

@@ -1,8 +1,10 @@
 # The project config, at .source-sentry/source-sentry.yaml.
 
 # Config, preset and frontmatter YAML must each contain one document. Use
-# true/false for booleans; duplicate keys, merge keys and unsupported tags are
-# rejected. Unknown declaration and config fields are errors.
+# unquoted true/false for booleans and unquoted whole numbers for numeric
+# settings. Quote numbers and booleans used as text. Duplicate keys, merge
+# keys and unsupported tags are rejected. Unknown declaration and config fields
+# are errors.
 
 # This file is optional. Without it: version 1, UTC, no declared classes and
 # only the built-in default context. If present, it must set integer version 1.
