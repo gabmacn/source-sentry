@@ -46,19 +46,7 @@ impl History for GitRepository {
 		commit: &CommitId,
 		paths: &[RepoPath],
 	) -> Result<Vec<Option<ObjectId>>, BackendError> {
-		let raw = self.raw();
-		let oid = self.git_oid(&commit.0).ok_or_else(|| {
-			failure(
-				BackendErrorKind::MissingObject,
-				format!("the commit {commit} is missing"),
-			)
-		})?;
-		let tree = raw
-			.find_commit(oid)
-			.and_then(|found| found.tree())
-			.map_err(|source| {
-				error::git(format!("cannot read the tree of {commit}"), source)
-			})?;
+		let tree = self.commit_tree(commit)?;
 		paths
 			.iter()
 			.map(|path| {
@@ -80,71 +68,50 @@ impl History for GitRepository {
 			.collect()
 	}
 
-	/// Looks `directory` up in each commit's tree, and lists a subtree only
-	/// the first time it is seen, so that a directory that rarely changes
-	/// costs one lookup per commit. The root is each commit's own tree. A
-	/// commit that lacks `directory` contributes nothing; a tree that cannot
-	/// be read on the way to it is an error.
+	/// Looks `directory` up in one commit's tree and lists its blobs. The
+	/// root is the commit's own tree. A symbolic link is a blob holding its
+	/// target, as in [`History::blobs_at`].
 	///
 	/// A name that is not UTF-8 is passed over without an error. A commit
 	/// that holds such a name cannot be checked at all, in the working tree
 	/// or with `--rev`, so a lockfile with such a name was never one Source
 	/// Sentry could read.
-	fn files_ever_in(
+	fn blobs_in(
 		&self,
-		start: &CommitId,
+		commit: &CommitId,
 		directory: &RepoPath,
-	) -> Result<Vec<RepoPath>, BackendError> {
+	) -> Result<Vec<(RepoPath, ObjectId)>, BackendError> {
 		let raw = self.raw();
-		let mut seen = HashSet::new();
-		let mut files = std::collections::BTreeSet::new();
-		for commit in self.first_parent_walk(start) {
-			let commit = commit?;
-			let oid = self.git_oid(&commit.id.0).ok_or_else(|| {
-				failure(
-					BackendErrorKind::MissingObject,
-					format!("the commit {} is missing", commit.id),
-				)
-			})?;
-			let tree = raw
-				.find_commit(oid)
-				.and_then(|found| found.tree())
-				.map_err(|source| {
-					error::git(format!("cannot read the tree of {}", commit.id), source)
-				})?;
-			let subtree_id = if directory.is_root() {
-				tree.id()
-			} else {
-				match tree.get_path(std::path::Path::new(directory.as_str())) {
-					Ok(entry) if entry.kind() == Some(git2::ObjectType::Tree) => {
-						entry.id()
-					}
-					Ok(_) => continue,
-					Err(source) if is_absent(&source) => continue,
-					Err(source) => {
-						return Err(error::git(
-							format!("cannot look up {directory} in {}", commit.id),
-							source,
-						));
-					}
+		let tree = self.commit_tree(commit)?;
+		let subtree_id = if directory.is_root() {
+			tree.id()
+		} else {
+			match tree.get_path(std::path::Path::new(directory.as_str())) {
+				Ok(entry) if entry.kind() == Some(git2::ObjectType::Tree) => entry.id(),
+				Ok(_) => return Ok(Vec::new()),
+				Err(source) if is_absent(&source) => return Ok(Vec::new()),
+				Err(source) => {
+					return Err(error::git(
+						format!("cannot look up {directory} in {commit}"),
+						source,
+					));
 				}
-			};
-			if !seen.insert(subtree_id) {
-				continue;
 			}
-			let subtree = raw.find_tree(subtree_id).map_err(|source| {
-				error::git(format!("cannot read {directory} in {}", commit.id), source)
-			})?;
-			for item in &subtree {
-				if item.kind() == Some(git2::ObjectType::Blob)
-					&& let Ok(name) = item.name()
-					&& let Ok(path) = directory.join(name)
-				{
-					files.insert(path);
-				}
+		};
+		let subtree = raw.find_tree(subtree_id).map_err(|source| {
+			error::git(format!("cannot read {directory} in {commit}"), source)
+		})?;
+		let mut blobs = Vec::new();
+		for item in &subtree {
+			if item.kind() == Some(git2::ObjectType::Blob)
+				&& let Ok(name) = item.name()
+				&& let Ok(path) = directory.join(name)
+			{
+				blobs.push((path, object_id(item.id(), self.algorithm())?));
 			}
 		}
-		Ok(files.into_iter().collect())
+		blobs.sort();
+		Ok(blobs)
 	}
 
 	/// Reads a blob. `None` means the object database has no blob with this
@@ -152,6 +119,28 @@ impl History for GitRepository {
 	/// hash algorithm.
 	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError> {
 		self.blob_content(id)
+	}
+}
+
+impl GitRepository {
+	/// The root tree of `commit`.
+	fn commit_tree(
+		&self,
+		commit: &CommitId,
+	) -> Result<git2::Tree<'_>, BackendError> {
+		let oid = self.git_oid(&commit.0).ok_or_else(|| {
+			failure(
+				BackendErrorKind::MissingObject,
+				format!("the commit {commit} is missing"),
+			)
+		})?;
+		self
+			.raw()
+			.find_commit(oid)
+			.and_then(|found| found.tree())
+			.map_err(|source| {
+				error::git(format!("cannot read the tree of {commit}"), source)
+			})
 	}
 }
 

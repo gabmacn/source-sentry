@@ -212,28 +212,24 @@ impl History for FakeHistory {
 		Ok(paths.iter().map(|path| tree.get(path).cloned()).collect())
 	}
 
-	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError> {
-		Ok(self.blobs.get(id).cloned())
+	fn blobs_in(
+		&self,
+		commit: &CommitId,
+		directory: &RepoPath,
+	) -> Result<Vec<(RepoPath, ObjectId)>, BackendError> {
+		let index = self.index_of(commit).ok_or_else(|| Self::missing(commit))?;
+		Ok(
+			self.commits[index]
+				.tree
+				.iter()
+				.filter(|(path, _)| path.parent().as_ref() == Some(directory))
+				.map(|(path, oid)| (path.clone(), oid.clone()))
+				.collect(),
+		)
 	}
 
-	fn files_ever_in(
-		&self,
-		start: &CommitId,
-		directory: &RepoPath,
-	) -> Result<Vec<RepoPath>, BackendError> {
-		let index = self.index_of(start).ok_or_else(|| Self::missing(start))?;
-		let floor = self.shallow_at.unwrap_or(0).min(index);
-		let mut files = std::collections::BTreeSet::new();
-		for commit in &self.commits[floor..=index] {
-			files.extend(
-				commit
-					.tree
-					.keys()
-					.filter(|path| path.parent().as_ref() == Some(directory))
-					.cloned(),
-			);
-		}
-		Ok(files.into_iter().collect())
+	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError> {
+		Ok(self.blobs.get(id).cloned())
 	}
 }
 

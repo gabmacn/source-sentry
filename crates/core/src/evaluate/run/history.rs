@@ -20,7 +20,11 @@
 //!
 //! Former sites are read too, so that a move between lockfiles also keeps
 //! its history: for a local document, the lockfile of every directory above
-//! it; for a remote document, every other owner's lockfile.
+//! it; for a remote document, every other owner's lockfile. A remote
+//! document's current owner lockfile is read first, and the owner lockfiles
+//! of a commit are listed, once per commit, only when that lockfile does not
+//! settle the commit, so the walk reads no history older than its clocks
+//! need.
 //!
 //! # Renames
 //!
@@ -52,7 +56,8 @@ use crate::model::{
 	resolve_project_source,
 };
 use crate::ports::{
-	BackendError, BackendErrorKind, Commit, History, ObjectId, RepoPath, Revision,
+	BackendError, BackendErrorKind, Commit, CommitId, History, ObjectId,
+	RepoPath, Revision,
 };
 use crate::{DIR_NAME, REMOTES_DIR_NAME};
 
@@ -180,75 +185,12 @@ pub(super) fn starts<H: History>(
 	at: Timestamp,
 	queries: &[Query],
 ) -> Result<Vec<Result<ObligationStart, ClockError>>, BackendError> {
-	let reader = Reader {
-		history,
-		cache: RefCell::new(HashMap::new()),
-	};
-	let queries = with_deleted_owners(history, revision, queries)?;
+	let reader = Reader::new(history);
 	let mut predicates: Vec<Predicate<'_, '_, H>> = queries
 		.iter()
 		.map(|query| Predicate::new(query, &reader))
 		.collect::<Result<_, _>>()?;
 	introduced_at(history, revision, at, &mut predicates)
-}
-
-/// `queries`, where each remote document also reads, as former sites, the
-/// owner lockfiles that history holds but the evaluated snapshot no longer
-/// does, such as the one a move to another owner emptied and removed.
-fn with_deleted_owners<H: History>(
-	history: &H,
-	revision: &Revision,
-	queries: &[Query],
-) -> Result<Vec<Query>, BackendError> {
-	let mut queries = queries.to_vec();
-	let head = match revision {
-		Revision::WorkingTree { head } => head.as_ref(),
-		Revision::Commit(commit) => Some(commit),
-	};
-	let remote = |query: &Query| matches!(query.document, DocumentId::Remote(_));
-	let Some(head) = head.filter(|_| queries.iter().any(remote)) else {
-		return Ok(queries);
-	};
-	let projects: std::collections::BTreeSet<_> = queries
-		.iter()
-		.filter(|query| remote(query))
-		.flat_map(|query| query.sites.iter().map(|site| &site.project))
-		.collect();
-	let mut lockfiles = std::collections::BTreeSet::new();
-	for project in projects {
-		let directory = project
-			.join(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}"))
-			.map_err(|error| {
-				BackendError::new(BackendErrorKind::Io, error.to_string())
-			})?;
-		lockfiles.extend(
-			history
-				.files_ever_in(head, &directory)?
-				.into_iter()
-				.filter(|path| {
-					path
-						.file_name()
-						.is_some_and(|name| name.ends_with(LOCKFILE_EXTENSION))
-				}),
-		);
-	}
-	for query in queries.iter_mut().filter(|query| remote(query)) {
-		for lockfile in &lockfiles {
-			if !query.sites.iter().any(|site| &site.path == lockfile) {
-				query.sites.push(Site {
-					project: lockfile
-						.parent()
-						.and_then(|path| path.parent())
-						.and_then(|path| path.parent())
-						.unwrap_or(RepoPath::ROOT),
-					path: lockfile.clone(),
-					kind: SiteKind::RemoteLockfile,
-					former: true,
-				});
-			}
-		}
-	}
-	Ok(queries)
 }
 
 /// The extension of a remote owner lockfile, `<owner>.lock`.
@@ -311,12 +253,83 @@ struct Reader<'h, H> {
 	/// Frontmatter parses also depend on the document, whose path relative
 	/// sources are validated against, so its path is part of the key.
 	cache: RefCell<HashMap<ParseKey, Rc<Parsed>>>,
+	/// The owner lockfiles of each project at the commit the walk last
+	/// listed them for. Every predicate is asked about one commit before the
+	/// walk moves to its parent, so one commit's listings are all it keeps.
+	owners: RefCell<Owners>,
+}
+
+/// The owner lockfiles of one commit, by project.
+#[derive(Default)]
+struct Owners {
+	/// The commit listed.
+	commit: Option<CommitId>,
+	/// Each project's owner lockfiles at that commit, with their blobs.
+	projects: HashMap<RepoPath, Rc<[(Site, ObjectId)]>>,
 }
 
 /// A parse depends on the blob, adapter, document directory and project root.
 type ParseKey = (ObjectId, SiteKind, RepoPath, RepoPath);
 
-impl<H: History> Reader<'_, H> {
+impl<'h, H: History> Reader<'h, H> {
+	/// A reader with empty caches.
+	fn new(history: &'h H) -> Self {
+		Self {
+			history,
+			cache: RefCell::new(HashMap::new()),
+			owners: RefCell::new(Owners::default()),
+		}
+	}
+
+	/// Every owner lockfile of `project` in `commit`'s tree, as a former
+	/// site, with its blob, sorted by path. Each commit and project is
+	/// listed once.
+	///
+	/// # Errors
+	///
+	/// Fails when the backend cannot read the commit, its tree or a tree on
+	/// the way to the project's owner lockfiles.
+	fn owner_lockfiles(
+		&self,
+		commit: &CommitId,
+		project: &RepoPath,
+	) -> Result<Rc<[(Site, ObjectId)]>, BackendError> {
+		let mut owners = self.owners.borrow_mut();
+		if owners.commit.as_ref() != Some(commit) {
+			owners.commit = Some(commit.clone());
+			owners.projects.clear();
+		}
+		if let Some(listed) = owners.projects.get(project) {
+			return Ok(Rc::clone(listed));
+		}
+		let directory = project
+			.join(&format!("{DIR_NAME}/{REMOTES_DIR_NAME}"))
+			.map_err(|error| {
+				BackendError::new(BackendErrorKind::Io, error.to_string())
+			})?;
+		let listed: Rc<[(Site, ObjectId)]> = self
+			.history
+			.blobs_in(commit, &directory)?
+			.into_iter()
+			.filter(|(path, _)| {
+				path
+					.file_name()
+					.is_some_and(|name| name.ends_with(LOCKFILE_EXTENSION))
+			})
+			.map(|(path, oid)| {
+				let site = Site {
+					project: project.clone(),
+					path,
+					kind: SiteKind::RemoteLockfile,
+					former: true,
+				};
+				(site, oid)
+			})
+			.collect();
+		owners.projects.insert(project.clone(), Rc::clone(&listed));
+		Ok(listed)
+	}
+
 	/// The blob `oid` of `site`, parsed.
 	///
 	/// # Errors
@@ -465,6 +478,50 @@ impl<'q, 'r, H> Predicate<'q, 'r, H> {
 	}
 }
 
+impl<H: History> Predicate<'_, '_, H> {
+	/// Whether `evidence` makes the condition hold.
+	fn answer(
+		&self,
+		evidence: &Evidence,
+		required: usize,
+		own_path_exists: bool,
+	) -> bool {
+		let pattern_file =
+			!matches!(self.query.condition, Condition::Pattern { .. })
+				|| own_path_exists;
+		evidence.occurrences >= required
+			|| (evidence.unreadable
+				&& self.query.condition.is_obligation()
+				&& pattern_file)
+	}
+
+	/// The answer for a remote document at a commit, when `evidence` already
+	/// gives it whatever the owner lockfiles not yet read say. Those are
+	/// former sites: they can only add matches and are never authoritative,
+	/// so a condition that holds keeps holding, and a pattern whose file is
+	/// absent cannot hold at all. `None` when they must be read, which is
+	/// always the case while a rename marker is in play, since every
+	/// declaring file's markers then decide where the walk goes.
+	fn settled(
+		&self,
+		evidence: &Evidence,
+		required: usize,
+		own_path_exists: bool,
+	) -> Option<bool> {
+		if self.provenance.has_links() || evidence.has_markers() {
+			return None;
+		}
+		if matches!(self.query.condition, Condition::Pattern { .. })
+			&& !own_path_exists
+		{
+			return Some(false);
+		}
+		self
+			.answer(evidence, required, own_path_exists)
+			.then_some(true)
+	}
+}
+
 impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 	fn paths(&self) -> &[RepoPath] {
 		&self.paths
@@ -478,6 +535,7 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 		let own_path_exists = blobs
 			.get(self.query.sites.len())
 			.is_some_and(Option::is_some);
+		let remote = matches!(self.query.document, DocumentId::Remote(_));
 		loop {
 			let historical;
 			let view = if self.provenance.original() {
@@ -490,11 +548,18 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 				historical.iter().map(Option::as_ref).collect()
 			};
 			let original = self.provenance.original();
-			let evidence = identity_evidence(
-				self.reader,
-				&self.provenance,
-				&view,
-				|project, document, declaration, retired| {
+			// Before a rename, the carried marker belonged to the old live
+			// declaration, independently of older tombstones at either path.
+			let required = if original {
+				self.query.condition.required_occurrences()
+			} else {
+				1
+			};
+			let evidence = {
+				let mut count = |project: &RepoPath,
+				                 document: &DocumentId,
+				                 declaration: Option<&Declaration>,
+				                 retired: &[Retired]| {
 					let live = self.occurrences(
 						project,
 						document,
@@ -510,14 +575,40 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 						own_path_exists,
 					);
 					(live, live + earlier)
-				},
-			)?;
-			// Before a rename, the carried marker belonged to the old live
-			// declaration, independently of older tombstones at either path.
-			let required = if self.provenance.original() {
-				self.query.condition.required_occurrences()
-			} else {
-				1
+				};
+				let mut evidence =
+					identity_evidence(self.reader, &self.provenance, &view, &mut count)?;
+				if remote && original {
+					if let Some(answer) =
+						self.settled(&evidence, required, own_path_exists)
+					{
+						return Ok(answer);
+					}
+					// Another owner may have declared the document at this
+					// commit, before a move to its current one.
+					let lockfiles = self
+						.reader
+						.owner_lockfiles(&commit.id, &self.query.project)?;
+					for (site, oid) in lockfiles.iter() {
+						if self.query.sites.iter().any(|known| known.path == site.path) {
+							continue;
+						}
+						read_site(
+							self.reader,
+							&self.provenance,
+							site,
+							oid,
+							false,
+							&mut count,
+							&mut evidence,
+						)?;
+						if self.settled(&evidence, required, own_path_exists) == Some(true)
+						{
+							break;
+						}
+					}
+				}
+				evidence
 			};
 			if self.provenance.follow(
 				&evidence,
@@ -526,15 +617,7 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 			)? {
 				continue;
 			}
-			let pattern_file =
-				!matches!(self.query.condition, Condition::Pattern { .. })
-					|| own_path_exists;
-			return Ok(
-				evidence.occurrences >= required
-					|| (evidence.unreadable
-						&& self.query.condition.is_obligation()
-						&& pattern_file),
-			);
+			return Ok(self.answer(&evidence, required, own_path_exists));
 		}
 	}
 }
@@ -556,7 +639,7 @@ fn identity_evidence<H: History>(
 	reader: &Reader<'_, H>,
 	provenance: &Provenance,
 	view: &[Option<&ObjectId>],
-	mut count: impl FnMut(
+	count: &mut impl FnMut(
 		&RepoPath,
 		&DocumentId,
 		Option<&Declaration>,
@@ -572,24 +655,51 @@ fn identity_evidence<H: History>(
 		let primary = !provenance.original()
 			&& matches!(site.kind, SiteKind::LocalLockfile { .. })
 			&& !std::mem::replace(&mut nearest, true);
-		let parsed = reader.parse(oid, site)?;
-		match parsed.entry(provenance.document()) {
-			Entry::Unreadable => evidence.unreadable |= !site.former || primary,
-			Entry::Found {
-				declaration,
-				retired,
-			} => {
-				let (live, all) =
-					count(&site.project, provenance.document(), declaration, retired);
-				evidence.live_occurrences += live;
-				evidence.occurrences += all;
-				if let Some(declaration) = declaration {
-					evidence.record(&site.project, declaration)?;
-				}
+		read_site(reader, provenance, site, oid, primary, count, &mut evidence)?;
+	}
+	Ok(evidence)
+}
+
+/// Adds to `evidence` what the blob `oid` of `site` says about the active
+/// identity of `provenance`, as [`identity_evidence`] reads each site, with
+/// `count` as it describes. A former site counts as unreadable, when it does
+/// not parse, only if it is `primary`.
+///
+/// # Errors
+///
+/// Fails when the backend fails, the blob is missing, or a rename marker's
+/// former path cannot be resolved.
+fn read_site<H: History>(
+	reader: &Reader<'_, H>,
+	provenance: &Provenance,
+	site: &Site,
+	oid: &ObjectId,
+	primary: bool,
+	count: &mut impl FnMut(
+		&RepoPath,
+		&DocumentId,
+		Option<&Declaration>,
+		&[Retired],
+	) -> (usize, usize),
+	evidence: &mut Evidence,
+) -> Result<(), BackendError> {
+	let parsed = reader.parse(oid, site)?;
+	match parsed.entry(provenance.document()) {
+		Entry::Unreadable => evidence.unreadable |= !site.former || primary,
+		Entry::Found {
+			declaration,
+			retired,
+		} => {
+			let (live, all) =
+				count(&site.project, provenance.document(), declaration, retired);
+			evidence.live_occurrences += live;
+			evidence.occurrences += all;
+			if let Some(declaration) = declaration {
+				evidence.record(&site.project, declaration)?;
 			}
 		}
 	}
-	Ok(evidence)
+	Ok(())
 }
 
 /// Each drift question's answer, with one walk for all of them, as
@@ -621,10 +731,7 @@ pub(super) fn drifts<H: History>(
 	queries: &[SourceQuery],
 	lineages: &[Option<Query>],
 ) -> Result<Vec<Result<Drift, ClockError>>, BackendError> {
-	let reader = Reader {
-		history,
-		cache: RefCell::new(HashMap::new()),
-	};
+	let reader = Reader::new(history);
 	let mut followed = queries
 		.iter()
 		.enumerate()
@@ -718,7 +825,7 @@ impl<H: History> RunPredicate for Followed<'_, '_, H> {
 				self.reader,
 				&self.provenance,
 				&view,
-				|_, _, _, _| (0, 0),
+				&mut |_, _, _, _| (0, 0),
 			)?;
 			if self.provenance.follow(&evidence, 1, true)? {
 				continue;

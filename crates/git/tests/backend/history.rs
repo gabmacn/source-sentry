@@ -185,16 +185,8 @@ fn populated_submodules_are_not_blobs() {
 			.unwrap(),
 		[None, Some(repo.blob_at("HEAD", ".gitmodules"))]
 	);
-	assert_eq!(
-		repository.files_ever_in(&head, &path("vendor")).unwrap(),
-		[]
-	);
-	assert_eq!(
-		repository
-			.files_ever_in(&head, &path("vendor/lib"))
-			.unwrap(),
-		[]
-	);
+	assert_eq!(repository.blobs_in(&head, &path("vendor")).unwrap(), []);
+	assert_eq!(repository.blobs_in(&head, &path("vendor/lib")).unwrap(), []);
 }
 
 #[test]
@@ -213,37 +205,74 @@ fn populated_submodule_contents_are_not_blobs_of_the_parent_repository() {
 	);
 }
 
-/// The repository root lists the files committed directly at the root,
-/// including those deleted since, and not those in subdirectories.
+/// The repository root lists the blobs committed directly at the root in
+/// the commit asked for, with their IDs, and not those in subdirectories or
+/// in other commits.
 #[test]
-fn the_files_ever_in_the_root_are_listed() {
+fn the_blobs_in_the_root_are_listed() {
 	let repo = TestRepo::init();
 	repo.write("old.md", "removed later\n");
-	repo.commit_all("add old");
+	let older = repo.commit_all("add old");
+	let old = repo.blob_at("HEAD", "old.md");
 	repo.git(&["rm", "--quiet", "old.md"]);
 	repo.write("root.md", "root document\n");
 	repo.write("docs/nested.md", "nested document\n");
+	repo.write("a.md", "first by name\n");
 	let head = repo.commit_all("replace old");
+	let repository = repo.open();
 	assert_eq!(
-		repo.open().files_ever_in(&head, &RepoPath::ROOT).unwrap(),
-		[path("old.md"), path("root.md")]
+		repository.blobs_in(&head, &RepoPath::ROOT).unwrap(),
+		[
+			(path("a.md"), repo.blob_at("HEAD", "a.md")),
+			(path("root.md"), repo.blob_at("HEAD", "root.md")),
+		]
+	);
+	assert_eq!(
+		repository.blobs_in(&older, &RepoPath::ROOT).unwrap(),
+		[(path("old.md"), old)]
 	);
 }
 
-/// A directory that no commit has is empty, not an error.
+/// A directory lists only the blobs directly inside it.
 #[test]
-fn a_directory_never_committed_has_no_files() {
+fn the_blobs_in_a_directory_are_listed() {
+	let repo = TestRepo::init();
+	repo.write(".source-sentry/remotes/legal.lock", "{}\n");
+	repo.write(".source-sentry/remotes/legal.yaml", "version: 1\n");
+	repo.write(".source-sentry/remotes/nested/inner.lock", "{}\n");
+	repo.write(".source-sentry/source-sentry.yaml", "version: 1\n");
+	let head = repo.commit_all("add owners");
+	assert_eq!(
+		repo
+			.open()
+			.blobs_in(&head, &path(".source-sentry/remotes"))
+			.unwrap(),
+		[
+			(
+				path(".source-sentry/remotes/legal.lock"),
+				repo.blob_at("HEAD", ".source-sentry/remotes/legal.lock"),
+			),
+			(
+				path(".source-sentry/remotes/legal.yaml"),
+				repo.blob_at("HEAD", ".source-sentry/remotes/legal.yaml"),
+			),
+		]
+	);
+}
+
+/// A directory that the commit lacks is empty, not an error, and so is a
+/// path that names a file.
+#[test]
+fn a_directory_the_commit_lacks_has_no_blobs() {
 	let repo = TestRepo::init();
 	repo.write("docs/a.md", "a\n");
 	let head = repo.commit_all("add docs");
 	let repository = repo.open();
-	assert_eq!(
-		repository.files_ever_in(&head, &path("guides")).unwrap(),
-		[]
-	);
+	assert_eq!(repository.blobs_in(&head, &path("guides")).unwrap(), []);
+	assert_eq!(repository.blobs_in(&head, &path("docs/a.md")).unwrap(), []);
 	assert_eq!(
 		repository
-			.files_ever_in(&head, &path("docs/a.md/inner"))
+			.blobs_in(&head, &path("docs/a.md/inner"))
 			.unwrap(),
 		[]
 	);
@@ -278,15 +307,21 @@ fn a_name_that_is_not_utf8_in_an_older_commit_is_passed_over() {
 	let current = repo.git(&["write-tree"]);
 	let head = repo.git(&["commit-tree", &current, "-p", &older, "-m", "head"]);
 
+	let repository = repo.open();
+	let remotes = path(".source-sentry/remotes");
 	assert_eq!(
-		repo
-			.open()
-			.files_ever_in(&commit_id(&head), &path(".source-sentry/remotes"))
-			.unwrap(),
-		[
-			path(".source-sentry/remotes/current.lock"),
+		repository.blobs_in(&commit_id(&older), &remotes).unwrap(),
+		[(
 			path(".source-sentry/remotes/old.lock"),
-		]
+			repo.blob_at(&older, ".source-sentry/remotes/old.lock")
+		)]
+	);
+	assert_eq!(
+		repository.blobs_in(&commit_id(&head), &remotes).unwrap(),
+		[(
+			path(".source-sentry/remotes/current.lock"),
+			repo.blob_at(&head, ".source-sentry/remotes/current.lock"),
+		)]
 	);
 }
 
@@ -305,7 +340,7 @@ fn a_missing_intermediate_tree_is_an_error() {
 		.join(&tree[2..]);
 	std::fs::remove_file(object).unwrap();
 
-	let result = repo.open().files_ever_in(&head, &path("docs/archive"));
+	let result = repo.open().blobs_in(&head, &path("docs/archive"));
 	let error = result.expect_err("a missing tree must fail");
 	assert!(
 		matches!(

@@ -287,3 +287,65 @@ fn a_move_out_of_frontmatter_keeps_its_clock_when_the_adapter_changes() {
 		run.stdout
 	);
 }
+
+/// A remote document's clock is settled by the commit before the one that
+/// declared it, so a tree older than that commit is never read: a treeless
+/// partial clone that has fetched only recent trees, or an object database
+/// that lost an old one, evaluates as a complete one does.
+#[test]
+fn a_remote_clock_never_reads_a_tree_older_than_it_needs() {
+	let repo = failing_overdue();
+	repo.write("notes.txt", "one\n");
+	repo.commit_at("2026-11-01T12:00:00Z");
+	repo.write("notes.txt", "two\n");
+	repo.commit_at("2026-11-02T12:00:00Z");
+	repo.write("src.dat", "x\n");
+	repo.commit_at("2026-11-03T12:00:00Z");
+	repo
+		.run(&[
+			"track",
+			"abstract:video",
+			"--remote",
+			"legal",
+			"--source",
+			"/src.dat",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.commit_at("2026-11-04T12:00:00Z");
+	let explain = ["explain", "abstract:video", "--at", "2026-11-05T12:00:00Z"];
+	let complete = repo.run(&explain);
+	complete.expect_code(0);
+	assert!(
+		complete.stdout.contains("2026-11-04"),
+		"{}",
+		complete.stdout
+	);
+
+	for revision in ["HEAD~3", "HEAD~2"] {
+		let tree = repo.git(&["rev-parse", &format!("{revision}^{{tree}}")]);
+		std::fs::remove_file(
+			repo
+				.path()
+				.join(".git/objects")
+				.join(&tree[..2])
+				.join(&tree[2..]),
+		)
+		.unwrap();
+	}
+	let partial = repo.run(&explain);
+	partial.expect_code(0);
+	assert_eq!(partial.stdout, complete.stdout);
+
+	// The tree of the commit before the declaration is needed.
+	let tree = repo.git(&["rev-parse", "HEAD~1^{tree}"]);
+	std::fs::remove_file(
+		repo
+			.path()
+			.join(".git/objects")
+			.join(&tree[..2])
+			.join(&tree[2..]),
+	)
+	.unwrap();
+	repo.run(&explain).expect_code(4);
+}

@@ -92,12 +92,12 @@ impl History for Recording {
 		self.inner.blob(id)
 	}
 
-	fn files_ever_in(
+	fn blobs_in(
 		&self,
-		start: &CommitId,
+		commit: &CommitId,
 		directory: &RepoPath,
-	) -> Result<Vec<RepoPath>, BackendError> {
-		self.inner.files_ever_in(start, directory)
+	) -> Result<Vec<(RepoPath, ObjectId)>, BackendError> {
+		self.inner.blobs_in(commit, directory)
 	}
 }
 
@@ -151,12 +151,12 @@ impl History for Faulty {
 		self.inner.blob(id)
 	}
 
-	fn files_ever_in(
+	fn blobs_in(
 		&self,
-		start: &CommitId,
+		commit: &CommitId,
 		directory: &RepoPath,
-	) -> Result<Vec<RepoPath>, BackendError> {
-		self.inner.files_ever_in(start, directory)
+	) -> Result<Vec<(RepoPath, ObjectId)>, BackendError> {
+		self.inner.blobs_in(commit, directory)
 	}
 }
 

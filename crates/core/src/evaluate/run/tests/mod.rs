@@ -5,6 +5,7 @@ mod documents;
 mod policy;
 mod projects;
 mod records;
+mod remotes;
 mod renames;
 mod schedules;
 mod series;

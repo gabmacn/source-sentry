@@ -148,17 +148,10 @@ pub trait History {
 		paths: &[RepoPath],
 	) -> Result<Vec<Option<ObjectId>>, BackendError>;
 
-	/// A blob's content, or `None` when the object database lacks it. `diff` then
-	/// reports "baseline unavailable".
-	///
-	/// # Errors
-	///
-	/// Fails when the object database cannot be read.
-	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError>;
-
-	/// Every file directly inside `directory` in any commit of the
-	/// first-parent chain from `start`, sorted, including files deleted
-	/// since. The walk ends quietly at a shallow boundary.
+	/// Every blob directly inside `directory` in a commit's tree, with its ID,
+	/// sorted by path. The list is empty when `directory` is absent or is not
+	/// a tree. A submodule (gitlink) or a subdirectory is not a blob and is
+	/// left out.
 	///
 	/// A file whose name is not UTF-8 is left out, without an error: a commit
 	/// that holds such a name cannot be checked at all, in the working tree
@@ -167,12 +160,21 @@ pub trait History {
 	///
 	/// # Errors
 	///
-	/// Fails when a commit or tree cannot be read.
-	fn files_ever_in(
+	/// Fails when the commit, its tree, a tree on the way to `directory` or
+	/// `directory`'s own tree cannot be read.
+	fn blobs_in(
 		&self,
-		start: &CommitId,
+		commit: &CommitId,
 		directory: &RepoPath,
-	) -> Result<Vec<RepoPath>, BackendError>;
+	) -> Result<Vec<(RepoPath, ObjectId)>, BackendError>;
+
+	/// A blob's content, or `None` when the object database lacks it. `diff` then
+	/// reports "baseline unavailable".
+	///
+	/// # Errors
+	///
+	/// Fails when the object database cannot be read.
+	fn blob(&self, id: &ObjectId) -> Result<Option<Vec<u8>>, BackendError>;
 }
 
 /// A failure of the backend itself. It always means the evaluation could not

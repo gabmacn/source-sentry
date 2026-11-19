@@ -15,8 +15,8 @@ use super::model::{
 use super::scopes::Scopes;
 use crate::LOCKFILE_NAME;
 use crate::claims::{
-	Attestation, Claim, Diagnostic, DiagnosticKind, Inventory, Location,
-	LockfileKind, Mode, Presence, ResolvedPath, ResolvedPattern, ResolvedSource,
+	Attestation, Claim, Diagnostic, DiagnosticKind, Inventory, Location, Mode,
+	Presence, ResolvedPath, ResolvedPattern, ResolvedSource,
 };
 use crate::config::{ConfigSet, Resolved};
 use crate::evaluate::schedule::{Deadline, EffectiveSchedule, TimeZone};
@@ -430,7 +430,8 @@ fn is_unattested(declaration: &Declaration) -> bool {
 /// The files that may declare `claim`'s document in any commit: its own
 /// frontmatter when its adapter can carry a declaration, and the local
 /// lockfile whose authority covers it; or a remote document's owner
-/// lockfile.
+/// lockfile. A remote document's other owner lockfiles are listed during
+/// the walk, at each commit where its own does not settle the question.
 pub(super) fn sites(
 	claim: &Claim,
 	inventory: &Inventory,
@@ -439,14 +440,12 @@ pub(super) fn sites(
 	let path = match &claim.document {
 		DocumentId::Local(path) => path,
 		DocumentId::Remote(_) => {
-			let mut sites = vec![Site {
+			return vec![Site {
 				project: inventory.project.clone(),
 				path: claim.declared_in.clone(),
 				kind: SiteKind::RemoteLockfile,
 				former: false,
 			}];
-			add_former_sites(&claim.document, inventory, &mut sites);
-			return sites;
 		}
 	};
 	let mut sites = Vec::new();
@@ -493,8 +492,8 @@ pub(super) fn local_lockfile_site(project: RepoPath, path: RepoPath) -> Site {
 /// Adds to `sites` the files that may have declared `document` before a
 /// move, and are not already among them: for a local document, its own
 /// frontmatter and the lockfile of every directory above it, whether they
-/// can declare it now or not; for a remote document, every owner lockfile of
-/// the evaluated snapshot.
+/// can declare it now or not. A remote document has none here: its former
+/// owner lockfiles are listed during the walk, commit by commit.
 pub(super) fn add_former_sites(
 	document: &DocumentId,
 	inventory: &Inventory,
@@ -529,18 +528,7 @@ pub(super) fn add_former_sites(
 				directory = current.parent();
 			}
 		}
-		DocumentId::Remote(_) => {
-			for lockfile in &inventory.lockfiles {
-				if matches!(lockfile.kind, LockfileKind::Remote { .. }) {
-					add(Site {
-						project: inventory.project.clone(),
-						path: lockfile.path.clone(),
-						kind: SiteKind::RemoteLockfile,
-						former: true,
-					});
-				}
-			}
-		}
+		DocumentId::Remote(_) => {}
 	}
 }
 
