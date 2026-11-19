@@ -543,3 +543,143 @@ fn a_hook_cannot_create_files_under_a_temporary_index() {
 		assert_ne!(repo.read("docs/source-sentry.lock"), before);
 	}
 }
+
+/// Moves the repository's objects to `store` beside it, leaving an empty
+/// object directory, so that only an environment that names the store can
+/// read them.
+fn move_objects(repo: &TestRepo) {
+	let objects = repo.path().join(".git/objects");
+	fs::rename(&objects, repo.outer().join("store")).unwrap();
+	fs::create_dir_all(objects.join("info")).unwrap();
+	fs::create_dir_all(objects.join("pack")).unwrap();
+	assert_eq!(repo.run(&["check", "--at", AT]).code, 4);
+}
+
+/// A directory outside the working tree, `other/sub` beside it, and the
+/// variables that name the repository from there.
+fn outside_start(repo: &TestRepo) -> (PathBuf, Vec<(&'static str, PathBuf)>) {
+	let start = repo.outer().join("other/sub");
+	fs::create_dir_all(&start).unwrap();
+	let env = vec![
+		("GIT_DIR", repo.path().join(".git")),
+		("GIT_WORK_TREE", repo.path().to_path_buf()),
+	];
+	(start, env)
+}
+
+/// Asserts that git itself reads `HEAD` in `directory` with `env`, so that
+/// a test shows Source Sentry agreeing with git.
+fn assert_git_reads_head(
+	repo: &TestRepo,
+	directory: &Path,
+	env: &[(&str, &OsStr)],
+) {
+	let run = repo.git_at(directory, &["cat-file", "-t", "HEAD"], env);
+	run.expect_code(0);
+	assert_eq!(run.stdout.trim(), "commit");
+}
+
+/// A relative `GIT_OBJECT_DIRECTORY` names the directory git reads: taken
+/// from the working tree's root inside it, and from the start directory
+/// outside it, both for history and for git's own commands.
+#[test]
+fn git_object_directory_names_the_objects_git_reads() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	move_objects(&repo);
+	let env = [("GIT_OBJECT_DIRECTORY", OsStr::new("../store"))];
+	assert_git_reads_head(&repo, repo.path(), &env);
+	repo
+		.run_at(repo.path(), &["check", "--at", AT], &env)
+		.expect_code(0);
+	fs::write(repo.path().join("src/a.rs"), "fn changed() {}\n").unwrap();
+	repo
+		.run_at(repo.path(), &["attest", "docs/guide.md", "--yes"], &env)
+		.expect_code(0);
+	repo
+		.run_at(repo.path(), &["check", "--at", AT], &env)
+		.expect_code(0);
+
+	let (start, named) = outside_start(&repo);
+	let mut env: Vec<(&str, &OsStr)> =
+		named.iter().map(|(key, value)| (*key, os(value))).collect();
+	env.push(("GIT_OBJECT_DIRECTORY", OsStr::new("../../store")));
+	assert_git_reads_head(&repo, &start, &env);
+	repo
+		.run_at(
+			repo.outer(),
+			&["-C", "other/sub", "check", "--at", AT],
+			&env,
+		)
+		.expect_code(0);
+}
+
+/// `GIT_ALTERNATE_OBJECT_DIRECTORIES` adds the directories git adds: a
+/// relative one taken from the working tree's root inside it, and from the
+/// start directory outside it; one that does not exist is passed over, as
+/// git passes over it.
+#[test]
+fn alternate_object_directories_are_the_ones_git_adds() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	move_objects(&repo);
+	let separator = if cfg!(windows) { ";" } else { ":" };
+	let alternates = format!("../missing{separator}\"../store\"");
+	let env = [(
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		OsStr::new(alternates.as_str()),
+	)];
+	assert_git_reads_head(&repo, &repo.path().join("docs"), &env);
+	repo
+		.run_at(repo.path(), &["-C", "docs", "check", "--at", AT], &env)
+		.expect_code(0);
+
+	let (start, named) = outside_start(&repo);
+	let mut env: Vec<(&str, &OsStr)> =
+		named.iter().map(|(key, value)| (*key, os(value))).collect();
+	env.push((
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		OsStr::new("../../store"),
+	));
+	assert_git_reads_head(&repo, &start, &env);
+	repo
+		.run_at(&start, &["check", "--at", AT], &env)
+		.expect_code(0);
+}
+
+/// `GIT_COMMON_DIR` naming the common directory that the git directory
+/// names itself is followed; another one is refused, because the history
+/// read would not be the one git reads.
+#[test]
+fn git_common_dir_is_followed_only_to_the_repository_s_own() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	let own = repo.path().join(".git");
+	repo
+		.run_at(
+			repo.path(),
+			&["-C", "docs", "check", "--at", AT],
+			&[("GIT_COMMON_DIR", os(&own))],
+		)
+		.expect_code(0);
+	repo
+		.run_at(
+			repo.path(),
+			&["check", "--at", AT],
+			&[("GIT_COMMON_DIR", OsStr::new(".git"))],
+		)
+		.expect_code(0);
+	git_in(
+		&repo,
+		repo.outer(),
+		&["clone", "--quiet", "--no-local", "repo", "copy"],
+	);
+	let other = repo.outer().join("copy/.git");
+	let run = repo.run_at(
+		repo.path(),
+		&["check", "--at", AT],
+		&[("GIT_COMMON_DIR", os(&other))],
+	);
+	run.expect_code(4);
+	assert!(run.stderr.contains("GIT_COMMON_DIR"), "{}", run.stderr);
+}

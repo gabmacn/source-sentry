@@ -82,6 +82,14 @@ impl GitRepository {
 	/// git's configuration. A bare repository opens without a working tree,
 	/// unless `GIT_WORK_TREE` names one.
 	///
+	/// Objects are read from the object directories that git reads,
+	/// including those that `GIT_OBJECT_DIRECTORY` and
+	/// `GIT_ALTERNATE_OBJECT_DIRECTORIES` name. `GIT_COMMON_DIR` is followed
+	/// only to the common directory that the git directory names itself,
+	/// because `git2` cannot be pointed at another. The `git` commands that
+	/// read or write the index use the one that `GIT_INDEX_FILE` names, a
+	/// relative one taken from the working tree's root.
+	///
 	/// # Errors
 	///
 	/// Fails with [`BackendErrorKind::Git`] when git finds no repository or
@@ -90,7 +98,8 @@ impl GitRepository {
 	/// the same repository; with [`BackendErrorKind::GitExecutable`] when
 	/// `git` cannot run.
 	pub fn open_from_env(start: impl AsRef<Path>) -> Result<Self, BackendError> {
-		let location = crate::discover::locate(start.as_ref())?;
+		let start = start.as_ref();
+		let location = crate::discover::locate(start)?;
 		// Git applied its environment above. `git2` opens exactly the
 		// directory git reported, without reading the environment, whose
 		// handling in libgit2 differs from git's.
@@ -108,19 +117,55 @@ impl GitRepository {
 				location.git_dir.display()
 			)
 		})?;
+		// `git2` reads the common directory that the git directory names
+		// itself, and cannot be pointed at another one.
 		same_directory(repository.commondir(), &location.common_dir, || {
-			format!(
-				"git2 reads the common git directory {} where git uses {}",
-				repository.commondir().display(),
-				location.common_dir.display()
-			)
+			if std::env::var_os("GIT_COMMON_DIR").is_some() {
+				format!(
+					"GIT_COMMON_DIR names the common git directory {}, but Source \
+					 Sentry can read only the one that the git directory {} names \
+					 itself, {}",
+					location.common_dir.display(),
+					location.git_dir.display(),
+					repository.commondir().display()
+				)
+			} else {
+				format!(
+					"git2 reads the common git directory {} where git uses {}",
+					repository.commondir().display(),
+					location.common_dir.display()
+				)
+			}
 		})?;
+		let alternates = crate::discover::alternates(start)?;
+		attach_objects(
+			&repository,
+			&location.objects,
+			alternates.as_deref().unwrap_or_default(),
+		)?;
 		let mut opened = Self::from_parts(
 			repository,
 			location.work_dir,
 			location.common_dir,
 			location.prefix,
 		)?;
+		// Git's own commands run in the working tree, not the start
+		// directory, so they get the directories as git resolved them.
+		if std::env::var_os("GIT_COMMON_DIR").is_some() {
+			let common = opened.common_dir.clone().into_os_string();
+			opened.git.redirect("GIT_COMMON_DIR", common);
+		}
+		if std::env::var_os("GIT_OBJECT_DIRECTORY").is_some() {
+			opened
+				.git
+				.redirect("GIT_OBJECT_DIRECTORY", location.objects.into_os_string());
+		}
+		if let Some(alternates) = alternates {
+			opened.git.redirect(
+				"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+				crate::discover::join_alternates(&alternates)?,
+			);
+		}
 		// Git's commands that read or write the index take a relative
 		// `GIT_INDEX_FILE` from the working tree's root, which is where a
 		// `pre-commit` hook gets `.git/index` from. An empty value is passed
@@ -535,6 +580,45 @@ impl GitRepository {
 		let text = text.trim_end_matches(['\r', '\n']);
 		Ok((!text.is_empty()).then(|| PathBuf::from(text)))
 	}
+}
+
+/// Gives `repository` the object database git uses: the object directory
+/// it reported, which `GIT_OBJECT_DIRECTORY` may name, with the alternates
+/// that directory lists, and the alternates of the environment.
+///
+/// # Errors
+///
+/// Fails with [`BackendErrorKind::Git`] when a directory is not UTF-8,
+/// which `git2` cannot take, or cannot be read.
+fn attach_objects(
+	repository: &git2::Repository,
+	objects: &Path,
+	alternates: &[PathBuf],
+) -> Result<(), BackendError> {
+	let database = git2::Odb::new_ext(repository.object_format())
+		.map_err(|source| error::git("cannot create an object database", source))?;
+	for directory in
+		std::iter::once(objects).chain(alternates.iter().map(PathBuf::as_path))
+	{
+		let text = directory.to_str().ok_or_else(|| {
+			failure(
+				BackendErrorKind::Git,
+				format!(
+					"cannot read the object directory {}: its path is not UTF-8",
+					directory.display()
+				),
+			)
+		})?;
+		database.add_disk_alternate(text).map_err(|source| {
+			error::git(
+				format!("cannot read the object directory {}", directory.display()),
+				source,
+			)
+		})?;
+	}
+	repository
+		.set_odb(&database)
+		.map_err(|source| error::git("cannot use the object database", source))
 }
 
 /// A repository that `git2` could not open at `path`.
