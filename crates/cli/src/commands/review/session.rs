@@ -13,9 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use jiff::Timestamp;
 
 use super::state::Key as DocumentId;
+use source_sentry_core::model::ObjectId;
 use source_sentry_core::mutate::{
-	AttestRequest, DocumentDiff, Expectation, MutateError, Selection, attest,
-	diff,
+	AttestRequest, Baseline, DocumentDiff, Expectation, MutateError, Selection,
+	attest, diff,
 };
 use source_sentry_core::ports::{
 	BytesHash, Canonical, PlannedWrite, RepoPath, Snapshot as _, WritePlan,
@@ -65,6 +66,39 @@ pub(super) enum Undone {
 	Changed(String),
 }
 
+/// What identifies a comparison the reviewer was shown: each file's
+/// reviewed version and its current one, which an answer is bound to.
+#[derive(PartialEq, Eq)]
+struct Seen {
+	/// The current versions.
+	expectations: Vec<Expectation>,
+	/// The reviewed version of each file compared, if any.
+	baselines: Vec<(RepoPath, Option<ObjectId>)>,
+}
+
+impl Seen {
+	/// What identifies `compared`.
+	fn of(compared: &DocumentDiff) -> Self {
+		Self {
+			expectations: compared.expectations.clone(),
+			baselines: compared
+				.sources
+				.iter()
+				.flat_map(|source| &source.entries)
+				.map(|entry| {
+					let oid = match &entry.baseline {
+						Baseline::Unattested => None,
+						Baseline::Unavailable { oid } | Baseline::Available { oid, .. } => {
+							Some(oid.clone())
+						}
+					};
+					(entry.path.clone(), oid)
+				})
+				.collect(),
+		}
+	}
+}
+
 /// The refusal of a review whose sources changed after they were shown.
 pub(super) const CHANGED: &str = "A source changed after it was shown; this review was not recorded. Showing the current changes again.";
 
@@ -88,8 +122,8 @@ pub(super) struct Session<'a> {
 	initial: BTreeSet<DocumentId>,
 	/// Answers that suppress unchanged repeat questions.
 	answered: BTreeMap<DocumentId, Checkpoint>,
-	/// The source versions whose comparisons the user has actually seen.
-	seen: BTreeMap<DocumentId, Vec<Expectation>>,
+	/// The comparisons the user has actually seen.
+	seen: BTreeMap<DocumentId, Seen>,
 	/// Applied reviews, including whether each recorded a reread.
 	pub(super) recorded: Vec<(DocumentId, bool)>,
 	/// The answers behind those reviews, oldest first, for taking back.
@@ -303,7 +337,7 @@ impl<'a> Session<'a> {
 
 	/// Notes that the reviewer has been shown this comparison.
 	pub(super) fn see(&mut self, id: &DocumentId, compared: &DocumentDiff) {
-		self.seen.insert(id.clone(), compared.expectations.clone());
+		self.seen.insert(id.clone(), Seen::of(compared));
 	}
 
 	/// The facts of the session ahead, given its starting queue.
@@ -620,7 +654,7 @@ impl<'a> Session<'a> {
 		id: &DocumentId,
 		compared: &DocumentDiff,
 	) -> bool {
-		self.seen.get(id) == Some(&compared.expectations)
+		self.seen.get(id) == Some(&Seen::of(compared))
 	}
 
 	/// Captures and confirms the current queue once. Every source expectation
@@ -750,9 +784,7 @@ pub(super) fn run(
 			facts: session.state.documents[&id].facts.clone(),
 			outcome: session.state.documents[&id].outcome(),
 		};
-		session
-			.seen
-			.insert(id.clone(), view.compared.expectations.clone());
+		session.see(&id, &view.compared);
 		ui.show(workspace, &view);
 		loop {
 			match ui.answer()? {

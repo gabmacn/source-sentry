@@ -441,3 +441,36 @@ fn a_change_between_the_writes_of_a_batch_refuses_taking_it_back() {
 	assert_eq!(repo.entry("docs/c.md"), between);
 	assert_eq!(app.session.steps().len(), 1);
 }
+
+/// A comparison is seen as it was shown: from the reviewed version to the
+/// current one. When the reviewed version changes outside the screen, the
+/// comparison is a new one, and counts as unseen until it is shown, even
+/// though the current version is the same.
+#[test]
+fn a_comparison_from_another_reviewed_version_is_unseen() {
+	let repo =
+		Repo::new(json!({"docs/a.md": {"sources": [{"path": "/src/a.rs"}]}}));
+	repo.attest("docs/a.md");
+	repo.write("src/a.rs", "second a\n");
+	repo.git(&["commit", "--quiet", "--all", "-m", "Second"]);
+	repo.write("src/a.rs", "third a\n");
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let a = app.open[0].clone();
+	let shown = app.session.compare(&a).unwrap();
+	app.session.see(&a, &shown);
+	assert!(app.session.has_seen(&a, &shown));
+
+	// Another program records a review of the second version.
+	repo.write("src/a.rs", "second a\n");
+	repo.attest("docs/a.md");
+	repo.write("src/a.rs", "third a\n");
+	app.session.refresh().unwrap();
+	let now = app.session.compare(&a).unwrap();
+	assert_eq!(now.expectations, shown.expectations);
+	assert_ne!(now, shown);
+	assert!(!app.session.has_seen(&a, &now));
+	assert_eq!(app.session.unseen(&[(a.clone(), now.clone())]), 1);
+	app.session.see(&a, &now);
+	assert!(app.session.has_seen(&a, &now));
+}
