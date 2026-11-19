@@ -67,6 +67,34 @@ that version's section, so a release cannot be made without one.
   error whose message says to write `BYDAY`; the occurrences are the
   same.
 
+- Configs, presets and declarations in frontmatter refuse a bare number or
+  boolean where text belongs, such as `owners: [123]`, and a quoted number
+  or boolean where one belongs, such as `grace: '2'` or `root: 'true'`,
+  instead of converting it silently. The message says how to quote the
+  value.
+- A review, completion, seal or rename entry that leaves out `by` is refused
+  as malformed instead of being read as `by: null`. The value may still be
+  `null`.
+- A cadence's numbered `BYDAY` days are limited to -4 to 5 with
+  `FREQ=MONTHLY` and to -52 to 53 with `FREQ=YEARLY`, as before, but the
+  limits are now Source Sentry's own and documented, and a rule outside them
+  is refused with Source Sentry's own message instead of the recurrence
+  library's.
+- While the window is too small for the full screen of `review`, only `q`
+  and `Ctrl+C` act; other keys, the wheel and clicks no longer record or
+  open anything unseen, and a held answer or an open box is still there when
+  the window grows.
+- In the full screen of `review`, a key it does not use, such as F1, Home or
+  Delete, withdraws a held answer, as any other key does, instead of leaving
+  it to be recorded by a later Enter.
+- The list of this session's answers that `u` opens in `review` shows every
+  answer that still stands, not just the newest ten, and scrolls inside its
+  box with the arrow keys, Page Up, Page Down and the wheel, as the
+  confirmations do.
+- `Evaluation` in the `source-sentry-core` crate has a public field,
+  `cited`, holding the documents of other projects that the evaluated
+  documents cite, and a method, `upstream_subjects_of`.
+
 ### Fixed
 
 - A relative source pattern now matches files in its document's own
@@ -255,6 +283,31 @@ that version's section, so a release cannot be made without one.
 - The recipes' guide protects the installed Forgejo workflow file, every
   `.source-sentry/` directory including those of nested projects, and
   GitLab's own CODEOWNERS file in its CODEOWNERS examples.
+- `migrate` refuses a schema 1 lockfile that is invalid, with exit 3,
+  instead of reporting it current.
+- `check` reports a declaration that cannot be read on a document another
+  project cites, instead of treating that document as an untracked source.
+- `check` reports an unreadable lockfile in another project when it lies in
+  the directory of a document it cites, or in one above it, since that
+  lockfile could hold the document's declaration. Unreadable lockfiles
+  elsewhere in that project are still left to that project's own check.
+- `check` reports a duplicate version in another project's series, or
+  another diagnostic of that project, whichever of the documents it names is
+  cited, not only when the first in path order is.
+- The human report of `check` names the deadline of a due source document in
+  another project, instead of saying that it "waits on a document that is
+  due".
+- Taking back an answer given to several documents no longer erases a change
+  that another program made to their lockfile while the answer was being
+  written. The answer is kept, and the refusal says that another program
+  changed the file and names it.
+- `review` no longer leaves the terminal on the alternate screen in raw mode
+  when it cannot take the terminal over whole, for example when the mouse
+  cannot be read.
+- `review` expands a tab that follows a wide character, such as an
+  ideograph, or a combining mark to the right tab stop.
+- The confirmations of `review` count a document's comparison as unseen when
+  its reviewed version changed outside the session since it was shown.
 
 ## [0.1.0] - 2026-11-14
 
