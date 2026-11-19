@@ -464,8 +464,8 @@ while it is shown. The wheel over the sidebar passes over documents
 without seeing them, and a document read ahead is not seen either.
 
 The confirmations of `a` and of picked rows, a path or a name shown whole,
-and the list of projects scroll inside their box when they do not fit, so
-that everything they cover can be read. In these boxes the arrow keys,
+the list of projects and the answers that `u` lists scroll inside their box
+when they do not fit, so that everything they cover can be read. In these boxes the arrow keys,
 `PgUp`, `PgDn` and the wheel scroll, and never close the box.
 
 In the header, `←` and `→` select a field and Enter changes it. The

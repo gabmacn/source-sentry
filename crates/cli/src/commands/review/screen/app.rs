@@ -336,7 +336,7 @@ pub(super) enum Overlay {
 impl Overlay {
 	/// Whether the box scrolls inside itself when its content does not fit:
 	/// the confirmations before several documents are recorded, a whole path
-	/// or name, and the projects.
+	/// or name, the projects, and the answers of the session.
 	pub(super) fn scrolls(&self) -> bool {
 		matches!(
 			self,
@@ -345,6 +345,7 @@ impl Overlay {
 				| Self::Path(_)
 				| Self::Name(_)
 				| Self::Projects
+				| Self::Log(_)
 		)
 	}
 }
@@ -1283,7 +1284,7 @@ impl<'a> App<'a> {
 					.to_owned(),
 			);
 		} else {
-			self.overlay = Some(Overlay::Log(None));
+			self.open_box(Some(Overlay::Log(None)));
 		}
 	}
 
@@ -1363,7 +1364,9 @@ impl<'a> App<'a> {
 		if self.session.steps().is_empty() {
 			self.notice = Some(said);
 		} else {
-			self.overlay = Some(Overlay::Log(Some(said)));
+			// The list returns to its top, where the newest answer that still
+			// stands is now.
+			self.open_box(Some(Overlay::Log(Some(said))));
 		}
 		Ok(())
 	}

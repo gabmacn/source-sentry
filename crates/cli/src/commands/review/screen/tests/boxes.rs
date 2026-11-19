@@ -1,6 +1,7 @@
 //! The boxes that can hold more than they show: the confirmation before
-//! several documents are recorded, a whole path or name, and the projects.
-//! Each scrolls inside itself, so that everything it covers can be read.
+//! several documents are recorded, a whole path or name, the projects, and
+//! the answers of the session. Each scrolls inside itself, so that
+//! everything it covers can be read.
 
 use std::rc::Rc;
 
@@ -438,6 +439,87 @@ fn a_confirmation_that_fits_neither_scrolls_nor_closes_on_the_arrows() {
 		press(&mut app, &[key]);
 		assert!(matches!(app.overlay, Some(Overlay::All(_))), "{key:?}");
 		assert_eq!(boxed(&mut app, 80, 20).rows, before.rows, "{key:?}");
+	}
+}
+
+/// The box of `u` lists every answer of the session that stands, twelve or
+/// twenty-five, newest first, scrolled inside it where they do not all fit:
+/// the smallest screen holds eleven, and a tall one both lists.
+/// Its head and its keys stay in sight. The arrows, the page keys and the
+/// wheel scroll it and never close it; `u` still takes the newest back from
+/// anywhere in the list, which then returns to its top.
+#[test]
+fn the_log_lists_every_answer_that_stands_and_scrolls_inside_its_box() {
+	for count in [12, 25] {
+		let repo = many(count);
+		let (workspace, args) = (repo.workspace(), repo.args(&[]));
+		let mut app = App::new(&workspace, &args).unwrap();
+		for _ in 0..count {
+			press(&mut app, &[Key::Char('y'), Key::Enter]);
+		}
+		assert_eq!(app.log().len(), count);
+		press(&mut app, &[Key::Char('u')]);
+		assert_eq!(app.overlay, Some(Overlay::Log(None)));
+		let newest_first: Vec<String> = (0..count)
+			.rev()
+			.map(|index| format!("docs/d{index:02}.md"))
+			.collect();
+		let head = format!("{count} answers recorded in this session.");
+		for (columns, rows) in [(80, 20), (120, 40)] {
+			let positions = scroll_through(&mut app, columns, rows);
+			assert_eq!(positions.len() > 1, rows == 20, "{columns} by {rows}");
+			let mut seen: Vec<String> = Vec::new();
+			for drawn in &positions {
+				let inside = drawn.inside().join(
+					"
+",
+				);
+				assert!(
+					inside.contains(&head),
+					"the head stays:
+{inside}"
+				);
+				assert!(
+					inside.contains("u  take back"),
+					"the keys stay:
+{inside}"
+				);
+				assert_eq!(drawn.scrollbar(), positions.len() > 1);
+				let window = listed(drawn);
+				assert!(window.len() >= 3, "{inside}");
+				let start = newest_first
+					.iter()
+					.position(|name| *name == window[0])
+					.unwrap();
+				assert_eq!(
+					window,
+					newest_first[start..start + window.len()],
+					"{inside}"
+				);
+				for name in window {
+					if !seen.contains(&name) {
+						seen.push(name);
+					}
+				}
+			}
+			assert_eq!(seen, newest_first, "every answer, each once, in order");
+		}
+
+		press(&mut app, &[Key::PageUp; 10]);
+		boxed(&mut app, 80, 20);
+		press(&mut app, &SCROLLING);
+		press(&mut app, &[Key::PageDown; 10]);
+		assert!(app.box_scroll > 0);
+		assert_eq!(app.overlay, Some(Overlay::Log(None)));
+		press(&mut app, &[Key::Char('u')]);
+		let newest = format!("docs/d{:02}.md", count - 1);
+		assert!(repo.entry(&newest)["reviewed"].is_null());
+		assert!(repo.entry("docs/d00.md")["reviewed"].is_object());
+		assert_eq!(app.log().len(), count - 1);
+		assert!(matches!(app.overlay, Some(Overlay::Log(Some(_)))));
+		assert_eq!(app.box_scroll, 0);
+		press(&mut app, &[Key::Escape]);
+		assert!(app.overlay.is_none(), "Escape closes it");
 	}
 }
 

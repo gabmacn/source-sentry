@@ -1824,17 +1824,16 @@ fn listed_row(
 }
 
 /// The box with the answers recorded in this session that still stand,
-/// newest first. The newest carries the mark of a selected row: it is the
-/// one that `u` takes back.
+/// newest first, scrolled when they do not all fit above its keys. The
+/// newest carries the mark of a selected row: it is the one that `u` takes
+/// back.
 fn log_box(app: &App, said: Option<&str>, pen: &mut Pen, area: Rect) {
-	const SHOWN: usize = 10;
 	let answers = app.log();
-	let earlier = answers.len().saturating_sub(SHOWN);
 	let inside = frame(
 		pen,
 		area,
 		96,
-		count(answers.len().min(SHOWN)) + 7 + u16::from(earlier > 0),
+		count(answers.len()).saturating_add(7),
 		"This session",
 	);
 	let head = said.map_or_else(
@@ -1853,27 +1852,26 @@ fn log_box(app: &App, said: Option<&str>, pen: &mut Pen, area: Rect) {
 		if said.is_some() { text() } else { dim() },
 		inside.width,
 	);
-	let mut y = inside.y + 2;
-	for (index, (at, label)) in answers.iter().take(SHOWN).enumerate() {
-		let line = Rect::new(inside.x, y, inside.width, 1);
-		let style = if index == 0 {
+	// Only the list scrolls: the head above it and the keys below it stay
+	// in place.
+	let list = Rect::new(
+		inside.x,
+		inside.y + 2,
+		inside.width,
+		inside.height.saturating_sub(4),
+	);
+	let rows: Vec<_> = answers.iter().enumerate().collect();
+	scrolled(app, pen, list, &rows, |pen, (index, (at, label)), line| {
+		let style = if *index == 0 {
 			pen.fill(line, selected());
 			selected()
 		} else {
 			dim()
 		};
-		pen.text(inside.x + 1, y, at, style, 5);
-		let room = inside.width.saturating_sub(9);
-		pen.text(inside.x + 8, y, &fit(label, room), style, room);
-		y += 1;
-	}
-	if earlier > 0 {
-		let more = format!(
-			"and {} before these",
-			crate::describe::count(earlier, "answer", "answers")
-		);
-		pen.text(inside.x + 1, y, &more, dim(), inside.width);
-	}
+		pen.text(line.x + 1, line.y, at, style, 5);
+		let room = line.width.saturating_sub(9);
+		pen.text(line.x + 8, line.y, &fit(label, room), style, room);
+	});
 	pen.keys(
 		inside.x,
 		inside.bottom() - 1,
