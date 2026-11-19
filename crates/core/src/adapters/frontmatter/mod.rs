@@ -435,7 +435,7 @@ fn parse(
 			)
 		},
 	)
-	.map_err(|error| yaml_error(&error, at))?;
+	.map_err(|error| yaml_error(&error, &padded, at))?;
 	let declaration = Declaration::from(
 		block
 			.declaration
@@ -449,14 +449,21 @@ fn parse(
 	Ok((declaration, anchors.get()))
 }
 
-/// The strict parser options.
+/// The strict parser options, which also refuse a plain number or boolean
+/// where text belongs, such as `owners: [123]`, as a config's do.
 fn options() -> serde_saphyr::Options {
-	crate::yaml::strict_options()
+	let mut options = crate::yaml::strict_options();
+	options.no_schema = true;
+	options
 }
 
-/// Converts a parser error at the field `at`, adding the correction for the two
-/// hazards that quoting fixes.
-fn yaml_error(error: &serde_saphyr::Error, at: FieldPath) -> FrontmatterError {
+/// Converts a parser error at the field `at` of `text`, adding the correction
+/// for the hazards that quoting fixes, and for a number written as text.
+fn yaml_error(
+	error: &serde_saphyr::Error,
+	text: &str,
+	at: FieldPath,
+) -> FrontmatterError {
 	let error = error.without_snippet();
 	let position =
 		error
@@ -482,6 +489,36 @@ fn yaml_error(error: &serde_saphyr::Error, at: FieldPath) -> FrontmatterError {
 	};
 	if let Some(hint) = hint {
 		message = format!("{message}; {hint}");
+	}
+	match error {
+		serde_saphyr::Error::QuotingRequired { value, .. } => {
+			message = format!(
+				"YAML reads `{value}` as a number or a boolean, not as text; quote \
+				 it: use {}",
+				crate::config::quote(value)
+			);
+		}
+		serde_saphyr::Error::SerdeInvalidType { expected, .. }
+		| serde_saphyr::Error::SerdeInvalidValue { expected, .. }
+			if expected == crate::yaml::WHOLE_NUMBER =>
+		{
+			let written = position
+				.and_then(|position| {
+					crate::config::scalar_at(
+						text,
+						crate::config::Position {
+							line: u64::try_from(position.line).ok()?,
+							column: u64::try_from(position.column).ok()?,
+						},
+					)
+				})
+				.unwrap_or_default();
+			message = format!(
+				"`{written}` is not a whole number; use a whole number, such as \
+				 `7`, without quotes or decimals"
+			);
+		}
+		_ => {}
 	}
 	FrontmatterError::Yaml {
 		position,

@@ -19,9 +19,10 @@ use super::{SUPPORTED_VERSIONS, diagnose};
 use crate::adapters::Adapter;
 use crate::evaluate::schedule::EffectiveSchedule;
 use crate::model::{
-	CadenceSetting, ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule,
-	Schedule, VersionKind,
+	ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule, Schedule,
+	VersionKind,
 };
+use crate::yaml::{StrictSchedule, WholeNumber};
 
 /// The kinds of config, which differ in the settings they allow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -289,44 +290,6 @@ pub(super) fn position_of(location: &serde_saphyr::Location) -> Position {
 	}
 }
 
-/// What the whole-number visitor expects. `diagnose` recognizes its errors
-/// by this text.
-pub(super) const WHOLE_NUMBER: &str = "a whole number, such as `1`";
-
-/// A whole number written as a YAML integer, never as a float or a string.
-#[derive(Debug)]
-struct WholeNumber(u32);
-
-impl<'de> Deserialize<'de> for WholeNumber {
-	fn deserialize<D: Deserializer<'de>>(
-		deserializer: D,
-	) -> Result<Self, D::Error> {
-		struct WholeNumberVisitor;
-
-		impl Visitor<'_> for WholeNumberVisitor {
-			type Value = WholeNumber;
-
-			fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-				formatter.write_str(WHOLE_NUMBER)
-			}
-
-			fn visit_u64<E: de::Error>(self, value: u64) -> Result<WholeNumber, E> {
-				u32::try_from(value)
-					.map(WholeNumber)
-					.map_err(|_| E::invalid_value(de::Unexpected::Unsigned(value), &self))
-			}
-
-			fn visit_i64<E: de::Error>(self, value: i64) -> Result<WholeNumber, E> {
-				u32::try_from(value)
-					.map(WholeNumber)
-					.map_err(|_| E::invalid_value(de::Unexpected::Signed(value), &self))
-			}
-		}
-
-		deserializer.deserialize_any(WholeNumberVisitor)
-	}
-}
-
 /// What the strict-boolean visitor expects. `diagnose` recognizes its errors
 /// by this text.
 pub(super) const BOOLEAN: &str = "`true` or `false`, without quotes";
@@ -368,11 +331,6 @@ impl<'de> Deserialize<'de> for StrictBool {
 	}
 }
 
-/// A schedule whose `grace` is written as a YAML integer, never as a string
-/// such as `"2"`, which the parser would otherwise read as a number.
-#[derive(Debug)]
-struct StrictSchedule(Schedule);
-
 impl StrictSchedule {
 	/// The schedule, at the position it was written at.
 	fn located(located: Located<Self>) -> Located<Schedule> {
@@ -380,28 +338,6 @@ impl StrictSchedule {
 			value: located.value.0,
 			position: located.position,
 		}
-	}
-}
-
-impl<'de> Deserialize<'de> for StrictSchedule {
-	fn deserialize<D: Deserializer<'de>>(
-		deserializer: D,
-	) -> Result<Self, D::Error> {
-		/// The fields of [`Schedule`], with a strict `grace`.
-		#[derive(Deserialize)]
-		#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-		struct Fields {
-			#[serde(default)]
-			cadence: CadenceSetting,
-			#[serde(default)]
-			grace: Option<WholeNumber>,
-		}
-
-		let fields = Fields::deserialize(deserializer)?;
-		Ok(Self(Schedule {
-			cadence: fields.cadence,
-			grace: fields.grace.map(|grace| grace.0),
-		}))
 	}
 }
 

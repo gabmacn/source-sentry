@@ -8,9 +8,10 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use crate::claims::SourceGlob;
 use crate::model::{
 	ClassName, Declaration, Member, ObjectId, PathError, PathSource,
-	PatternSource, Rename, RepoPath, Retired, Review, Schedule, Seal, SourceDecl,
+	PatternSource, Rename, RepoPath, Retired, Review, Seal, SourceDecl,
 	resolve_project_source,
 };
+use crate::yaml::StrictSchedule;
 
 /// The kind of file a declaration was read from or is written to, which
 /// decides the fields it may carry.
@@ -178,7 +179,9 @@ impl fmt::Display for FieldPath {
 ///
 /// It mirrors [`Declaration`] field for field, except that each source is read
 /// through [`Source`], so that a malformed source names its problem instead of
-/// failing to match the model's untagged enum.
+/// failing to match the model's untagged enum, and the schedule through
+/// [`StrictSchedule`], so that a quoted `grace` such as `'2'` is refused
+/// rather than read as a number.
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(super) struct RawDeclaration {
@@ -193,7 +196,7 @@ pub(super) struct RawDeclaration {
 	#[serde(default)]
 	reviewed: Option<Review>,
 	#[serde(default)]
-	schedule: Option<Schedule>,
+	schedule: Option<StrictSchedule>,
 	#[serde(default)]
 	seal: Option<Seal>,
 	#[serde(default)]
@@ -210,7 +213,7 @@ impl From<RawDeclaration> for Declaration {
 			owners: raw.owners,
 			renamed: raw.renamed,
 			reviewed: raw.reviewed,
-			schedule: raw.schedule,
+			schedule: raw.schedule.map(|schedule| schedule.0),
 			seal: raw.seal,
 			sources: raw.sources.into_iter().map(|source| source.0).collect(),
 			url: raw.url,

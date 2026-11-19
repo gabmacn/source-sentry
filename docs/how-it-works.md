@@ -483,6 +483,10 @@ day, and a warning once it is due.
 Updating a declaration in frontmatter leaves every other key, the text and
 the line endings exactly as they were.
 
+**A declaration in frontmatter is typed as strictly as a config:** a bare
+number or boolean where text belongs, such as `owners: [123]`, and a quoted
+number where a number belongs, such as `grace: '2'`, are errors.
+
 ## Paths
 
 In a declaration, a bare path starts beside the document, `/` at the

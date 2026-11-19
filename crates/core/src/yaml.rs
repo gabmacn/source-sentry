@@ -1,12 +1,14 @@
 //! The strict YAML options shared by every parser of frontmatter, configs and
-//! presets.
+//! presets, and the strictly typed values they share.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::Deserialize;
-use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_saphyr::{DuplicateKeyPolicy, MergeKeyPolicy, Spanned};
+
+use crate::model::{CadenceSetting, Schedule};
 
 /// The strict parser options: merge keys, duplicate keys, unsupported tags and
 /// YAML 1.1 booleans are rejected. Callers use the single-document entry
@@ -19,6 +21,71 @@ pub(crate) fn strict_options() -> serde_saphyr::Options {
 		merge_keys: MergeKeyPolicy::Error,
 		duplicate_keys: DuplicateKeyPolicy::Error,
 		with_snippet: false,
+	}
+}
+
+/// What the whole-number visitor expects. Diagnostics recognize its errors
+/// by this text.
+pub(crate) const WHOLE_NUMBER: &str = "a whole number, such as `1`";
+
+/// A whole number written as a YAML integer, never as a float or a string.
+#[derive(Debug)]
+pub(crate) struct WholeNumber(pub(crate) u32);
+
+impl<'de> Deserialize<'de> for WholeNumber {
+	fn deserialize<D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Self, D::Error> {
+		struct WholeNumberVisitor;
+
+		impl Visitor<'_> for WholeNumberVisitor {
+			type Value = WholeNumber;
+
+			fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+				formatter.write_str(WHOLE_NUMBER)
+			}
+
+			fn visit_u64<E: de::Error>(self, value: u64) -> Result<WholeNumber, E> {
+				u32::try_from(value)
+					.map(WholeNumber)
+					.map_err(|_| E::invalid_value(de::Unexpected::Unsigned(value), &self))
+			}
+
+			fn visit_i64<E: de::Error>(self, value: i64) -> Result<WholeNumber, E> {
+				u32::try_from(value)
+					.map(WholeNumber)
+					.map_err(|_| E::invalid_value(de::Unexpected::Signed(value), &self))
+			}
+		}
+
+		deserializer.deserialize_any(WholeNumberVisitor)
+	}
+}
+
+/// A schedule whose `grace` is written as a YAML integer, never as a string
+/// such as `"2"`, which the parser would otherwise read as a number.
+#[derive(Debug)]
+pub(crate) struct StrictSchedule(pub(crate) Schedule);
+
+impl<'de> Deserialize<'de> for StrictSchedule {
+	fn deserialize<D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Self, D::Error> {
+		/// The fields of [`Schedule`], with a strict `grace`.
+		#[derive(Deserialize)]
+		#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+		struct Fields {
+			#[serde(default)]
+			cadence: CadenceSetting,
+			#[serde(default)]
+			grace: Option<WholeNumber>,
+		}
+
+		let fields = Fields::deserialize(deserializer)?;
+		Ok(Self(Schedule {
+			cadence: fields.cadence,
+			grace: fields.grace.map(|grace| grace.0),
+		}))
 	}
 }
 

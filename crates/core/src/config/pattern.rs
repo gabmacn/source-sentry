@@ -549,7 +549,7 @@ impl fmt::Display for SeriesPattern {
 
 /// Writes `value` as a single-quoted YAML scalar, the convention for globs and
 /// regular expressions.
-pub(super) fn quote(value: &str) -> String {
+pub(crate) fn quote(value: &str) -> String {
 	format!("'{}'", value.replace('\'', "''"))
 }
 

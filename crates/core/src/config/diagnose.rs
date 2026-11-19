@@ -9,9 +9,10 @@ use serde_saphyr::{Error, MessageFormatter, UserMessageFormatter};
 
 use super::ConfigKind;
 use super::error::{ConfigError, ConfigErrorKind, Position};
-use super::parse::{BOOLEAN, WHOLE_NUMBER, position_of};
+use super::parse::{BOOLEAN, position_of};
 use super::pattern::quote;
 use crate::model::RepoPath;
+use crate::yaml::WHOLE_NUMBER;
 
 /// The key under which serde-saphyr's `Spanned` exposes the wrapped value.
 const SPANNED_VALUE: &str = "value";
@@ -297,7 +298,7 @@ fn rest_of_line(text: &str, position: Position) -> Option<(&str, String)> {
 /// The plain scalar at `position`, as written. When `position` points at a
 /// key, which serde reports for some type errors, the key's value is taken
 /// instead.
-fn scalar_at(text: &str, position: Position) -> Option<String> {
+pub(crate) fn scalar_at(text: &str, position: Position) -> Option<String> {
 	let (_, rest) = rest_of_line(text, position)?;
 	let rest = match rest.split_once(':') {
 		Some((key, value))

@@ -592,16 +592,14 @@ fn unknown_fields_such_as_inherit_fail() {
 
 #[test]
 fn yaml_1_1_booleans_are_never_numbers_or_booleans() {
-	let (position, at, _) =
+	let (position, at, message) =
 		yaml_error("---\nsource-sentry:\n  schedule:\n    grace: no\n---\n");
-	assert_eq!(
-		position,
-		Some(Position {
-			line: 4,
-			column: 12
-		})
-	);
+	assert_eq!(position, Some(Position { line: 4, column: 5 }));
 	assert_eq!(at, "source-sentry.schedule.grace");
+	assert!(
+		message.starts_with("`no` is not a whole number"),
+		"{message}"
+	);
 	// Under strict booleans, `no` stays the string it looks like.
 	let declaration = read_str(
 		"---\nsource-sentry:\n  owners: [yes]\n  sources:\n    - path: no\n---\n",
@@ -610,6 +608,69 @@ fn yaml_1_1_booleans_are_never_numbers_or_booleans() {
 	.unwrap();
 	assert_eq!(declaration.owners, ["yes"]);
 	assert_eq!(declaration.sources, [path_source("no")]);
+}
+
+/// A declaration is typed as strictly as a config: a plain number or boolean
+/// is not text, and a quoted number is not a number.
+#[test]
+fn a_declaration_is_typed_as_strictly_as_a_config() {
+	for (block, value, field) in [
+		("  owners: [123]\n", "123", "source-sentry.owners[0]"),
+		("  owners: [true]\n", "true", "source-sentry.owners[0]"),
+		("  classes: [12]\n", "12", "source-sentry.classes[0]"),
+		(
+			"  sources:\n    - path: 2024\n",
+			"2024",
+			"source-sentry.sources[0].path",
+		),
+		(
+			"  reviewed:\n    at: 2026-11-07T14:32:05Z\n    by: 42\n",
+			"42",
+			"source-sentry.reviewed.by",
+		),
+	] {
+		let (_, at, message) =
+			yaml_error(&format!("---\nsource-sentry:\n{block}---\n"));
+		assert_eq!(at, field, "{block}");
+		assert_eq!(
+			message,
+			format!(
+				"YAML reads `{value}` as a number or a boolean, not as text; quote \
+				 it: use '{value}'"
+			),
+			"{block}"
+		);
+	}
+	for written in ["'2'", "\"2\""] {
+		let (position, at, message) = yaml_error(&format!(
+			"---\nsource-sentry:\n  schedule:\n    grace: {written}\n---\n"
+		));
+		assert_eq!(position.map(|position| position.line), Some(4));
+		assert_eq!(at, "source-sentry.schedule.grace");
+		assert_eq!(
+			message,
+			format!(
+				"`{written}` is not a whole number; use a whole number, such as \
+				 `7`, without quotes or decimals"
+			)
+		);
+	}
+	let declaration = read_str(
+		"---\nsource-sentry:\n  owners: ['123']\n  schedule:\n    grace: 2\n    \
+		 cadence:\n      dtstart: 2026-12-01\n      rrule: 'FREQ=MONTHLY'\n  \
+		 reviewed:\n    at: 2026-11-07T14:32:05Z\n    by: null\n---\n",
+	)
+	.unwrap()
+	.unwrap();
+	assert_eq!(declaration.owners, ["123"]);
+	assert_eq!(
+		declaration.schedule.and_then(|schedule| schedule.grace),
+		Some(2)
+	);
+	assert_eq!(
+		declaration.reviewed,
+		Some(review("2026-11-07T14:32:05Z", None))
+	);
 }
 
 #[test]

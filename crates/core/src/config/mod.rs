@@ -53,9 +53,11 @@ mod resolve;
 
 use crate::adapters::Adapter;
 
+pub(crate) use diagnose::scalar_at;
 pub use error::{ConfigError, ConfigErrorKind, LoadError, Position};
 pub use load::ConfigSet;
 pub use parse::{AdapterMapping, ConfigKind};
+pub(crate) use pattern::quote;
 pub use pattern::{PathPattern, SeriesPattern};
 pub use projects::{project_of, project_roots};
 pub use resolve::{
