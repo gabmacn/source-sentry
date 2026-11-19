@@ -51,8 +51,10 @@ command-line input is resolved from the effective starting directory and
 stored rooted.
 
 Human output displays paths relative to the effective starting directory,
-including diagnostic locations and commands printed for copying. Paths are
-absolute when the current directory lies outside the working tree. Quoted
+including diagnostic locations and commands printed for copying. When the
+effective starting directory lies outside the working tree, which
+`GIT_WORK_TREE` allows, relative paths start at the working tree's root and
+are displayed relative to it, as git takes them. Quoted
 source declarations retain their spelling. JSON subjects and diagnostic
 locations include `project`, the repository path of the project root (`.`
 for the repository project), and paths relative to that project. A source

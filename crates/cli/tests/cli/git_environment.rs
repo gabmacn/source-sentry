@@ -329,3 +329,122 @@ fn the_start_directory_is_placed_by_git() {
 		assert!(run.stdout.contains("guide.md"), "{}", run.stdout);
 	}
 }
+
+/// The command quoted in backticks in `text` that begins with `start`.
+fn quoted<'a>(text: &'a str, start: &str) -> &'a str {
+	let begin = text
+		.find(&format!("`{start}"))
+		.unwrap_or_else(|| panic!("no `{start}...` command in:\n{text}"))
+		+ 1;
+	let end = text[begin..]
+		.find('`')
+		.unwrap_or_else(|| panic!("unterminated command in:\n{text}"));
+	&text[begin..begin + end]
+}
+
+/// Started outside the working tree that `GIT_WORK_TREE` names, relative
+/// paths start at its root and displayed paths are relative to it, as git
+/// takes them, so that every printed `git` and `source-sentry` command runs
+/// as printed in the same place and environment.
+#[test]
+fn outside_the_working_tree_paths_start_at_its_root() {
+	let repo = TestRepo::init();
+	repo.commit_at("2026-10-01T10:00:00Z");
+	// The start lies in another repository, which must stay untouched.
+	let other = repo.outer().join("other");
+	fs::create_dir(&other).unwrap();
+	git_in(&repo, &other, &["init", "--quiet", "--initial-branch=main"]);
+	let start = other.join("sub");
+	fs::create_dir(&start).unwrap();
+	let git_dir = repo.path().join(".git");
+	let env = [
+		("GIT_DIR", os(&git_dir)),
+		("GIT_WORK_TREE", os(repo.path())),
+	];
+	let run = |args: &[&str]| repo.run_at(&start, args, &env);
+
+	// A change prints its staging command with paths from the root.
+	let tracked =
+		run(&["track", "docs/guide.md", "--source", "/src/a.rs", "--yes"]);
+	tracked.expect_code(0);
+	let add = staging_command(&tracked);
+	assert_eq!(add, "git add -- docs/source-sentry.lock");
+	repo.run_shell_at(&start, &add, &env).expect_code(0);
+	assert_eq!(
+		repo.git(&["diff", "--cached", "--name-only"]),
+		"docs/source-sentry.lock"
+	);
+	assert_eq!(git_in(&repo, &other, &["status", "--porcelain"]), "");
+	run(&["attest", "docs/guide.md", "--yes"]).expect_code(0);
+	repo.commit_at("2026-10-02T10:00:00Z");
+
+	// Reports name paths from the root.
+	repo.write("src/a.rs", "fn changed() {}\n");
+	let checked = run(&["check", "--at", AT]);
+	checked.expect_code(1);
+	assert!(
+		checked.stdout.contains("docs/guide.md"),
+		"{}",
+		checked.stdout
+	);
+	assert!(!checked.stdout.contains(".."), "{}", checked.stdout);
+
+	// The attestation command that `diff` prints runs as printed.
+	let diffed = run(&["diff", "docs/guide.md"]);
+	diffed.expect_code(0);
+	let attest = diffed.stdout.lines().last().unwrap();
+	assert!(attest.contains("attest docs/guide.md"), "{attest}");
+	repo
+		.run_shell_at(&start, &format!("{attest} --yes"), &env)
+		.expect_code(0);
+	repo.commit_at("2026-10-03T10:00:00Z");
+	run(&["check", "--at", AT]).expect_code(0);
+
+	// The move that `rename` asks for runs as printed.
+	let refused = run(&["rename", "docs/guide.md", "docs/new.md", "--yes"]);
+	refused.expect_code(2);
+	let moved = quoted(&refused.stderr, "git ");
+	assert_eq!(moved, "git mv -- docs/guide.md docs/new.md");
+	repo.run_shell_at(&start, moved, &env).expect_code(0);
+	run(&["rename", "docs/guide.md", "docs/new.md", "--yes"]).expect_code(0);
+	assert!(repo.exists("docs/new.md"));
+
+	// An absolute path inside the working tree is accepted; a relative path
+	// that leaves the root is refused, as git refuses it.
+	let absolute = repo.path().join("docs/new.md");
+	run(&["explain", absolute.to_str().unwrap(), "--at", AT]).expect_code(0);
+	let outside = run(&["explain", "../new.md", "--at", AT]);
+	outside.expect_code(64);
+	assert!(
+		outside.stderr.contains("outside the repository"),
+		"{}",
+		outside.stderr
+	);
+}
+
+/// `GIT_WORK_TREE` alone, started inside another repository, keeps that
+/// repository and takes the working tree it names, as git does.
+#[test]
+fn git_work_tree_alone_keeps_the_repository_found() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	let tree = repo.outer().join("tree");
+	for file in ["docs/guide.md", "src/a.rs", "docs/source-sentry.lock"] {
+		let target = tree.join(file);
+		fs::create_dir_all(target.parent().unwrap()).unwrap();
+		fs::copy(repo.path().join(file), target).unwrap();
+	}
+	fs::write(tree.join("src/a.rs"), "fn changed() {}\n").unwrap();
+	let env = [("GIT_WORK_TREE", os(&tree))];
+	let run = repo.run_at(
+		&repo.path().join("src"),
+		&["explain", "docs/guide.md", "--at", AT],
+		&env,
+	);
+	run.expect_code(0);
+	assert!(
+		run.stdout.contains("changed in the working tree"),
+		"{}",
+		run.stdout
+	);
+}

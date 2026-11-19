@@ -30,7 +30,11 @@ pub(crate) struct Workspace {
 	/// The working tree as git reports it, for messages: on Windows,
 	/// without the `\\?\` prefix that canonicalizing adds.
 	root_shown: PathBuf,
-	/// The current directory, canonicalized, for comparing with `root`.
+	/// The effective directory, below `root`: where git places the start
+	/// directory in the working tree, or the root itself when the start
+	/// lies outside it, which `GIT_WORK_TREE` allows. Relative command-line
+	/// paths start there, and displayed paths are relative to it, as git
+	/// takes them.
 	current: PathBuf,
 	/// `-C` as given, which commands printed for copying repeat.
 	repo_argument: Option<PathBuf>,
@@ -52,13 +56,13 @@ impl Workspace {
 			io_failure("cannot read the current directory", &error)
 		})?;
 		let working = repo.map_or(working.clone(), |path| working.join(path));
-		let current = working.canonicalize().map_err(|error| {
+		let resolved = working.canonicalize().map_err(|error| {
 			io_failure("cannot resolve the current directory", &error)
 		})?;
 		// `-C` names the directory to start in, as in git, which refuses
 		// any other kind of file.
 		if let Some(path) = repo
-			&& !current.is_dir()
+			&& !resolved.is_dir()
 		{
 			return Err(Failure::new(
 				crate::exit::OPERATIONAL,
@@ -96,8 +100,11 @@ impl Workspace {
 			&snapshot.paths().map_err(|error| Failure::backend(&error))?,
 		);
 		// The project is selected from where git places the start directory,
-		// and from the root when it lies outside the working tree.
+		// and from the root when it lies outside the working tree, where git
+		// also takes relative paths from the root.
 		let scope = repository.prefix().cloned().unwrap_or_default();
+		let mut current = root.clone();
+		current.extend(scope.components());
 		Ok(Self {
 			scope,
 			projects,
@@ -236,11 +243,8 @@ impl Workspace {
 		}
 	}
 
-	/// `path` relative to the current directory, with `/` separators.
+	/// `path` relative to the effective directory, with `/` separators.
 	pub(crate) fn display_path(&self, path: &RepoPath) -> String {
-		if !self.current.starts_with(&self.root) {
-			return self.root_shown.join(path.as_str()).display().to_string();
-		}
 		let target: Vec<String> = self
 			.root
 			.components()
