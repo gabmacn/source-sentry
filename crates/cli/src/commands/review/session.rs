@@ -50,7 +50,8 @@ pub(super) struct Step {
 	/// sources alone.
 	pub(super) sources: Option<usize>,
 	/// Each file it wrote, with the contents before the answer and after it.
-	/// A file the answer created has nothing before, and cannot be restored.
+	/// A file the answer created has nothing before, and cannot be restored;
+	/// nor can one that another program changed between two of its writes.
 	files: BTreeMap<RepoPath, (Option<Vec<u8>>, Vec<u8>)>,
 }
 
@@ -436,7 +437,9 @@ impl<'a> Session<'a> {
 	/// Makes one answer of every step from the `from`-th onwards, for an
 	/// answer given to several documents at once: taking it back takes all
 	/// of its reviews back. A file keeps what it held before the first of
-	/// them and after the last.
+	/// them and after the last. A file that changed between two of them was
+	/// changed by another program, whose change restoring the first state
+	/// would erase, so the answer can no longer be taken back.
 	pub(super) fn join(&mut self, from: usize) {
 		if self.steps.len() <= from + 1 {
 			return;
@@ -450,7 +453,12 @@ impl<'a> Session<'a> {
 			first.reviews.extend(step.reviews);
 			for (path, (before, after)) in step.files {
 				match first.files.get_mut(&path) {
-					Some(held) => held.1 = after,
+					Some(held) => {
+						if before.as_ref() != Some(&held.1) {
+							held.0 = None;
+						}
+						held.1 = after;
+					}
 					None => {
 						first.files.insert(path, (before, after));
 					}

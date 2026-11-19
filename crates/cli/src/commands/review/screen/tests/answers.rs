@@ -404,3 +404,40 @@ fn a_reviewer_name_is_checked_before_it_is_remembered() {
 	let notice = app.notice.clone().unwrap_or_default();
 	assert!(notice.contains("never email addresses"), "{notice}");
 }
+
+/// An answer given to several documents writes their lockfile once for
+/// each. Another program that changes the lockfile between two of those
+/// writes leaves the batch unable to restore it: taking the batch back would
+/// erase that change too, so the answer is kept and the refusal names the
+/// file.
+#[test]
+fn a_change_between_the_writes_of_a_batch_refuses_taking_it_back() {
+	use super::super::super::session::Undone;
+
+	let repo =
+		Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}, "docs/c.md": {}}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let [a, b] = [0, 1].map(|index| app.open[index].clone());
+	assert!(a.document.to_string().ends_with("a.md"));
+	assert!(b.document.to_string().ends_with("b.md"));
+	let first = app.session.compare(&a).unwrap();
+	let second = app.session.compare(&b).unwrap();
+
+	assert!(app.session.write(&a, &first, false).is_ok());
+	repo.attest("docs/c.md");
+	let between = repo.entry("docs/c.md");
+	assert!(between["reviewed"].is_object());
+	assert!(app.session.write(&b, &second, false).is_ok());
+	app.session.join(0);
+	assert_eq!(app.session.steps().len(), 1);
+	let after = repo.read("source-sentry.lock");
+
+	let Undone::Changed(path) = app.session.undo().unwrap() else {
+		panic!("the batch was taken back");
+	};
+	assert_eq!(path, "source-sentry.lock");
+	assert_eq!(repo.read("source-sentry.lock"), after);
+	assert_eq!(repo.entry("docs/c.md"), between);
+	assert_eq!(app.session.steps().len(), 1);
+}
