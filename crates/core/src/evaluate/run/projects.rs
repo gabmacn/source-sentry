@@ -8,7 +8,10 @@ use super::{
 	Coverage, Elsewhere, Evaluation, SubjectKind, check_within, judge_all,
 	propagate, unloadable,
 };
-use crate::claims::{Diagnostic, Inventory, discover, graph};
+use crate::claims::{
+	Diagnostic, DiagnosticKind, Inventory, LockfileInfo, LockfileKind, discover,
+	graph,
+};
 use crate::config::{ConfigSet, LoadError, project_of};
 use crate::model::{DocumentId, RepoPath};
 use crate::ports::{BackendError, History, Snapshot};
@@ -188,15 +191,16 @@ fn discover_cited<S: Snapshot>(
 			combined
 				.claims
 				.extend(cited.found.claims_of(&document).cloned());
-			// A declaration that cannot be read leaves no claim, only its
-			// diagnostic, which must still reach the citing project.
+			// A declaration that cannot be read, on file or in a lockfile that
+			// cannot be read, leaves no claim, only its diagnostic, which must
+			// still reach the citing project.
 			let one = BTreeSet::from([document]);
 			if combined.claims.len() > before
 				|| cited
 					.found
 					.diagnostics
 					.iter()
-					.any(|diagnostic| concerns(diagnostic, &one))
+					.any(|diagnostic| concerns(diagnostic, &one, &cited.found.lockfiles))
 			{
 				cited.documents.extend(one);
 			}
@@ -236,7 +240,7 @@ pub(super) fn narrowed(
 		diagnostics: found
 			.diagnostics
 			.iter()
-			.filter(|diagnostic| concerns(diagnostic, cited))
+			.filter(|diagnostic| concerns(diagnostic, cited, &found.lockfiles))
 			.cloned()
 			.collect(),
 	}
@@ -245,10 +249,27 @@ pub(super) fn narrowed(
 /// Whether `diagnostic` concerns one of the `cited` documents: it is about
 /// one, or it is about a document and names a cited one among its other
 /// places, as a duplicate version names every member of its group but is
-/// about the first.
-fn concerns(diagnostic: &Diagnostic, cited: &BTreeSet<DocumentId>) -> bool {
+/// about the first, or it says that a local lockfile that could hold a cited
+/// document's declaration cannot be read.
+///
+/// A local lockfile could hold that declaration when it lies in the
+/// document's directory or in a directory between it and the project root.
+/// Of `lockfiles`, those of the diagnostic's project, only unparsed ones
+/// count; any other unreadable lockfile is a fault elsewhere in that project.
+fn concerns(
+	diagnostic: &Diagnostic,
+	cited: &BTreeSet<DocumentId>,
+	lockfiles: &[LockfileInfo],
+) -> bool {
 	let Some(document) = &diagnostic.document else {
-		return false;
+		return diagnostic.kind == DiagnosticKind::InvalidLockfile
+			&& lockfiles.iter().any(|lockfile| {
+				lockfile.path == diagnostic.location.file
+					&& !lockfile.parsed
+					&& matches!(&lockfile.kind, LockfileKind::Local { directory }
+						if cited.iter().any(|document| matches!(document,
+							DocumentId::Local(path) if path.starts_with(directory))))
+			});
 	};
 	cited.contains(document)
 		|| diagnostic

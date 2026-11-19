@@ -90,9 +90,11 @@ A source document in another project contributes its freshness under that
 project's own declarations and schedules, without applying its contexts.
 Only that document and what it depends on are evaluated. The report
 includes that project's configuration errors, such as an invalid time zone,
-and the errors met while hashing the document's own sources; a fault in an
-unrelated document of that project is not reported and does not stop the
-check.
+the errors met while hashing the document's own sources, and an unreadable
+lockfile in the document's directory or one above it in that project, which
+could hold its declaration; a fault in an unrelated document of that project,
+or an unreadable lockfile elsewhere in it, is not reported and does not stop
+the check.
 
 The exit code is:
 

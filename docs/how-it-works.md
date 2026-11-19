@@ -667,9 +667,12 @@ settings only by importing a preset by name.
 lives there. When a source is a document of another project, only that
 document's freshness is read, never the other project's contexts. Of that
 project, `check` evaluates only the cited document and what it depends on.
-Its report includes that project's configuration errors and the errors met
-while hashing the cited document's own sources. A fault in an unrelated
-document of that project is not reported and does not stop the check.
+Its report includes that project's configuration errors, the errors met
+while hashing the cited document's own sources, and an unreadable lockfile
+in the cited document's directory or one above it in that project, which
+could hold its declaration. A fault in an unrelated document of that
+project, or an unreadable lockfile elsewhere in it, is not reported and does
+not stop the check.
 
 > **Why.** Freshness is a fact and depends on no policy, so it can cross a
 > project boundary. Outcomes are policy, and stay inside. Evaluating the

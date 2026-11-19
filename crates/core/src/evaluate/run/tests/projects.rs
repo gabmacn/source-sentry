@@ -429,3 +429,48 @@ fn a_duplicate_version_is_reported_whichever_member_is_cited() {
 	let evaluation = unrelated.evaluate(day(1), None);
 	assert_clean(&evaluation);
 }
+
+#[test]
+fn an_unreadable_lockfile_that_could_declare_a_cited_document_is_reported() {
+	let truncated = r#"{"schema":1,"documents":{"source.md":{}},"retired":"#;
+	for cited in ["up/sub/source.md", "up/sub/deep/source.md"] {
+		let files = [
+			("up/sub/source-sentry.lock", truncated),
+			("up/sub/source.md", "# Source\n"),
+			("up/sub/deep/source.md", "# Deep source\n"),
+		];
+		let repo = citing("version: 1\n", &up_guide(), &[cited], &files);
+		let direct =
+			check_project(&repo.history, &repo.checkout(), "up", day(1)).unwrap();
+		assert_eq!(kinds(&direct), [DiagnosticKind::InvalidLockfile]);
+
+		let evaluation = repo.evaluate(day(1), None);
+		assert_eq!(
+			kinds(&evaluation),
+			[DiagnosticKind::InvalidLockfile],
+			"{cited}"
+		);
+		assert_eq!(
+			evaluation.diagnostics[0].location.file,
+			path("up/sub/source-sentry.lock")
+		);
+		assert_eq!(
+			gates(&evaluation),
+			(
+				ExitCode::ConfigurationOrIntegrity,
+				ExitCode::ConfigurationOrIntegrity
+			),
+			"{cited}"
+		);
+	}
+
+	// Neither the cited document's directory nor one above it.
+	for cited in ["up/guide.md", "up/other/source.md"] {
+		let files = [
+			("up/sub/source-sentry.lock", truncated),
+			("up/other/source.md", "# Other source\n"),
+		];
+		let repo = citing("version: 1\n", &up_guide(), &[cited], &files);
+		assert_clean(&repo.evaluate(day(1), None));
+	}
+}
