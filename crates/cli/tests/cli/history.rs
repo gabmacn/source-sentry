@@ -349,3 +349,79 @@ fn a_remote_clock_never_reads_a_tree_older_than_it_needs() {
 	.unwrap();
 	repo.run(&explain).expect_code(4);
 }
+
+/// Moving a remote document to an owner in another project keeps its clock,
+/// in both directions: the owner lockfiles of every project are former
+/// sites.
+#[test]
+fn moving_a_remote_document_to_another_project_keeps_its_clock() {
+	let repo = failing_overdue();
+	repo.write("app/.source-sentry/source-sentry.yaml", "version: 1\n");
+	repo.write("src.dat", "x\n");
+	repo.commit_at("2026-11-01T12:00:00Z");
+	repo
+		.run(&[
+			"track",
+			"abstract:video",
+			"--remote",
+			"legal",
+			"--source",
+			"/src.dat",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.commit_at("2026-11-02T12:00:00Z");
+	let explain = ["explain", "abstract:video", "--at", "2026-11-25T12:00:00Z"];
+	let declared = "declared in";
+	let root = repo.run(&explain);
+	root.expect_code(0);
+	assert!(
+		root.stdout.contains("counted from 2026-11-02"),
+		"{}",
+		root.stdout
+	);
+	assert!(root.stdout.contains(declared), "{}", root.stdout);
+
+	repo
+		.run(&[
+			"track",
+			"abstract:video",
+			"--from",
+			"remote:legal",
+			"--to",
+			"remote:legal@app",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.commit_at("2026-11-20T12:00:00Z");
+	let app = repo.run_in("app", &explain);
+	app.expect_code(0);
+	assert!(
+		app.stdout.contains("counted from 2026-11-02"),
+		"{}",
+		app.stdout
+	);
+
+	repo
+		.run_in(
+			"app",
+			&[
+				"track",
+				"abstract:video",
+				"--from",
+				"remote:legal",
+				"--to",
+				"remote:legal@..",
+				"--yes",
+			],
+		)
+		.expect_code(0);
+	repo.commit_at("2026-11-21T12:00:00Z");
+	let back = repo.run(&explain);
+	back.expect_code(0);
+	assert!(
+		back.stdout.contains("counted from 2026-11-02"),
+		"{}",
+		back.stdout
+	);
+}

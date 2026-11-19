@@ -20,7 +20,8 @@
 //!
 //! Former sites are read too, so that a move between lockfiles also keeps
 //! its history: for a local document, the lockfile of every directory above
-//! it; for a remote document, every other owner's lockfile. A remote
+//! it; for a remote document, every other owner's lockfile, in its own
+//! project and in every other, since it may move between projects. A remote
 //! document's current owner lockfile is read first, and the owner lockfiles
 //! of a commit are listed, once per commit, only when that lockfile does not
 //! settle the commit, so the walk reads no history older than its clocks
@@ -585,26 +586,35 @@ impl<H: History> RunPredicate for Predicate<'_, '_, H> {
 						return Ok(answer);
 					}
 					// Another owner may have declared the document at this
-					// commit, before a move to its current one.
-					let lockfiles = self
-						.reader
-						.owner_lockfiles(&commit.id, &self.query.project)?;
-					for (site, oid) in lockfiles.iter() {
-						if self.query.sites.iter().any(|known| known.path == site.path) {
-							continue;
-						}
-						read_site(
-							self.reader,
-							&self.provenance,
-							site,
-							oid,
-							false,
-							&mut count,
-							&mut evidence,
-						)?;
-						if self.settled(&evidence, required, own_path_exists) == Some(true)
-						{
-							break;
+					// commit, before a move to its current one, in this
+					// project or in another.
+					let projects = std::iter::once(&self.query.project).chain(
+						self
+							.query
+							.projects
+							.iter()
+							.filter(|project| **project != self.query.project),
+					);
+					'projects: for project in projects {
+						let lockfiles = self.reader.owner_lockfiles(&commit.id, project)?;
+						for (site, oid) in lockfiles.iter() {
+							if self.query.sites.iter().any(|known| known.path == site.path) {
+								continue;
+							}
+							read_site(
+								self.reader,
+								&self.provenance,
+								site,
+								oid,
+								false,
+								&mut count,
+								&mut evidence,
+							)?;
+							if self.settled(&evidence, required, own_path_exists)
+								== Some(true)
+							{
+								break 'projects;
+							}
 						}
 					}
 				}

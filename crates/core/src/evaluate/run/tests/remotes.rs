@@ -342,3 +342,66 @@ fn a_move_keeps_the_clocks_of_new_sources_and_matches() {
 	assert_eq!(source_clock(&evaluation, "src/m/two.rs"), (matched, day(2)));
 	assert!(matches!(live(&evaluation).sources[0].timing, Timing::Idle));
 }
+
+/// A remote document that moves to an owner in another project keeps the
+/// clocks of its declaration and of a new source, although the move
+/// re-spells its sources for the other project: the owner lockfiles of
+/// every project are former sites, each read in its own project.
+#[test]
+fn a_move_to_another_project_keeps_a_remote_clock() {
+	let mut repo = Repo::new(&[
+		(REPOSITORY, "version: 1\n"),
+		("app/.source-sentry/source-sentry.yaml", "version: 1\n"),
+		("src/a.rs", "v1"),
+		("src/b.rs", "b"),
+	]);
+	let declared = repo.commit(
+		1,
+		&[(
+			&owner("legal"),
+			Some(&video(&json!({"sources": [
+				{"path": "/src/a.rs"},
+				{"path": "/src/b.rs"},
+			]}))),
+		)],
+	);
+	repo.commit(
+		2,
+		&[
+			(&owner("legal"), None),
+			(
+				"app/.source-sentry/remotes/legal.lock",
+				Some(&video(&json!({"sources": [
+					{"path": ":/src/a.rs"},
+					{"path": ":/src/b.rs"},
+				]}))),
+			),
+		],
+	);
+	let snapshot = repo.checkout();
+	let configs = ConfigSet::load_project(&snapshot, &path("app")).unwrap();
+	let inventory = discover(&snapshot, &configs).unwrap();
+	let evaluation =
+		check(&snapshot, &repo.history, &configs, &inventory, day(3), None)
+			.unwrap();
+	assert_eq!(declaration_clock(&evaluation), (declared.clone(), day(1)));
+
+	// Reviewed in `app` on day 3, with `src/b.rs` added on day 1 and never
+	// attested: its clock still starts on day 1.
+	repo.commit(
+		3,
+		&[(
+			"app/.source-sentry/remotes/legal.lock",
+			Some(&video(&json!({"sources": [
+				attested(":/src/a.rs", "v1"),
+				{"path": ":/src/b.rs"},
+			]}))),
+		)],
+	);
+	let snapshot = repo.checkout();
+	let inventory = discover(&snapshot, &configs).unwrap();
+	let evaluation =
+		check(&snapshot, &repo.history, &configs, &inventory, day(4), None)
+			.unwrap();
+	assert_eq!(source_clock(&evaluation, "src/b.rs"), (declared, day(1)));
+}
