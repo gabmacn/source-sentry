@@ -94,6 +94,12 @@ that version's section, so a release cannot be made without one.
 - `Evaluation` in the `source-sentry-core` crate has a public field,
   `cited`, holding the documents of other projects that the evaluated
   documents cite, and a method, `upstream_subjects_of`.
+- The `History` trait of the `source-sentry-core` crate replaces
+  `files_ever_in`, which walked the whole history, with `blobs_in`, which
+  lists the files of one directory in one commit with their blob IDs. The
+  `source-sentry-git` crate adds `GitRepository::open_from_env`, which finds
+  the repository as git does; `GitRepository::open` still ignores the
+  environment.
 - Source Sentry uses the repository, working tree and index that git would
   use from the same directory and environment, so `GIT_DIR`,
   `GIT_WORK_TREE`, `core.worktree`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`
