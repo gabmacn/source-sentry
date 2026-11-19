@@ -448,3 +448,98 @@ fn git_work_tree_alone_keeps_the_repository_found() {
 		run.stdout
 	);
 }
+
+/// Installs a `pre-commit` hook that runs `source-sentry` with `arguments`,
+/// a shell fragment.
+fn install_pre_commit(repo: &TestRepo, arguments: &str) {
+	let hook = repo.path().join(".git/hooks/pre-commit");
+	fs::create_dir_all(hook.parent().unwrap()).unwrap();
+	let binary = crate::support::BINARY.replace('\\', "/");
+	fs::write(&hook, format!("#!/bin/sh\n\"{binary}\" {arguments}\n")).unwrap();
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt as _;
+		fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+	}
+}
+
+/// Commits with git's `commit` command and `arguments`, running the hook.
+fn commit(repo: &TestRepo, arguments: &[&str]) -> Run {
+	let mut args = vec!["commit", "--quiet", "-m", "change"];
+	args.extend(arguments);
+	repo.git_at(repo.path(), &args, &[])
+}
+
+/// In a `pre-commit` hook of a plain `git commit`, git gives the index as
+/// the relative `.git/index`, which is taken from the working tree's root,
+/// as git's own commands take it, also after `-C`.
+#[test]
+fn a_pre_commit_hook_reads_the_index_from_the_root() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	let report = repo.outer().join("report.json");
+	install_pre_commit(
+		&repo,
+		&format!(
+			"-C docs check --at {AT} --fail-on fail --format json > \"{}\"",
+			report.to_str().unwrap().replace('\\', "/")
+		),
+	);
+	repo.write("docs/notes.txt", "notes\n");
+	commit(&repo, &[]).expect_code(0);
+	let report = fs::read_to_string(&report).unwrap();
+	assert!(report.contains("guide.md"), "{report}");
+	assert!(report.contains("\"pass\""), "{report}");
+}
+
+/// `git commit <paths>` gives its hook a temporary index: the commit's
+/// tracked files, not the index's. A source whose removal is staged but
+/// not committed is still tracked there, so `check` passes.
+#[test]
+fn a_pre_commit_hook_checks_the_files_of_the_commit() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	repo.git(&["rm", "--cached", "--quiet", "src/a.rs"]);
+	assert_ne!(repo.run(&["check", "--at", AT]).code, 0);
+	install_pre_commit(&repo, &format!("-C docs check --at {AT} --fail-on fail"));
+	repo.write("docs/notes.txt", "notes\n");
+	commit(&repo, &["--", "docs/notes.txt"]).expect_code(0);
+	// The index still holds the staged removal.
+	assert!(
+		repo
+			.git(&["status", "--porcelain", "--", "src/a.rs"])
+			.starts_with("D  src/a.rs")
+	);
+}
+
+/// A change that creates a file is refused while git commits with a
+/// temporary index, which would lose the file's intent-to-add mark, and
+/// nothing is written. A change that only rewrites files is applied.
+#[test]
+fn a_hook_cannot_create_files_under_a_temporary_index() {
+	for arguments in [&["-a"][..], &["--", "docs/notes.txt"]] {
+		let repo = TestRepo::init();
+		repo.reviewed_guide();
+		repo.write("src/other.md", "# Other\n");
+		repo.commit_at("2026-10-03T10:00:00Z");
+		repo.write("docs/notes.txt", "notes\n");
+		install_pre_commit(
+			&repo,
+			"track src/other.md --source src/a.rs --lockfile src --yes",
+		);
+		let refused = commit(&repo, arguments);
+		assert_ne!(refused.code, 0, "{refused:?}");
+		assert!(
+			refused.stderr.contains("temporary index"),
+			"{}",
+			refused.stderr
+		);
+		assert!(!repo.exists("src/source-sentry.lock"));
+
+		fs::write(repo.path().join("src/a.rs"), "fn changed() {}\n").unwrap();
+		let before = repo.read("docs/source-sentry.lock");
+		install_pre_commit(&repo, "attest docs/guide.md --yes");
+		commit(&repo, arguments).expect_code(0);
+		assert_ne!(repo.read("docs/source-sentry.lock"), before);
+	}
+}

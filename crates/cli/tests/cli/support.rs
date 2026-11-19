@@ -9,7 +9,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 /// The binary under test.
-const BINARY: &str = env!("CARGO_BIN_EXE_source-sentry");
+pub const BINARY: &str = env!("CARGO_BIN_EXE_source-sentry");
 
 /// The evaluation instant most tests check at: after every commit they
 /// make.

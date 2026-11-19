@@ -37,6 +37,7 @@ pub struct GitRepository {
 	work_dir: Option<PathBuf>,
 	common_dir: PathBuf,
 	prefix: Option<RepoPath>,
+	index_file: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for GitRepository {
@@ -114,12 +115,32 @@ impl GitRepository {
 				location.common_dir.display()
 			)
 		})?;
-		Self::from_parts(
+		let mut opened = Self::from_parts(
 			repository,
 			location.work_dir,
 			location.common_dir,
 			location.prefix,
-		)
+		)?;
+		// Git's commands that read or write the index take a relative
+		// `GIT_INDEX_FILE` from the working tree's root, which is where a
+		// `pre-commit` hook gets `.git/index` from. An empty value is passed
+		// on for git to refuse.
+		if let Some(index) = std::env::var_os("GIT_INDEX_FILE") {
+			let index = if index.is_empty() {
+				PathBuf::from(index)
+			} else {
+				let base = opened
+					.work_dir
+					.as_deref()
+					.unwrap_or_else(|| opened.repository.path());
+				base.join(index)
+			};
+			opened
+				.git
+				.redirect("GIT_INDEX_FILE", index.clone().into_os_string());
+			opened.index_file = Some(index);
+		}
+		Ok(opened)
 	}
 
 	/// A repository that `git2` opened, with its working tree and common
@@ -141,6 +162,7 @@ impl GitRepository {
 			work_dir,
 			common_dir,
 			prefix,
+			index_file: None,
 		})
 	}
 
@@ -337,6 +359,23 @@ impl GitRepository {
 			.collect();
 		paths.sort();
 		Ok(paths)
+	}
+
+	/// The index file that `GIT_INDEX_FILE` names, when git is committing
+	/// with a temporary one: a lock file other than the repository's own
+	/// index, which git sets for a `pre-commit` hook of `git commit -a` or
+	/// `git commit <paths>`, and removes when the commit ends.
+	pub(crate) fn temporary_index(&self) -> Option<&Path> {
+		let index = self.index_file.as_deref()?;
+		let lock = index
+			.file_name()
+			.is_some_and(|name| name.to_string_lossy().ends_with(".lock"));
+		let own = self.repository.path().join("index");
+		let same = index == own
+			|| index
+				.canonicalize()
+				.is_ok_and(|index| own.canonicalize().is_ok_and(|own| index == own));
+		(lock && !same).then_some(index)
 	}
 
 	/// The `git` executable bound to this repository.

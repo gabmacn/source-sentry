@@ -14,7 +14,8 @@
 //!    them, sparse-checkout paths, submodules and non-files are refused, and
 //!    so is a new file that git ignores or that lies outside the
 //!    sparse-checkout definition, because neither could be marked
-//!    intent-to-add.
+//!    intent-to-add, and any new file while git commits with a temporary
+//!    index, which would lose the mark.
 //! 2. **Stage.** Each new content is written to a temporary file beside its
 //!    target and flushed to disk, and missing parent directories are created.
 //!    Beside each file to delete, an empty placeholder reserves a unique
@@ -202,6 +203,16 @@ pub enum Unwritable {
 	/// The path is the repository root.
 	#[error("it is the repository root")]
 	Root,
+	/// The path is a new file, and git is committing with a temporary index,
+	/// as it does for a `pre-commit` hook of `git commit -a` or
+	/// `git commit <paths>`. Git discards that index when the commit ends,
+	/// and the file's intent-to-add mark with it.
+	#[error(
+		"it is a new file, and git is committing with a temporary index, \
+		 which would lose its intent-to-add mark; create it before or after \
+		 the commit"
+	)]
+	TemporaryIndex,
 }
 
 /// Writes `ObjectId`s and absence for messages.
@@ -531,10 +542,14 @@ impl GitRepository {
 	/// Refuses new files that `git add --intent-to-add` would not record:
 	/// ignored paths, and paths outside the sparse-checkout definition. Git
 	/// records the other paths and still fails for those, so they must be
-	/// found before anything is written.
+	/// found before anything is written. Every new file is refused while
+	/// git commits with a temporary index, which keeps no mark.
 	fn check_markable(&self, created: &[RepoPath]) -> Result<(), ApplyError> {
-		if created.is_empty() {
+		let Some(first) = created.first() else {
 			return Ok(());
+		};
+		if self.temporary_index().is_some() {
+			return Err(unwritable(first, Unwritable::TemporaryIndex));
 		}
 		if self.config_bool("core.sparseCheckout")?
 			&& let Some(path) =

@@ -1,6 +1,7 @@
 //! Runs the `git` executable against the repository that `git2` opened.
 
 use std::{
+	ffi::OsString,
 	io::{self, Write as _},
 	path::{Path, PathBuf},
 	process::{Command, ExitStatus, Stdio},
@@ -12,7 +13,8 @@ use source_sentry_core::ports::{BackendError, BackendErrorKind};
 use crate::error::{caused, failure};
 
 /// Environment variables that would point git at another index or repository
-/// layout than the one `git2` opened. They are removed from every child.
+/// layout than the one `git2` opened. They are removed from every child,
+/// and given again, resolved, when git's environment was honoured.
 const REDIRECTING_VARIABLES: [&str; 4] = [
 	"GIT_INDEX_FILE",
 	"GIT_COMMON_DIR",
@@ -61,7 +63,9 @@ pub(crate) struct Finished {
 /// Builds `git` commands bound to one repository.
 ///
 /// Every command gets `GIT_DIR` and, for a non-bare repository,
-/// `GIT_WORK_TREE`, so that it reads exactly the repository `git2` opened. It
+/// `GIT_WORK_TREE`, so that it reads exactly the repository `git2` opened,
+/// and the index that `GIT_INDEX_FILE` named, resolved, when the repository
+/// was opened from git's environment. It
 /// also sets `GIT_NO_LAZY_FETCH`, because a partial clone must never fetch
 /// during `check`; `GIT_OPTIONAL_LOCKS=0`, so that no command refreshes the
 /// index; and `GIT_NO_REPLACE_OBJECTS`, so that git reads objects as stored,
@@ -69,8 +73,10 @@ pub(crate) struct Finished {
 /// settings are removed.
 #[derive(Clone, Debug)]
 pub(crate) struct Git {
-	git_dir: PathBuf,
+	/// The git directory.
+	directory: PathBuf,
 	work_dir: Option<PathBuf>,
+	redirects: Vec<(&'static str, OsString)>,
 }
 
 impl Git {
@@ -78,9 +84,17 @@ impl Git {
 	/// at `work_dir` when it has one.
 	pub(crate) fn new(git_dir: &Path, work_dir: Option<&Path>) -> Self {
 		Self {
-			git_dir: git_dir.to_path_buf(),
+			directory: git_dir.to_path_buf(),
 			work_dir: work_dir.map(Path::to_path_buf),
+			redirects: Vec::new(),
 		}
+	}
+
+	/// Gives every command `variable`, one of the redirecting variables,
+	/// with `value`, which must not depend on the command's directory.
+	pub(crate) fn redirect(&mut self, variable: &'static str, value: OsString) {
+		debug_assert!(REDIRECTING_VARIABLES.contains(&variable));
+		self.redirects.push((variable, value));
 	}
 
 	/// Runs `git` with `args`, feeding `input` to its standard input, and
@@ -99,7 +113,7 @@ impl Git {
 		let mut command = Command::new("git");
 		command
 			.args(args)
-			.env("GIT_DIR", &self.git_dir)
+			.env("GIT_DIR", &self.directory)
 			.env("GIT_NO_LAZY_FETCH", "1")
 			.env("GIT_NO_REPLACE_OBJECTS", "1")
 			.env("GIT_OPTIONAL_LOCKS", "0")
@@ -115,6 +129,9 @@ impl Git {
 		{
 			command.env_remove(variable);
 		}
+		for (variable, value) in &self.redirects {
+			command.env(variable, value);
+		}
 		match &self.work_dir {
 			Some(work_dir) => {
 				command.env("GIT_WORK_TREE", work_dir).current_dir(work_dir);
@@ -122,7 +139,7 @@ impl Git {
 			None => {
 				command
 					.env_remove("GIT_WORK_TREE")
-					.current_dir(&self.git_dir);
+					.current_dir(&self.directory);
 			}
 		}
 
