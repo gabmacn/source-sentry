@@ -28,6 +28,8 @@ source-sentry:
       # never ends: no COUNT or UNTIL. Frequencies must be DAILY or coarser,
       # with no BYHOUR, BYMINUTE or BYSECOND. RFC combinations are checked;
       # a BYDAY list cannot mix plain (MO) and numbered (1MO) weekdays.
+      # Numbered weekdays need FREQ=MONTHLY, with ordinals from -4 to 5, or
+      # FREQ=YEARLY, with ordinals from -52 to 53.
       # Each next-date search is limited to 400 years; leaving the supported
       # calendar produces a date-out-of-range operational error.
       rrule: 'FREQ=MONTHLY;INTERVAL=2'

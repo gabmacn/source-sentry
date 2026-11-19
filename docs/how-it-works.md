@@ -301,8 +301,9 @@ never to a context.**
 
 `cadence: null` removes an inherited cadence without cutting the rest of
 the inheritance. The supported rules have limits: no time of day, no count
-or end date, no list mixing plain and numbered weekdays, and no occurrence
-more than 400 years ahead.
+or end date, no list mixing plain and numbered weekdays, numbered weekdays
+from -4 to 5 in a monthly rule and from -52 to 53 in a yearly one, and no
+occurrence more than 400 years ahead.
 
 ## Facts, contexts and outcomes
 

@@ -20,6 +20,7 @@
 mod tests;
 
 use std::fmt;
+use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 
 use chrono::{Datelike as _, NaiveDate, NaiveTime, TimeZone as _};
@@ -145,7 +146,9 @@ impl Recurrence {
 	///   `FREQ` of `HOURLY`, `MINUTELY` or `SECONDLY`.
 	/// - [`ScheduleError::Bounded`] for `COUNT` or `UNTIL`.
 	/// - [`ScheduleError::UnsupportedRule`] for a `BYDAY` list that mixes
-	///   plain and numbered weekdays, which the evaluator reads wrongly.
+	///   plain and numbered weekdays, which the evaluator reads wrongly, and for
+	///   a numbered `BYDAY` value whose ordinal is outside -4 to 5 with
+	///   `FREQ=MONTHLY`, or outside -52 to 53 with `FREQ=YEARLY`.
 	/// - [`ScheduleError::NoOccurrence`] when the rule has no occurrence within
 	///   [`HORIZON_DAYS`] of DTSTART, such as a rule matching only 30 February.
 	/// - [`ScheduleError::OutOfRange`] when DTSTART lies so close to 31
@@ -458,7 +461,52 @@ fn check_supported(
 				.to_owned(),
 		});
 	}
-	Ok(())
+	check_ordinals(rule, parsed)
+}
+
+/// The ordinals a numbered `BYDAY` value may have with `FREQ=MONTHLY`.
+const MONTHLY_ORDINALS: RangeInclusive<i16> = -4..=5;
+
+/// The ordinals a numbered `BYDAY` value may have with `FREQ=YEARLY`.
+const YEARLY_ORDINALS: RangeInclusive<i16> = -52..=53;
+
+/// Rejects numbered `BYDAY` values outside [`MONTHLY_ORDINALS`] or
+/// [`YEARLY_ORDINALS`].
+///
+/// RFC 5545 allows ordinals from -53 to 53 with either frequency. These
+/// narrower ranges are Source Sentry's own, checked here so that which rules
+/// a cadence accepts, and what the refusal says, do not depend on the
+/// evaluator; they are the ranges it can expand. Numbered values with other
+/// frequencies are refused before this check.
+fn check_ordinals(
+	rule: &str,
+	parsed: &RRule<Unvalidated>,
+) -> Result<(), ScheduleError> {
+	let (frequency, range) = match parsed.get_freq() {
+		Frequency::Monthly => ("MONTHLY", MONTHLY_ORDINALS),
+		Frequency::Yearly => ("YEARLY", YEARLY_ORDINALS),
+		_ => return Ok(()),
+	};
+	let outside =
+		parsed
+			.get_by_weekday()
+			.iter()
+			.find_map(|weekday| match weekday {
+				NWeekday::Nth(ordinal, _) if !range.contains(ordinal) => Some(*ordinal),
+				_ => None,
+			});
+	match outside {
+		Some(ordinal) => Err(ScheduleError::UnsupportedRule {
+			rule: rule.to_owned(),
+			reason: format!(
+				"with FREQ={frequency}, a numbered BYDAY value's ordinal must be \
+				 from {} to {}, not {ordinal}",
+				range.start(),
+				range.end(),
+			),
+		}),
+		None => Ok(()),
+	}
 }
 
 /// An [`ScheduleError::InvalidRule`] for `rule`.

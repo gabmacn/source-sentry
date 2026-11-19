@@ -388,6 +388,51 @@ fn the_nonstandard_weekday_synonym_is_refused() {
 	}
 }
 
+/// A numbered `BYDAY` value's ordinal runs from -4 to 5 with `FREQ=MONTHLY`
+/// and from -52 to 53 with `FREQ=YEARLY`. Source Sentry refuses the rest
+/// itself, with its own message, before the evaluator sees the rule.
+#[test]
+fn numbered_weekday_ordinals_have_their_own_ranges() {
+	for (rule, reason) in [
+		(
+			"FREQ=MONTHLY;BYDAY=1MO,6MO",
+			"with FREQ=MONTHLY, a numbered BYDAY value's ordinal must be from -4 \
+			 to 5, not 6",
+		),
+		(
+			"FREQ=MONTHLY;BYDAY=-5MO",
+			"with FREQ=MONTHLY, a numbered BYDAY value's ordinal must be from -4 \
+			 to 5, not -5",
+		),
+		(
+			"FREQ=MONTHLY;BYMONTH=1;BYDAY=53MO",
+			"with FREQ=MONTHLY, a numbered BYDAY value's ordinal must be from -4 \
+			 to 5, not 53",
+		),
+		(
+			"FREQ=YEARLY;BYDAY=1MO,-53MO",
+			"with FREQ=YEARLY, a numbered BYDAY value's ordinal must be from -52 \
+			 to 53, not -53",
+		),
+	] {
+		assert_eq!(
+			rejection("2024-01-01", rule),
+			ScheduleError::UnsupportedRule {
+				rule: rule.to_owned(),
+				reason: reason.to_owned(),
+			},
+		);
+	}
+	for (rule, dtstart) in [
+		("FREQ=MONTHLY;BYDAY=5MO", "2024-01-29"),
+		("FREQ=MONTHLY;BYDAY=-4MO", "2024-01-08"),
+		("FREQ=YEARLY;BYDAY=53MO", "2024-12-30"),
+		("FREQ=YEARLY;BYDAY=-52MO", "2024-01-08"),
+	] {
+		recurrence(dtstart, rule);
+	}
+}
+
 /// Signed ordinals and case-insensitive weekday names retain their meaning.
 #[test]
 fn valid_weekday_spellings_keep_their_occurrences() {
