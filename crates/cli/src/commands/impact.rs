@@ -188,6 +188,27 @@ fn is_directory(
 			&& workspace.file(path).is_dir())
 }
 
+/// Whether `path` names a directory in the commit that `revision` selects,
+/// as [`is_directory`] decides: `explain --rev` looks a file up in the
+/// commit it explains, whatever the working tree holds there today.
+///
+/// # Errors
+///
+/// Exit 4 when the repository cannot be read.
+pub(super) fn is_committed_directory(
+	workspace: &Workspace,
+	revision: &str,
+	path: &RepoPath,
+) -> Result<bool, Failure> {
+	let tracked = workspace
+		.repository
+		.commit_snapshot(revision)
+		.map_err(|error| Failure::backend(&error))?
+		.paths()
+		.map_err(|error| Failure::backend(&error))?;
+	Ok(is_directory(workspace, &tracked, path, false))
+}
+
 /// The paths on standard input: one per line, relative to the repository
 /// root, as git prints them, or separated by NUL with `-z`. Empty entries
 /// are skipped, and a line's carriage return, which some shells add, is

@@ -51,7 +51,7 @@ pub(super) fn run(
 	let subjects = match find(workspace, &evaluation, &args.subject) {
 		Ok(subjects) => subjects,
 		Err(failure) if failure.code == exit::REFUSED => {
-			let Some(path) = local_path(workspace, &args.subject) else {
+			let Some(path) = local_path(workspace, rev, &args.subject)? else {
 				return Err(failure);
 			};
 			let (answer, search) =
@@ -131,15 +131,30 @@ fn subject_path(subject: &Subject) -> Option<&RepoPath> {
 }
 
 /// The file that `argument` names, when it names one: not a remote
-/// identity, not the repository root and not a directory.
-fn local_path(workspace: &Workspace, argument: &str) -> Option<RepoPath> {
-	let DocumentId::Local(path) = parse_document(argument)
+/// identity, not the repository root and not a directory. With `--rev`, a
+/// directory is one in the commit explained; without it, one on disk.
+///
+/// # Errors
+///
+/// Exit 4 when the commit cannot be read.
+fn local_path(
+	workspace: &Workspace,
+	rev: Option<&str>,
+	argument: &str,
+) -> Result<Option<RepoPath>, Failure> {
+	let Some(DocumentId::Local(path)) = parse_document(argument)
 		.ok()
-		.and_then(|document| workspace.document(&document).ok())?
+		.and_then(|document| workspace.document(&document).ok())
 	else {
-		return None;
+		return Ok(None);
 	};
-	(!workspace.file(&path).is_dir()).then_some(path)
+	let directory = match rev {
+		Some(revision) => {
+			super::impact::is_committed_directory(workspace, revision, &path)?
+		}
+		None => workspace.file(&path).is_dir(),
+	};
+	Ok((!directory).then_some(path))
 }
 
 /// A file that is no document but that documents cite: the documents that

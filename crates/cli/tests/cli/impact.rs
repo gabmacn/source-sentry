@@ -810,3 +810,63 @@ fn a_remote_identity_of_two_projects_is_listed_for_each() {
 		]
 	);
 }
+
+/// `explain --rev` decides whether its argument names a file in the commit
+/// it explains: a source that the commit cites, and that is a directory in
+/// the working tree today, is explained as a source, and a path that is a
+/// directory in the commit is refused, whatever the working tree holds.
+#[test]
+fn explain_rev_looks_up_a_file_in_the_commit_it_explains() {
+	let repo = TestRepo::init();
+	repo
+		.run(&["track", "docs/guide.md", "--source", "/src/a.rs", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-01T10:00:00Z");
+	let file = repo.path().join("src/a.rs");
+	fs::remove_file(&file).unwrap();
+	fs::create_dir(&file).unwrap();
+	fs::write(file.join("child.txt"), "child\n").unwrap();
+	repo.commit_at("2026-10-02T10:00:00Z");
+
+	let before =
+		repo.run(&["explain", "src/a.rs", "--rev", "HEAD~1", "--at", AT]);
+	before.expect_code(0);
+	assert!(
+		before
+			.stdout
+			.contains("File  a source, cited directly by 1 document"),
+		"{}",
+		before.stdout
+	);
+	let cited = before
+		.stdout
+		.split("Cited by")
+		.nth(1)
+		.expect(&before.stdout);
+	assert!(cited.contains("docs/guide.md"), "{}", before.stdout);
+	assert!(cited.contains("declared as /src/a.rs"), "{}", before.stdout);
+
+	// Without `--rev`, the working tree holds a directory there.
+	let today = repo.run(&["explain", "src/a.rs", "--at", AT]);
+	today.expect_code(2);
+	assert!(
+		today
+			.stderr
+			.contains("nothing named `src/a.rs` was evaluated"),
+		"{}",
+		today.stderr
+	);
+
+	// A file on disk again, but still a directory in the commit explained.
+	fs::remove_dir_all(&file).unwrap();
+	fs::write(&file, "fn a() {}\n").unwrap();
+	let head = repo.run(&["explain", "src/a.rs", "--rev", "HEAD", "--at", AT]);
+	head.expect_code(2);
+	assert!(
+		head
+			.stderr
+			.contains("nothing named `src/a.rs` was evaluated"),
+		"{}",
+		head.stderr
+	);
+}
