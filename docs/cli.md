@@ -308,13 +308,16 @@ added counts, as does a deleted source, as `check` counts a pattern gaining
 or losing a file. A document reached through another names the one it was
 reached through: one step, not every route. Sealed records whose sources
 match are listed last, as unaffected, since a record never changes; nothing
-is reached through them. Remote documents are included.
+is reached through them. Remote documents are included. A remote identity
+tracked in two projects, a double claim, is listed once for each.
 
 `impact` searches the project containing the effective starting directory
 and the projects nested in it, as `review` does. A project outside it may
 still cite the files, with `:/` or parents, and a note names each such
 project, and each file that lies in one. Run `impact` from an enclosing
-project to include it.
+project to include it. A project among the searched ones whose configs
+cannot be loaded is not searched either: a note names it, its errors are
+listed, and the exit code is 3.
 
 Each document carries what its declarations and configs say: how it is
 tracked, a remote document's owner, its classes, its owners, its grace
@@ -340,7 +343,8 @@ No document cites `src/unrelated.rs`.
 ```
 
 Files named as arguments that no document cites are listed; those from
-standard input, `--changed` and `--staged` are counted.
+standard input, `--changed` and `--staged` are counted. Both hold when no
+document cites any of the files.
 
 The JSON report has `schema`, `project`, `revision`, `documents`, `inputs`,
 `not-searched` and `diagnostics`. Each document has `project` and paths
@@ -349,8 +353,10 @@ relative to that project, as in the check report, with `document`, `mode`,
 `reached`: `{"kind": "direct", "matches": [{"path", "source"}]}` with every
 file and declared source that match, or `{"kind": "via", "document"}`. Each
 input has `path`, `matched`, and `searched`, which is `false` for a file in
-a project that was not searched. The other paths are relative to the
-project the query ran in.
+a project that was not searched. The inputs' paths are relative to the
+project the query ran in. Projects are the exception: the top-level
+`project` and each entry of `not-searched` are repository paths, with `.`
+for the repository, as `project` is in the check report.
 
 | Code | When |
 |---|---|

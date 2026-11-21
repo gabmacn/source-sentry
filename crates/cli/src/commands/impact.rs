@@ -11,7 +11,7 @@ use source_sentry_core::claims::{
 	Diagnostic, DiagnosticKind, Inventory, discover,
 };
 use source_sentry_core::config::{
-	ConfigSet, LoadError, project_of, project_roots,
+	ConfigError, ConfigSet, LoadError, project_of, project_roots,
 };
 use source_sentry_core::evaluate::settings::EffectiveSettings;
 use source_sentry_core::evaluate::unloadable;
@@ -27,9 +27,6 @@ use crate::describe;
 use crate::exit::{self, Failure};
 use crate::output::{self, Printer};
 use crate::workspace::Workspace;
-
-/// The most projects or files a note names before it counts the rest.
-const NAMED: usize = 10;
 
 /// Runs `impact`.
 ///
@@ -98,6 +95,7 @@ fn answer<S: Snapshot>(
 				&answer,
 				&start,
 				&roots,
+				&search.unloaded,
 				snapshot.revision(),
 				&search.hiding,
 			);
@@ -110,7 +108,7 @@ fn answer<S: Snapshot>(
 			output::data(&json);
 		}
 		Format::Human if printer.is_quiet() => {
-			for line in super::diagnostic_lines(workspace, &search.hiding) {
+			for line in search.error_lines(workspace) {
 				output::write_err(&line);
 			}
 		}
@@ -253,16 +251,22 @@ pub(super) struct Search {
 	pub(super) roots: BTreeSet<RepoPath>,
 	/// Each searched project whose configs loaded.
 	loaded: Vec<(ConfigSet, Inventory)>,
+	/// The projects among `start` and those nested in it whose configs could
+	/// not be loaded, which were therefore not searched.
+	unloaded: BTreeSet<RepoPath>,
 	/// The errors that may hide a document: configs that did not load,
 	/// lockfiles and declarations that could not be read, and sources that
 	/// could not be resolved, without repeats.
 	pub(super) hiding: Vec<Diagnostic>,
+	/// The configuration error behind each diagnostic of a config that did
+	/// not load, so that people see it as `check` shows it.
+	config_errors: Vec<(Diagnostic, ConfigError)>,
 }
 
 impl Search {
 	/// Loads and discovers `start` and every project nested in it, among
 	/// `roots`, in `snapshot`. A project whose configs are invalid is left
-	/// out, and its errors are kept.
+	/// out and recorded as not searched, and its errors are kept.
 	///
 	/// # Errors
 	///
@@ -277,20 +281,27 @@ impl Search {
 			start: start.clone(),
 			roots: roots.clone(),
 			loaded: Vec::new(),
+			unloaded: BTreeSet::new(),
 			hiding: Vec::new(),
+			config_errors: Vec::new(),
 		};
 		for project in roots.iter().filter(|root| root.starts_with(start)) {
 			let configs = match ConfigSet::load_project(snapshot, project) {
 				Ok(configs) => configs,
 				Err(LoadError::Invalid(errors)) => {
-					search.hiding.extend(
-						unloadable(
+					search.unloaded.insert(project.clone());
+					for error in errors {
+						let diagnostics = unloadable(
 							snapshot.revision(),
 							jiff::Timestamp::UNIX_EPOCH,
-							&errors,
+							std::slice::from_ref(&error),
 						)
-						.diagnostics,
-					);
+						.diagnostics;
+						for diagnostic in diagnostics {
+							search.hiding.push(diagnostic.clone());
+							search.config_errors.push((diagnostic, error.clone()));
+						}
+					}
 					continue;
 				}
 				Err(error) => return Err(Failure::load(workspace, &error)),
@@ -327,13 +338,51 @@ impl Search {
 			.collect()
 	}
 
-	/// The projects that were not searched: every one outside the start.
-	pub(super) fn not_searched(&self) -> Vec<&RepoPath> {
+	/// The projects outside the start, which were not searched.
+	fn outside(&self) -> Vec<&RepoPath> {
 		self
 			.roots
 			.iter()
 			.filter(|root| !root.starts_with(&self.start))
 			.collect()
+	}
+
+	/// Whether `project` was searched: it lies in the start, and its configs
+	/// loaded.
+	fn has_searched(&self, project: &RepoPath) -> bool {
+		project.starts_with(&self.start) && !self.unloaded.contains(project)
+	}
+
+	/// The errors that may hide a document, one line each, for people: a
+	/// config that did not load as `check` shows its errors, with every path
+	/// relative to the effective starting directory, and any other error as
+	/// `check` lists diagnostics.
+	pub(super) fn error_lines(&self, workspace: &Workspace) -> Vec<String> {
+		let mut lines: Vec<String> = Vec::new();
+		for diagnostic in &self.hiding {
+			let rendered = match self
+				.config_errors
+				.iter()
+				.find(|(known, _)| known == diagnostic)
+			{
+				Some((_, error)) => {
+					let severity = diagnostic.severity();
+					vec![format!(
+						"{}  {}  {}",
+						output::severity(severity.name(), severity.is_fatal()),
+						diagnostic.kind.code(),
+						exit::config_error(workspace, error)
+					)]
+				}
+				None => super::diagnostic_lines(workspace, [diagnostic]),
+			};
+			for line in rendered {
+				if !lines.contains(&line) {
+					lines.push(line);
+				}
+			}
+		}
+		lines
 	}
 
 	/// The exit code: 3 when an error may hide a document, otherwise 0.
@@ -405,17 +454,17 @@ fn render(
 		}
 	}
 
-	let notes = unmatched(workspace, search, answer, inputs);
+	let notes = unmatched(workspace, answer, inputs);
 	if !notes.is_empty() {
 		text.push('\n');
 		for note in notes {
 			let _ = writeln!(text, "{note}");
 		}
 	}
-	text.push_str(&outside(workspace, search, answer));
+	text.push_str(&not_searched(workspace, search, answer));
 	if !search.hiding.is_empty() {
 		text.push('\n');
-		for line in super::diagnostic_lines(workspace, &search.hiding) {
+		for line in search.error_lines(workspace) {
 			let _ = writeln!(text, "{line}");
 		}
 		let _ = writeln!(
@@ -429,11 +478,10 @@ fn render(
 	text
 }
 
-/// What nothing cites: every file when no document was found, otherwise
-/// each file named as an argument, and a count of the others.
+/// What nothing cites, whether or not any document was found: each file
+/// named as an argument, and a count of the others.
 fn unmatched(
 	workspace: &Workspace,
-	search: &Search,
 	answer: &Impact,
 	inputs: &Inputs,
 ) -> Vec<String> {
@@ -443,54 +491,49 @@ fn unmatched(
 		.filter(|input| !input.matched)
 		.map(|input| &input.path)
 		.collect();
-	let mut notes = Vec::new();
-	if answer.documents.is_empty() && !inputs.all.is_empty() {
+	let mut notes: Vec<String> = unmatched
+		.iter()
+		.filter(|path| inputs.named.contains(**path))
+		.map(|path| {
+			format!("No document cites `{}`.", workspace.display_path(path))
+		})
+		.collect();
+	let counted = unmatched
+		.iter()
+		.filter(|path| !inputs.named.contains(**path))
+		.count();
+	if counted > 0 {
+		// The count is of the other files when a document or a file named
+		// above is listed too.
+		let (singular, plural) = if answer.documents.is_empty() && notes.is_empty()
+		{
+			("file is", "files are")
+		} else {
+			("other file is", "other files are")
+		};
 		notes.push(format!(
-			"No document in the searched {} cites {}.",
-			if search.searched().len() == 1 {
-				"project"
-			} else {
-				"projects"
-			},
-			if inputs.all.len() == 1 {
-				"this file"
-			} else {
-				"these files"
-			}
+			"{} cited by no document.",
+			describe::count(counted, singular, plural)
 		));
-	} else {
-		for path in unmatched.iter().filter(|path| inputs.named.contains(*path)) {
-			notes.push(format!(
-				"No document cites `{}`.",
-				workspace.display_path(path)
-			));
-		}
-		let counted = unmatched
-			.iter()
-			.filter(|path| !inputs.named.contains(**path))
-			.count();
-		if counted > 0 {
-			notes.push(format!(
-				"{} cited by no document.",
-				describe::count(counted, "other file is", "other files are")
-			));
-		}
 	}
 	notes
 }
 
-/// The notes on what was not searched: the projects outside the start, and
-/// each file that lies in one of them.
-fn outside(workspace: &Workspace, search: &Search, answer: &Impact) -> String {
-	let mut text = String::new();
-	let outside: Vec<&RepoPath> = search.not_searched();
+/// The notes on what was not searched: the projects outside the start, the
+/// projects inside it whose configs could not be loaded, and each file that
+/// lies in one of them.
+fn not_searched(
+	workspace: &Workspace,
+	search: &Search,
+	answer: &Impact,
+) -> String {
+	let note = output::severity("note", false);
+	let mut lines = Vec::new();
+	let outside: Vec<&RepoPath> = search.outside();
 	if !outside.is_empty() {
-		text.push('\n');
-		let _ = writeln!(
-			text,
-			"{}  {} not searched: {}. A document there may still cite these \
+		lines.push(format!(
+			"{note}  {} not searched: {}. A document there may still cite these \
 			 files; run impact from a project that contains {}.",
-			output::severity("note", false),
 			if outside.len() == 1 {
 				"Project"
 			} else {
@@ -498,21 +541,48 @@ fn outside(workspace: &Workspace, search: &Search, answer: &Impact) -> String {
 			},
 			named(workspace, &outside),
 			if outside.len() == 1 { "it" } else { "them" }
-		);
-		for input in &answer.inputs {
-			let own = project_of(&search.roots, &input.path);
-			if !own.starts_with(&search.start) {
-				let _ = writeln!(
-					text,
-					"{}  `{}` lies in project `{}`, which was not searched.",
-					output::severity("note", false),
-					workspace.display_path(&input.path),
-					project_name(workspace, &own)
-				);
-			}
+		));
+	}
+	if let Some(unloaded) = unloaded(workspace, search) {
+		lines.push(format!("{note}  {unloaded}"));
+	}
+	for input in &answer.inputs {
+		let own = project_of(&search.roots, &input.path);
+		if !search.has_searched(&own) {
+			lines.push(format!(
+				"{note}  `{}` lies in project `{}`, which was not searched.",
+				workspace.display_path(&input.path),
+				project_name(workspace, &own)
+			));
+		}
+	}
+	let mut text = String::new();
+	if !lines.is_empty() {
+		text.push('\n');
+		for line in lines {
+			let _ = writeln!(text, "{line}");
 		}
 	}
 	text
+}
+
+/// The note on the projects inside the search whose configs could not be
+/// loaded, which were not searched, when there are any.
+fn unloaded(workspace: &Workspace, search: &Search) -> Option<String> {
+	let unloaded: Vec<&RepoPath> = search.unloaded.iter().collect();
+	(!unloaded.is_empty()).then(|| {
+		format!(
+			"{} not searched because {} configs could not be loaded: {}. The \
+			 errors are listed below.",
+			if unloaded.len() == 1 {
+				"Project"
+			} else {
+				"Projects"
+			},
+			if unloaded.len() == 1 { "its" } else { "their" },
+			named(workspace, &unloaded)
+		)
+	})
 }
 
 /// A document's name: its path from the current directory, or its remote
@@ -536,17 +606,14 @@ fn project_name(workspace: &Workspace, project: &RepoPath) -> String {
 	workspace.display_path(project)
 }
 
-/// Up to [`NAMED`] projects, then how many more.
+/// Every project of `projects`, each quoted, as `check` names the nested
+/// projects it did not check.
 fn named(workspace: &Workspace, projects: &[&RepoPath]) -> String {
-	let mut shown: Vec<String> = projects
+	projects
 		.iter()
-		.take(NAMED)
 		.map(|project| format!("`{}`", project_name(workspace, project)))
-		.collect();
-	if projects.len() > NAMED {
-		shown.push(format!("and {} more", projects.len() - NAMED));
-	}
-	shown.join(", ")
+		.collect::<Vec<_>>()
+		.join(", ")
 }
 
 /// What a document is, in one line: how it is tracked, then its classes,
@@ -748,7 +815,7 @@ pub(super) fn cited_by(
 			super::shell_word(&workspace.document_argument(path))
 		);
 	}
-	let outside = search.not_searched();
+	let outside = search.outside();
 	if !outside.is_empty() {
 		let _ = writeln!(
 			text,
@@ -762,7 +829,10 @@ pub(super) fn cited_by(
 			named(workspace, &outside)
 		);
 	}
-	for line in super::diagnostic_lines(workspace, &search.hiding) {
+	if let Some(unloaded) = unloaded(workspace, search) {
+		let _ = writeln!(text, "  {}  {unloaded}", output::severity("note", false));
+	}
+	for line in search.error_lines(workspace) {
 		let _ = writeln!(text, "  {line}");
 	}
 	text

@@ -117,11 +117,58 @@ fn the_answer_lists_direct_then_cited_documents_then_records() {
 	let quiet = repo.run(&["impact", "src/none.txt"]);
 	quiet.expect_code(0);
 	assert!(
-		quiet
-			.stdout
-			.contains("No document in the searched project cites this file."),
+		quiet.stdout.contains("No document cites `src/none.txt`."),
 		"{}",
 		quiet.stdout
+	);
+}
+
+/// When no document cites any input, each file named as an argument is
+/// still listed, and the files from standard input are still counted, once.
+#[test]
+fn unmatched_inputs_are_reported_when_nothing_matches() {
+	let repo = chain();
+	let named = repo.run(&["impact", "src/none.txt", "src/other.txt"]);
+	named.expect_code(0);
+	for file in ["src/none.txt", "src/other.txt"] {
+		assert!(
+			named
+				.stdout
+				.contains(&format!("No document cites `{file}`.")),
+			"{}",
+			named.stdout
+		);
+	}
+	assert!(
+		!named.stdout.contains("No document in the searched"),
+		"{}",
+		named.stdout
+	);
+	let counted =
+		repo.run_with_input(&["impact", "-"], b"src/none.txt\nsrc/other.txt\n");
+	counted.expect_code(0);
+	assert!(
+		counted
+			.stdout
+			.contains("\n2 files are cited by no document.\n"),
+		"{}",
+		counted.stdout
+	);
+	assert!(
+		!counted.stdout.contains("No document in the searched"),
+		"{}",
+		counted.stdout
+	);
+	// Beside a listed file, the count is of the other files.
+	let both =
+		repo.run_with_input(&["impact", "src/none.txt", "-"], b"src/other.txt\n");
+	assert!(
+		both.stdout.contains(
+			"No document cites `src/none.txt`.\n1 other file is cited by no \
+			 document.\n"
+		),
+		"{}",
+		both.stdout
 	);
 }
 
@@ -572,4 +619,194 @@ fn changed_and_staged_files_before_the_first_commit() {
 		.expect_code(0)
 		.json();
 	assert_eq!(paths(&staged), ["docs/guide.md", "src/a.rs"]);
+}
+
+/// A config that cannot be loaded, with an unknown setting.
+const INVALID_CONFIG: &str = "version: 1\nunknown-key: 1\n";
+
+/// A project inside the search whose configs cannot be loaded was not
+/// searched: the notes and the JSON say so, even with no project outside
+/// the search, and the query still exits 3.
+#[test]
+fn a_project_whose_configs_fail_to_load_was_not_searched() {
+	let repo = TestRepo::init();
+	repo.write(".source-sentry/source-sentry.yaml", INVALID_CONFIG);
+	repo.commit_at("2026-10-01T10:00:00Z");
+	let json = repo
+		.run(&["impact", "src/a.rs", "--format", "json"])
+		.expect_code(3)
+		.json();
+	assert_eq!(json["inputs"][0]["searched"], false, "{json}");
+	assert_eq!(json["not-searched"], Value::Array(vec![".".into()]));
+	assert_eq!(json["diagnostics"][0]["code"], "invalid-config");
+	let run = repo.run(&["impact", "src/a.rs"]);
+	run.expect_code(3);
+	assert!(
+		run.stdout.contains(
+			"note  Project not searched because its configs could not be \
+			 loaded: `.`. The errors are listed below."
+		),
+		"{}",
+		run.stdout
+	);
+	assert!(
+		run.stdout.contains(
+			"note  `src/a.rs` lies in project `.`, which was not searched."
+		),
+		"{}",
+		run.stdout
+	);
+
+	// A nested project that fails is not searched; the others are.
+	let repo = nested();
+	repo.write("app/.source-sentry/source-sentry.yaml", INVALID_CONFIG);
+	repo.commit_at("2026-10-02T10:00:00Z");
+	let json = repo
+		.run(&["impact", "app/code.rs", "src/a.rs", "--format", "json"])
+		.expect_code(3)
+		.json();
+	assert_eq!(json["not-searched"], Value::Array(vec!["app".into()]));
+	assert_eq!(json["inputs"][0]["path"], "app/code.rs");
+	assert_eq!(json["inputs"][0]["searched"], false);
+	assert_eq!(json["inputs"][1]["searched"], true);
+	// `explain`'s "Cited by" note agrees. Its subject lies in the enclosing
+	// project, since `explain` refuses a subject whose own configs fail.
+	let explain = repo.run(&["explain", "docs/guide.md", "--at", AT]);
+	explain.expect_code(3);
+	let cited = explain
+		.stdout
+		.split("Cited by")
+		.nth(1)
+		.expect(&explain.stdout);
+	assert!(
+		cited.contains(
+			"note  Project not searched because its configs could not be \
+			 loaded: `app`. The errors are listed below."
+		),
+		"{}",
+		explain.stdout
+	);
+}
+
+/// Every project that was not searched is named, however many there are.
+#[test]
+fn every_unsearched_project_is_named() {
+	let repo = nested();
+	for number in 1..=10 {
+		repo.write(
+			&format!("p{number:02}/.source-sentry/source-sentry.yaml"),
+			"version: 1\n",
+		);
+	}
+	repo.commit_at("2026-10-02T10:00:00Z");
+	let impact = repo.run(&["-C", "app", "impact", "code.rs"]);
+	impact.expect_code(0);
+	let explain = repo.run(&["-C", "app", "explain", "code.rs", "--at", AT]);
+	explain.expect_code(0);
+	for run in [&impact, &explain] {
+		assert!(run.stdout.contains("`../p09`, `../p10`"), "{}", run.stdout);
+		assert!(!run.stdout.contains("more"), "{}", run.stdout);
+	}
+}
+
+/// A config error names every file relative to where the command runs, as
+/// `check` does, in `impact`, quiet or not, and in `explain`; the JSON
+/// diagnostic keeps its shape.
+#[test]
+fn config_errors_name_files_from_where_the_command_runs() {
+	let repo = nested();
+	repo.write("app/.source-sentry/source-sentry.yaml", INVALID_CONFIG);
+	repo.commit_at("2026-10-02T10:00:00Z");
+	let check = repo.run(&["-C", "app", "check", "--at", AT]);
+	check.expect_code(3);
+	let expected = "invalid-config  .source-sentry/source-sentry.yaml:2:1: \
+	                `unknown-key`: unknown setting `unknown-key`";
+	assert!(
+		check
+			.stderr
+			.contains(".source-sentry/source-sentry.yaml:2:1: `unknown-key`"),
+		"{}",
+		check.stderr
+	);
+	let impact = repo.run(&["-C", "app", "impact", "code.rs"]);
+	impact.expect_code(3);
+	assert!(impact.stdout.contains(expected), "{}", impact.stdout);
+	assert!(
+		!impact.stdout.contains("app/.source-sentry"),
+		"{}",
+		impact.stdout
+	);
+	let quiet = repo.run(&["--quiet", "-C", "app", "impact", "code.rs"]);
+	quiet.expect_code(3);
+	assert!(quiet.stderr.contains(expected), "{}", quiet.stderr);
+	assert!(
+		!quiet.stderr.contains("app/.source-sentry"),
+		"{}",
+		quiet.stderr
+	);
+	let json = repo
+		.run(&["-C", "app", "impact", "code.rs", "--format", "json"])
+		.expect_code(3)
+		.json();
+	let diagnostic = &json["diagnostics"][0];
+	assert_eq!(diagnostic["code"], "invalid-config");
+	assert_eq!(diagnostic["location"]["project"], "app");
+	assert_eq!(
+		diagnostic["location"]["file"],
+		".source-sentry/source-sentry.yaml"
+	);
+
+	// From `docs/`, in the enclosing project, the nested config is `../app/…`.
+	let explain = repo.run(&["-C", "docs", "explain", "guide.md", "--at", AT]);
+	explain.expect_code(3);
+	let cited = explain
+		.stdout
+		.split("Cited by")
+		.nth(1)
+		.expect(&explain.stdout);
+	assert!(
+		cited.contains(
+			"invalid-config  ../app/.source-sentry/source-sentry.yaml:2:1: \
+			 `unknown-key`"
+		),
+		"{}",
+		explain.stdout
+	);
+	assert!(!cited.contains(" app/.source-sentry"), "{}", explain.stdout);
+}
+
+/// A remote identity tracked in two searched projects, a double claim that
+/// `check` reports, is listed once for each, with that project's settings.
+#[test]
+fn a_remote_identity_of_two_projects_is_listed_for_each() {
+	let repo = nested();
+	repo
+		.run(&[
+			"track",
+			"abstract:shared",
+			"--remote",
+			"team",
+			"--source",
+			":/app/code.rs",
+			"--yes",
+		])
+		.expect_code(0);
+	let lockfile = repo.read(".source-sentry/remotes/team.lock");
+	repo.write("app/.source-sentry/remotes/team.lock", &lockfile);
+	repo.commit_at("2026-10-02T10:00:00Z");
+	let json = repo
+		.run(&["impact", "app/code.rs", "--format", "json"])
+		.expect_code(0)
+		.json();
+	let shared: Vec<(String, String, u64)> = documents(&json)
+		.into_iter()
+		.filter(|(_, document, _)| document == "abstract:shared")
+		.collect();
+	assert_eq!(
+		shared,
+		[
+			entry(".", "abstract:shared", 1),
+			entry("app", "abstract:shared", 1)
+		]
+	);
 }

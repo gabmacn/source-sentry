@@ -2,9 +2,10 @@
 //!
 //! This shape follows the conventions of the check report: kebab-case keys,
 //! sorted at every level, and a `schema`. Each document is written relative
-//! to its own project, which its `project` names; everything else is
-//! relative to the project the query ran in, which the top-level `project`
-//! names.
+//! to its own project, which its `project` names. Projects, the top-level
+//! `project` and each entry of `not-searched`, are repository paths, with
+//! `.` for the repository, as directories are throughout the reports; the
+//! inputs' paths are relative to the project the query ran in.
 //!
 //! ```json
 //! {
@@ -71,8 +72,10 @@ pub struct ImpactReport {
 	pub documents: Vec<ImpactDocumentReport>,
 	/// Each input, sorted.
 	pub inputs: Vec<ImpactInputReport>,
-	/// The projects that were not searched: every project outside the one
-	/// the query ran in, whose documents may still cite the inputs.
+	/// The projects that were not searched, whose documents may still cite
+	/// the inputs: every project outside the one the query ran in, and each
+	/// project inside it whose configs could not be loaded. Each is a
+	/// repository path; `.` is the repository.
 	pub not_searched: Vec<String>,
 	/// The project the query ran in; `.` is the repository.
 	pub project: String,
@@ -160,16 +163,21 @@ pub struct ImpactInputReport {
 
 impl ImpactReport {
 	/// The report of `impact`, which searched `start` and the projects nested
-	/// in it, among the project roots `roots`, in the snapshot at
-	/// `revision`. `diagnostics` are the errors that may hide a document.
+	/// in it, among the project roots `roots`, except those of `unloaded`,
+	/// whose configs could not be loaded, in the snapshot at `revision`.
+	/// `diagnostics` are the errors that may hide a document.
 	#[must_use]
 	pub fn new(
 		impact: &Impact,
 		start: &RepoPath,
 		roots: &BTreeSet<RepoPath>,
+		unloaded: &BTreeSet<RepoPath>,
 		revision: &Revision,
 		diagnostics: &[Diagnostic],
 	) -> Self {
+		let searched = |project: &RepoPath| {
+			project.starts_with(start) && !unloaded.contains(project)
+		};
 		Self {
 			diagnostics: diagnostics.iter().map(DiagnosticReport::from).collect(),
 			documents: impact
@@ -183,13 +191,12 @@ impl ImpactReport {
 				.map(|input| ImpactInputReport {
 					matched: input.matched,
 					path: input.path.to_string(),
-					searched: crate::config::project_of(roots, &input.path)
-						.starts_with(start),
+					searched: searched(&crate::config::project_of(roots, &input.path)),
 				})
 				.collect(),
 			not_searched: roots
 				.iter()
-				.filter(|root| !root.starts_with(start))
+				.filter(|root| !searched(root))
 				.map(directory)
 				.collect(),
 			project: directory(start),
@@ -200,8 +207,9 @@ impl ImpactReport {
 	}
 
 	/// Serializes the report as pretty-printed JSON with sorted keys, without
-	/// a trailing newline: each document relative to its own project, and
-	/// the rest relative to the project the query ran in.
+	/// a trailing newline: each document relative to its own project, the
+	/// inputs relative to the project the query ran in, and projects as
+	/// repository paths.
 	///
 	/// # Errors
 	///

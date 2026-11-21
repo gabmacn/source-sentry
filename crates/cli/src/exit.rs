@@ -141,6 +141,16 @@ impl Failure {
 	}
 }
 
+/// A configuration error as [`Failure::load`] lists it, for a command that
+/// reports it without stopping: its file and import chain relative to the
+/// effective starting directory.
+pub(crate) fn config_error(
+	workspace: &Workspace,
+	error: &source_sentry_core::config::ConfigError,
+) -> String {
+	render::config(workspace, error)
+}
+
 /// The exit code of a planner's refusal.
 ///
 /// - 3 when the cause is a configuration or integrity error: invalid

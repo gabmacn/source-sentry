@@ -291,3 +291,54 @@ fn on_file_documents_carry_their_settings() {
 		}])
 	);
 }
+
+/// A document claimed twice, sealed first and live after, is live: it is
+/// listed with its live claim, the documents citing it are reached through
+/// it, and only the live claim's sources reach it, as `check` judges each
+/// claim and keeps the live claim's dependencies.
+#[test]
+fn a_live_claim_outweighs_a_sealed_one() {
+	let files = [
+		(
+			"docs/source-sentry.lock",
+			lockfile(&[
+				(
+					"z.md",
+					&format!(
+						r#"{{"seal": {SEAL}, "sources": [{{"path": "/src/a.rs"}}, {{"path": "/src/old.rs"}}]}}"#
+					),
+				),
+				("down.md", &sources(&["/docs/z.md"], &[])),
+			]),
+		),
+		(
+			"source-sentry.lock",
+			lockfile(&[("docs/z.md", &sources(&["/src/a.rs"], &[]))]),
+		),
+		("docs/z.md", String::new()),
+		("docs/down.md", String::new()),
+		("src/a.rs", String::new()),
+		("src/old.rs", String::new()),
+	];
+	let files: Vec<(&str, &str)> = files
+		.iter()
+		.map(|(file, contents)| (*file, contents.as_str()))
+		.collect();
+	let answer = query(&files, &["src/a.rs"], Reach::Transitive);
+	assert_eq!(
+		reached(&answer),
+		[
+			row("docs/z.md", 1, "src/a.rs by /src/a.rs"),
+			row("docs/down.md", 2, "via docs/z.md"),
+		]
+	);
+	let live = &answer.documents[0];
+	assert!(!live.sealed);
+	assert_eq!(live.declared_in, path("source-sentry.lock"));
+	assert_eq!(live.field, r#"documents["docs/z.md"]"#);
+	// A file that only the sealed claim names affects no claim that can
+	// change.
+	let answer = query(&files, &["src/old.rs"], Reach::Transitive);
+	assert_eq!(reached(&answer), []);
+	assert!(!answer.inputs[0].matched);
+}

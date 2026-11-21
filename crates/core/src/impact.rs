@@ -22,6 +22,13 @@
 //! first, so each document is reached at its least depth. A sealed record
 //! is listed but never changes, so nothing is reached through it. A remote
 //! document has no path, so nothing can cite it.
+//!
+//! # Claims
+//!
+//! A document claimed more than once is a sealed record only when every
+//! claim of it is sealed. Otherwise it is live, as `check` judges each claim
+//! and keeps the dependencies of the live ones: only its live claims'
+//! sources reach it, and it is listed with its first live claim.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -113,9 +120,14 @@ pub struct Match {
 }
 
 /// The documents of `searched` that describe `inputs`, as far as `reach`
-/// follows citations. A document claimed in more than one searched
-/// inventory, or claimed twice, is listed once, with its first claim's
-/// mode and settings.
+/// follows citations.
+///
+/// A local document claimed in more than one searched inventory, or claimed
+/// twice, is listed once: with its first live claim's mode, declaration and
+/// settings, or with its first claim's when every claim is sealed. A remote
+/// identity is listed once for each project that claims it, since each
+/// project gives it its own settings; claimed in two projects, it is a
+/// double claim, which `check` reports.
 #[must_use]
 pub fn impact(
 	searched: &[Searched<'_>],
@@ -169,7 +181,7 @@ pub fn impact(
 				matches.dedup();
 			}
 			let document = &index.documents[key];
-			let (claim, configs) = document.first;
+			let (claim, configs) = document.listed;
 			let source = DefaultsOf::of(claim);
 			let resolved = defaults
 				.entry((document.configs, source.clone()))
@@ -218,10 +230,12 @@ struct Document<'a> {
 	id: DocumentId,
 	/// Its project.
 	project: RepoPath,
-	/// Whether its first claim seals it.
+	/// Whether every claim of it is sealed.
 	sealed: bool,
-	/// Its first claim, and the configs of the inventory that holds it.
-	first: (&'a Claim, &'a ConfigSet),
+	/// The claim it is listed with, and the configs of the inventory that
+	/// holds it: its first live claim, or its first claim when every claim
+	/// is sealed.
+	listed: (&'a Claim, &'a ConfigSet),
 	/// Which searched project's configs those are.
 	configs: usize,
 }
@@ -253,6 +267,11 @@ impl<'a> Index<'a> {
 		};
 		let mut keys: BTreeMap<(DocumentId, RepoPath), usize> = BTreeMap::new();
 		let mut seen = BTreeSet::new();
+		// Every claim, with its document's key and its inventory's project
+		// roots, so that its sources are added once the document is known to
+		// be live or sealed.
+		let mut claims: Vec<(usize, &'a Claim, &'a BTreeSet<RepoPath>)> =
+			Vec::new();
 		for (position, project) in searched.iter().enumerate() {
 			let inventory = project.inventory;
 			for claim in &inventory.claims {
@@ -274,11 +293,25 @@ impl<'a> Index<'a> {
 						id: claim.document.clone(),
 						project: owner,
 						sealed: claim.is_sealed(),
-						first: (claim, project.configs),
+						listed: (claim, project.configs),
 						configs: position,
 					});
+				} else if index.documents[key].sealed && !claim.is_sealed() {
+					// The first live claim outweighs the sealed ones before it.
+					let document = &mut index.documents[key];
+					document.sealed = false;
+					document.listed = (claim, project.configs);
+					document.configs = position;
 				}
-				index.add(key, claim, &inventory.projects);
+				claims.push((key, claim, &inventory.projects));
+			}
+		}
+		// A live document is reached through its live claims' sources only,
+		// as `check` follows only those; a sealed record, through every
+		// claim's sources.
+		for (key, claim, roots) in claims {
+			if index.documents[key].sealed || !claim.is_sealed() {
+				index.add(key, claim, roots);
 			}
 		}
 		index.set = index.glob_set();

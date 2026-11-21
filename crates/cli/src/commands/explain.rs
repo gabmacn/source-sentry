@@ -110,7 +110,7 @@ fn unanswered(
 	message.push_str(
 		". The search for documents citing it met errors that may hide one:",
 	);
-	for line in super::check::diagnostic_lines(workspace, &search.hiding) {
+	for line in search.error_lines(workspace) {
 		let _ = write!(message, "\n  {line}");
 	}
 	Failure::new(failure.code, message)
