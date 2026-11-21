@@ -520,7 +520,7 @@
           "oid": "sha1:0760554214369924ad0ddb9521ba0b997e6744b1",
           "path": "../crates/core/src/claims/diagnostic.rs",
           "reviewed": {
-            "at": "2026-11-21T19:44:04Z",
+            "at": "2026-11-21T21:31:31Z",
             "by": "Opus (Claude)"
           }
         },
@@ -528,7 +528,7 @@
           "oid": "sha1:ca7456fcadf55bcb0eb3131cbf650fa30d69d9eb",
           "path": "../crates/core/src/evaluate/clock.rs",
           "reviewed": {
-            "at": "2026-11-21T19:44:04Z",
+            "at": "2026-11-21T21:31:31Z",
             "by": "Opus (Claude)"
           }
         },
@@ -538,7 +538,7 @@
               "oid": "sha1:df1408589e22be4d19bda33bfaceb72f9a6c7e40",
               "path": "../crates/core/src/report/check.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -546,7 +546,7 @@
               "oid": "sha1:6fffadd1bc7de6426724b938480285209e2f39ca",
               "path": "../crates/core/src/report/common.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -554,15 +554,15 @@
               "oid": "sha1:3a0497da96b90f2aa3515f667847a6cc8bef91c9",
               "path": "../crates/core/src/report/diff.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
             {
-              "oid": "sha1:395361df44c712b0eb42f700977315dacdc16e75",
+              "oid": "sha1:772bf2569c4926731741fac705ff27a850104676",
               "path": "../crates/core/src/report/impact.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -570,7 +570,7 @@
               "oid": "sha1:7f8b55c6732d68f88aa427b654262a103b9c6d3e",
               "path": "../crates/core/src/report/mod.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -578,7 +578,7 @@
               "oid": "sha1:119737ad008d0c93edabbcd8fd77948b1f4c053e",
               "path": "../crates/core/src/report/projects.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -586,14 +586,14 @@
               "oid": "sha1:8232f42c1770f356f3d952119fa319bad31d2485",
               "path": "../crates/core/src/report/tests.rs",
               "reviewed": {
-                "at": "2026-11-21T19:44:04Z",
+                "at": "2026-11-21T21:31:31Z",
                 "by": "Opus (Claude)"
               }
             }
           ],
           "pattern": "../crates/core/src/report/*.rs",
           "reviewed": {
-            "at": "2026-11-21T19:44:04Z",
+            "at": "2026-11-21T21:31:31Z",
             "by": "Opus (Claude)"
           }
         }
