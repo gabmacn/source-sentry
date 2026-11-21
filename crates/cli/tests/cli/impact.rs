@@ -870,3 +870,94 @@ fn explain_rev_looks_up_a_file_in_the_commit_it_explains() {
 		head.stderr
 	);
 }
+
+/// The `impact` command that `explain --rev` prints reads the same commit,
+/// with the revision quoted for the shell, and lists the documents that
+/// cite the file there, in a source's explanation and in a document's.
+#[test]
+fn the_impact_command_that_explain_prints_keeps_the_revision() {
+	let repo = TestRepo::init();
+	repo.write("docs/overview.md", "# Overview\n");
+	for (document, source) in [
+		("docs/guide.md", "/src/a.rs"),
+		("docs/overview.md", "/docs/guide.md"),
+	] {
+		repo
+			.run(&["track", document, "--source", source, "--yes"])
+			.expect_code(0);
+	}
+	repo.commit_at("2026-10-01T10:00:00Z");
+	repo
+		.run(&["untrack", "docs/guide.md", "--source", "/src/a.rs", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-02T10:00:00Z");
+
+	let command = "source-sentry impact src/a.rs --rev 'HEAD~1'";
+	let source =
+		repo.run(&["explain", "src/a.rs", "--rev", "HEAD~1", "--at", AT]);
+	source.expect_code(0);
+	assert!(
+		source.stdout.contains(&format!("`{command}` also lists")),
+		"{}",
+		source.stdout
+	);
+	let run = repo.run_shell_in(".", command);
+	run.expect_code(0);
+	assert!(
+		run.stdout.contains("direct  docs/guide.md"),
+		"{}",
+		run.stdout
+	);
+	assert!(
+		run.stdout.contains("via     docs/overview.md"),
+		"{}",
+		run.stdout
+	);
+
+	let document =
+		repo.run(&["explain", "docs/guide.md", "--rev", "HEAD~1", "--at", AT]);
+	document.expect_code(0);
+	assert!(
+		document.stdout.contains(
+			"`source-sentry impact docs/guide.md --rev 'HEAD~1'` also lists"
+		),
+		"{}",
+		document.stdout
+	);
+
+	// `-C` is carried as well, and the command runs where it was printed.
+	let outside = "source-sentry -C repo impact src/a.rs --rev 'HEAD~1'";
+	let from_outer = repo.run_at(
+		repo.outer(),
+		&[
+			"-C", "repo", "explain", "src/a.rs", "--rev", "HEAD~1", "--at", AT,
+		],
+		&[],
+	);
+	from_outer.expect_code(0);
+	assert!(
+		from_outer
+			.stdout
+			.contains(&format!("`{outside}` also lists")),
+		"{}",
+		from_outer.stdout
+	);
+	let run = repo.run_shell_at(repo.outer(), outside, &[]);
+	run.expect_code(0);
+	assert!(
+		run.stdout.contains("via     docs/overview.md"),
+		"{}",
+		run.stdout
+	);
+
+	// Without `--rev`, the command reads the working tree, as `explain` did.
+	let today = repo.run(&["explain", "docs/guide.md", "--at", AT]);
+	today.expect_code(0);
+	assert!(
+		today
+			.stdout
+			.contains("`source-sentry impact docs/guide.md` also lists"),
+		"{}",
+		today.stdout
+	);
+}

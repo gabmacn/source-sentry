@@ -59,7 +59,14 @@ pub(super) fn run(
 			if answer.documents.is_empty() {
 				return Err(unanswered(workspace, failure, &search));
 			}
-			printer.print(&source(workspace, &evaluation, &path, &answer, &search));
+			printer.print(&source(
+				workspace,
+				&evaluation,
+				&path,
+				rev,
+				&answer,
+				&search,
+			));
 			return Ok(search.code());
 		}
 		Err(failure) => return Err(failure),
@@ -81,8 +88,9 @@ pub(super) fn run(
 				super::impact::citations(workspace, origin, rev, path)?;
 			code = code.max(search.code());
 			heading(&mut text, "Cited by");
-			text
-				.push_str(&super::impact::cited_by(workspace, path, &answer, &search));
+			text.push_str(&super::impact::cited_by(
+				workspace, path, rev, &answer, &search,
+			));
 		}
 		if !own.is_empty() {
 			heading(&mut text, "Diagnostics");
@@ -158,11 +166,12 @@ fn local_path(
 }
 
 /// A file that is no document but that documents cite: the documents that
-/// cite it directly.
+/// cite it directly, in the snapshot that `rev` selects.
 fn source(
 	workspace: &Workspace,
 	evaluation: &Evaluation,
 	path: &RepoPath,
+	rev: Option<&str>,
 	answer: &Impact,
 	search: &Search,
 ) -> String {
@@ -181,7 +190,9 @@ fn source(
 		)],
 	);
 	heading(&mut text, "Cited by");
-	text.push_str(&super::impact::cited_by(workspace, path, answer, search));
+	text.push_str(&super::impact::cited_by(
+		workspace, path, rev, answer, search,
+	));
 	text
 }
 

@@ -783,9 +783,11 @@ fn citations_in<S: Snapshot>(
 /// The "Cited by" section of `explain` for `path`: each document that
 /// cites it and the sources that name it, the command that follows the
 /// citations further, and what was not searched or could not be read.
+/// That command reads the snapshot that `rev` selects, as the search did.
 pub(super) fn cited_by(
 	workspace: &Workspace,
 	path: &RepoPath,
+	rev: Option<&str>,
 	answer: &Impact,
 	search: &Search,
 ) -> String {
@@ -829,9 +831,13 @@ pub(super) fn cited_by(
 		}
 	}
 	if !answer.documents.is_empty() {
+		let revision = rev.map_or_else(String::new, |revision| {
+			format!(" --rev {}", super::shell_word(revision))
+		});
 		let _ = writeln!(
 			text,
-			"  `{} impact {}` also lists the documents that cite these in turn",
+			"  `{} impact {}{revision}` also lists the documents that cite \
+			 these in turn",
 			workspace.command_prefix(),
 			super::shell_word(&workspace.document_argument(path))
 		);
