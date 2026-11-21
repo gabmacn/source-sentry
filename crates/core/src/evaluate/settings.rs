@@ -6,9 +6,11 @@
 //! that last layer, so evaluation, the mutation commands and the report all
 //! agree on what applies to a document and why.
 
-use crate::config::{DocumentDefaults, Origin};
+use crate::claims::{Claim, Mode};
+use crate::config::{ConfigSet, DocumentDefaults, Origin};
 use crate::model::{
-	Cadence, CadenceSetting, ClassName, Declaration, RepoPath, Schedule,
+	Cadence, CadenceSetting, ClassName, Declaration, DocumentId, RepoPath,
+	Schedule,
 };
 
 /// Where an effective setting comes from.
@@ -147,6 +149,29 @@ impl EffectiveSettings {
 		}
 	}
 
+	/// The effective settings of `claim`'s document: its declaration over
+	/// `defaults`, which come from where [`DefaultsOf::of`] says.
+	#[must_use]
+	pub fn of_claim(defaults: &DocumentDefaults, claim: &Claim) -> Self {
+		let site = DeclarationSite {
+			file: &claim.declared_in,
+			field: &claim.field,
+		};
+		Self::new(defaults, Some((&claim.declaration, site)))
+	}
+
+	/// [`EffectiveSettings::of_claim`], with the defaults resolved from
+	/// `configs`, which must be those of the claim's project: what
+	/// evaluation gives the document, without evaluating it.
+	#[must_use]
+	pub fn of_claim_in(configs: &ConfigSet, claim: &Claim) -> Self {
+		let defaults = match DefaultsOf::of(claim) {
+			DefaultsOf::Owner(owner) => configs.remote_settings(owner).defaults,
+			DefaultsOf::Directory(directory) => configs.settings(&directory).defaults,
+		};
+		Self::of_claim(&defaults, claim)
+	}
+
 	/// The schedule as a model value, ready for
 	/// [`EffectiveSchedule::new`](super::schedule::EffectiveSchedule::new).
 	#[must_use]
@@ -157,6 +182,36 @@ impl EffectiveSettings {
 				None => CadenceSetting::Remove,
 			},
 			grace: Some(self.grace.value),
+		}
+	}
+}
+
+/// Where a claimed document's defaults come from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DefaultsOf<'a> {
+	/// A remote document's: its owner's.
+	Owner(&'a str),
+	/// A local document's: its directory's.
+	Directory(RepoPath),
+}
+
+impl<'a> DefaultsOf<'a> {
+	/// Where `claim`'s document takes its defaults from.
+	#[must_use]
+	pub fn of(claim: &'a Claim) -> Self {
+		match (&claim.document, &claim.mode) {
+			(DocumentId::Remote(_), Mode::RemoteLockfile { owner }) => {
+				Self::Owner(owner)
+			}
+			(DocumentId::Local(path), _) => {
+				Self::Directory(path.parent().unwrap_or(RepoPath::ROOT))
+			}
+			// A remote identity is only ever claimed by a remote lockfile, so
+			// this arm is never taken; the repository's defaults are the
+			// nearest meaningful ones.
+			(DocumentId::Remote(_), Mode::OnFile | Mode::LocalLockfile) => {
+				Self::Directory(RepoPath::ROOT)
+			}
 		}
 	}
 }

@@ -241,7 +241,127 @@ errors of its own project that stop it being judged, such as a `--context`
 that the project does not declare. An error among them sets the exit code
 as it would for `check`: 3, or 4 when, for example, a clock cannot be
 dated. Diagnostics of other projects, and those that do not concern the
-subject, are left to `check`. A name that matches nothing exits 2.
+subject, are left to `check`.
+
+`explain` also shows who cites a file. A local document or an unclaimed
+file gets a "Cited by" section: the documents whose sources name it, each
+with the source as declared. A file that is no document but that documents
+cite, such as `explain src/auth.rs`, is explained as a source, by the same
+list. Only direct citations are listed; [`impact`](#impact) follows them
+further. The citing documents are searched from where `explain` runs, in
+that project and the projects nested in it, as `impact` searches, even when
+the subject lies in another project: who cites a file depends on how far one
+searches, not on the file's own project, and run from the same place, the
+two commands then agree. A note names the projects that were not searched.
+An unreadable lockfile or config among the searched projects, which may
+hide a citing document, sets the exit code to 3, as it does for `impact`. A
+name that matches nothing, and that no document cites, exits 2.
+
+## Impact
+
+```
+source-sentry impact [<path>...] [-] [-z] [--changed] [--staged]
+                     [--rev <revision>] [--format <human|json>]
+```
+
+| Option | Meaning |
+|---|---|
+| `<path>` | A file, relative to the current directory |
+| `-` | Also read paths from standard input, one per line, relative to the repository root |
+| `-z` | With `-`, paths on standard input are separated by NUL |
+| `--changed` | Also take every file that differs from `HEAD` or the index, and every untracked file that is not ignored |
+| `--staged` | Also take the files whose staged content differs from `HEAD` |
+| `--rev` | Read the declarations of a committed snapshot instead of the working tree |
+| `--format` | `human`, or `json` |
+
+`impact` answers the inverse of `check`: if these files change, which
+documents describe them? It lists every document whose sources name one of
+the files, and every document that cites one of those in turn, however
+deep. It reads declarations and configs only: it neither hashes nor reads
+history, so its answer does not depend on whether a document is up to date,
+and it is not a gate.
+
+The inputs may be combined, and the answer covers all of them. Paths read
+from standard input start at the repository root, as git prints them, so
+any git command can feed the query:
+
+```
+git diff --name-only main... | source-sentry impact -
+git diff --name-only -z main... | source-sentry impact - -z
+```
+
+A line's trailing carriage return is dropped. A name that git quotes, as it
+quotes unusual names without `-z`, is refused: pass `-z` to both. `--changed`
+lists files as `git status` does, untracked files one by one, and a renamed
+file under both its names. `--staged`, for a `pre-commit` hook, reads the
+index that git gives the hook, including the temporary index of `git commit
+-a`. `--rev` reads a commit's declarations, as `check` and `explain` do, and
+cannot be combined with `--changed` or `--staged`. A directory is refused:
+name its files. `impact` without any input is a usage error, so that an
+empty variable in a script fails loudly; `--changed` on a clean tree, or
+empty standard input, is an empty answer.
+
+A file matches a document when a source, as declared, names it: a path by
+its path, a pattern by its pattern. A file that a pattern would take once
+added counts, as does a deleted source, as `check` counts a pattern gaining
+or losing a file. A document reached through another names the one it was
+reached through: one step, not every route. Sealed records whose sources
+match are listed last, as unaffected, since a record never changes; nothing
+is reached through them. Remote documents are included.
+
+`impact` searches the project containing the effective starting directory
+and the projects nested in it, as `review` does. A project outside it may
+still cite the files, with `:/` or parents, and a note names each such
+project, and each file that lies in one. Run `impact` from an enclosing
+project to include it.
+
+Each document carries what its declarations and configs say: how it is
+tracked, a remote document's owner, its classes, its owners, its grace
+period and its cadence. Its current state is not given, since that needs
+the full evaluation; `check` and `explain` give it.
+
+Human output, sketched:
+
+```
+2 files · working tree on 4f3c2a1
+
+direct  docs/auth.md       lockfile · classes api · owners security
+        src/auth.rs, declared as /src/auth/*.rs
+via     docs/overview.md   on-file
+        cites docs/auth.md, 2 steps from a file
+sealed  docs/v1/spec.md    lockfile
+        src/auth.rs, declared as /src/auth.rs
+        a sealed record never changes, so these files do not affect it
+
+No document cites `src/unrelated.rs`.
+
+1 direct · 1 through other documents · 1 sealed record · exit 0
+```
+
+Files named as arguments that no document cites are listed; those from
+standard input, `--changed` and `--staged` are counted.
+
+The JSON report has `schema`, `project`, `revision`, `documents`, `inputs`,
+`not-searched` and `diagnostics`. Each document has `project` and paths
+relative to that project, as in the check report, with `document`, `mode`,
+`owner`, `declared-in`, `field`, `sealed`, `depth`, `settings` and
+`reached`: `{"kind": "direct", "matches": [{"path", "source"}]}` with every
+file and declared source that match, or `{"kind": "via", "document"}`. Each
+input has `path`, `matched`, and `searched`, which is `false` for a file in
+a project that was not searched. The other paths are relative to the
+project the query ran in.
+
+| Code | When |
+|---|---|
+| 0 | The query completed, whatever it found |
+| 3 | An unreadable lockfile, declaration, source or config may hide a document; the answer lists what could be read |
+| 4 | The repository could not be read, or the output could not be written |
+| 64 | Invalid command-line usage |
+
+The errors that set exit 3 are those that may hide a document: everything
+else leaves the declarations readable. A deleted source in particular,
+which `check` reports as a configuration error, does not stop the query,
+since asking what a deleted file affects is one of its purposes.
 
 ## Reviewing
 

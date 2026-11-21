@@ -188,6 +188,35 @@ impl TestRepo {
 		}
 	}
 
+	/// Runs `source-sentry` with `args` in the working tree, with `input` on
+	/// standard input.
+	pub fn run_with_input(&self, args: &[&str], input: &[u8]) -> Run {
+		use std::io::Write as _;
+		let mut command = Command::new(BINARY);
+		self.isolate(&mut command);
+		let mut child = command
+			.args(args)
+			.current_dir(&self.path)
+			.env("NO_COLOR", "1")
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.expect("run source-sentry");
+		child
+			.stdin
+			.take()
+			.expect("standard input")
+			.write_all(input)
+			.expect("write standard input");
+		let output = child.wait_with_output().expect("run source-sentry");
+		Run {
+			code: output.status.code().expect("an exit code"),
+			stdout: String::from_utf8(output.stdout).expect("UTF-8 stdout"),
+			stderr: String::from_utf8(output.stderr).expect("UTF-8 stderr"),
+		}
+	}
+
 	/// The temporary directory that holds the working tree, where a test can
 	/// make other directories beside it.
 	pub fn outer(&self) -> &Path {

@@ -8,6 +8,7 @@ mod check;
 mod completions;
 mod diff;
 mod explain;
+mod impact;
 mod init;
 mod migrate;
 mod records;
@@ -53,6 +54,9 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 	if let Some(crate::cli::DocumentArg::Path(path)) = argument {
 		workspace.scope = workspace.repo_path(path)?;
 	}
+	// `explain` searches for the documents citing its subject from where it
+	// runs, as `impact` does, wherever the subject's own project is.
+	let origin = workspace.scope.clone();
 	if let Command::Explain(args) = &cli.command
 		&& let Some(path) = explain_path(&workspace, args)?
 	{
@@ -60,7 +64,8 @@ pub(crate) fn run(cli: &Cli, printer: Printer) -> Result<u8, Failure> {
 	}
 	match &cli.command {
 		Command::Check(args) => check::run(&workspace, args, printer),
-		Command::Explain(args) => explain::run(&workspace, args, printer),
+		Command::Explain(args) => explain::run(&workspace, &origin, args, printer),
+		Command::Impact(args) => impact::run(&workspace, args, printer),
 		Command::Diff(args) => diff::run(&workspace, args, printer),
 		Command::Attest(args) => attest::run(&workspace, args, printer),
 		Command::Review(args) => review::run(&workspace, args, printer),

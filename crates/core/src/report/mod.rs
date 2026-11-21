@@ -6,7 +6,9 @@
 //!
 //! - [`CheckReport`] is the output of `check --format json`, shaped as in
 //!   `structure/report.example.json`;
-//! - [`DiffReport`] is the output of `diff --format json`, in the same style.
+//! - [`DiffReport`] is the output of `diff --format json`, in the same style;
+//! - [`ImpactReport`] is the output of `impact --format json`, in the same
+//!   style.
 //!
 //! # Conventions
 //!
@@ -56,6 +58,7 @@
 mod check;
 mod common;
 mod diff;
+mod impact;
 mod projects;
 pub use projects::to_project_json;
 
@@ -74,6 +77,10 @@ pub use common::{
 };
 pub use diff::{
 	BaselineReport, CurrentReport, DiffEntryReport, DiffReport, DiffSourceReport,
+};
+pub use impact::{
+	ImpactDocumentReport, ImpactInputReport, ImpactReport, MatchReport,
+	ReachedReport,
 };
 
 use serde::Serialize;

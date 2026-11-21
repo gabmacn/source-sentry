@@ -100,6 +100,10 @@ pub(crate) enum Command {
 	/// origins, its facts, the rules that matched, the timing evidence and its
 	/// next deadline.
 	Explain(ExplainArgs),
+	/// List the documents that describe files: those whose sources name
+	/// them, and those that cite those documents in turn.
+	#[command(after_long_help = IMPACT_EXIT_CODES)]
+	Impact(ImpactArgs),
 	/// Show each source's changes since its attestation, and the `attest`
 	/// command that binds exactly what was shown.
 	Diff(DiffArgs),
@@ -175,6 +179,14 @@ Exit codes:
   2   A failure
   3   A configuration or integrity error
   4   An operational error: the evaluation could not complete
+  64  Invalid command-line usage";
+
+/// The exit codes of `impact`, which is not a gate.
+const IMPACT_EXIT_CODES: &str = "Exit codes:
+  0   Answered, whatever was found
+  3   A configuration or integrity error may hide a document; the answer
+      lists what could be read
+  4   An operational error: the repository could not be read
   64  Invalid command-line usage";
 
 /// The exit codes of the commands that change files.
@@ -265,6 +277,39 @@ pub(crate) struct ExplainArgs {
 	pub(crate) subject: String,
 	#[command(flatten)]
 	pub(crate) evaluation: EvaluationArgs,
+}
+
+/// `impact`.
+#[derive(Debug, Args)]
+pub(crate) struct ImpactArgs {
+	/// Files, relative to the current directory. `-` reads paths from
+	/// standard input instead, one per line and relative to the repository
+	/// root, as git prints them.
+	#[arg(value_name = "PATH")]
+	pub(crate) paths: Vec<PathBuf>,
+	/// Add every file that differs from `HEAD` or the index, and every
+	/// untracked file that is not ignored, as `git status` lists them.
+	#[arg(long)]
+	pub(crate) changed: bool,
+	/// Add the files whose staged content differs from `HEAD`, for a
+	/// `pre-commit` hook.
+	#[arg(long)]
+	pub(crate) staged: bool,
+	/// With `-`, paths on standard input are separated by NUL, as `git diff
+	/// -z` writes them.
+	#[arg(short = 'z')]
+	pub(crate) nul: bool,
+	/// Read the declarations of a committed snapshot instead of the working
+	/// tree.
+	#[arg(
+		long,
+		value_name = "REVISION",
+		conflicts_with_all = ["changed", "staged"]
+	)]
+	pub(crate) rev: Option<String>,
+	/// The output format.
+	#[arg(long, value_enum, default_value_t = Format::Human, value_name = "FORMAT")]
+	pub(crate) format: Format,
 }
 
 /// `diff`.

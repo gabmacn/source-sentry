@@ -23,6 +23,8 @@ mod git_environment;
 #[cfg(test)]
 mod history;
 #[cfg(test)]
+mod impact;
+#[cfg(test)]
 mod init;
 #[cfg(test)]
 mod output;

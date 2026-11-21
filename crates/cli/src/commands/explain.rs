@@ -15,6 +15,10 @@ use source_sentry_core::model::{
 };
 use source_sentry_core::policy::Basis;
 
+use source_sentry_core::impact::Impact;
+use source_sentry_core::model::RepoPath;
+
+use super::impact::Search;
 use crate::cli::{ExplainArgs, parse_document};
 use crate::describe;
 use crate::exit::{self, Failure};
@@ -32,37 +36,118 @@ const WINDOWS_SHOWN: usize = 12;
 ///
 /// Exit 2 when nothing evaluated matches the argument, and the evaluation's
 /// failures otherwise.
+///
+/// The documents that cite a file are searched from `origin`, where the
+/// command runs, and the projects nested in it, whatever the file's own
+/// project: a file that only they cite is explained as a source.
 pub(super) fn run(
 	workspace: &Workspace,
+	origin: &RepoPath,
 	args: &ExplainArgs,
 	printer: Printer,
 ) -> Result<u8, Failure> {
 	let evaluation = super::check::evaluate(workspace, &args.evaluation)?;
-	let subjects = find(workspace, &evaluation, &args.subject)?;
+	let rev = args.evaluation.rev.as_deref();
+	let subjects = match find(workspace, &evaluation, &args.subject) {
+		Ok(subjects) => subjects,
+		Err(failure) if failure.code == exit::REFUSED => {
+			let Some(path) = local_path(workspace, &args.subject) else {
+				return Err(failure);
+			};
+			let (answer, search) =
+				super::impact::citations(workspace, origin, rev, &path)?;
+			if answer.documents.is_empty() && search.hiding.is_empty() {
+				return Err(failure);
+			}
+			printer.print(&source(workspace, &evaluation, &path, &answer, &search));
+			return Ok(search.code());
+		}
+		Err(failure) => return Err(failure),
+	};
 	let mut code = exit::SUCCESS;
-	let explanations: Vec<String> = subjects
-		.iter()
-		.map(|subject| {
-			let own = own_diagnostics(&evaluation, subject);
-			for diagnostic in &own {
-				code = code.max(match diagnostic.severity() {
-					Severity::Warning => exit::SUCCESS,
-					Severity::Configuration | Severity::Integrity => exit::CONFIGURATION,
-					Severity::Operational => exit::OPERATIONAL,
-				});
-			}
-			let mut text = explain(workspace, &evaluation, subject);
-			if !own.is_empty() {
-				heading(&mut text, "Diagnostics");
-				for line in super::check::diagnostic_lines(workspace, own) {
-					let _ = writeln!(text, "  {line}");
-				}
-			}
+	let mut explanations = Vec::new();
+	for subject in subjects {
+		let own = own_diagnostics(&evaluation, subject);
+		for diagnostic in &own {
+			code = code.max(match diagnostic.severity() {
+				Severity::Warning => exit::SUCCESS,
+				Severity::Configuration | Severity::Integrity => exit::CONFIGURATION,
+				Severity::Operational => exit::OPERATIONAL,
+			});
+		}
+		let mut text = explain(workspace, &evaluation, subject);
+		if let Some(path) = subject_path(subject) {
+			let (answer, search) =
+				super::impact::citations(workspace, origin, rev, path)?;
+			code = code.max(search.code());
+			heading(&mut text, "Cited by");
 			text
-		})
-		.collect();
+				.push_str(&super::impact::cited_by(workspace, path, &answer, &search));
+		}
+		if !own.is_empty() {
+			heading(&mut text, "Diagnostics");
+			for line in super::check::diagnostic_lines(workspace, own) {
+				let _ = writeln!(text, "  {line}");
+			}
+		}
+		explanations.push(text);
+	}
 	printer.print(&explanations.join("\n"));
 	Ok(code)
+}
+
+/// The path of a subject that documents can cite: a local document or an
+/// unclaimed file. A remote document has no path, and a series is not a
+/// file.
+fn subject_path(subject: &Subject) -> Option<&RepoPath> {
+	match &subject.kind {
+		SubjectKind::Document(DocumentSubject {
+			document: DocumentId::Local(path),
+			..
+		}) => Some(path),
+		SubjectKind::Unclaimed(file) => Some(&file.path),
+		SubjectKind::Document(_) | SubjectKind::Series(_) => None,
+	}
+}
+
+/// The file that `argument` names, when it names one: not a remote
+/// identity, not the repository root and not a directory.
+fn local_path(workspace: &Workspace, argument: &str) -> Option<RepoPath> {
+	let DocumentId::Local(path) = parse_document(argument)
+		.ok()
+		.and_then(|document| workspace.document(&document).ok())?
+	else {
+		return None;
+	};
+	(!workspace.file(&path).is_dir()).then_some(path)
+}
+
+/// A file that is no document but that documents cite: the documents that
+/// cite it directly.
+fn source(
+	workspace: &Workspace,
+	evaluation: &Evaluation,
+	path: &RepoPath,
+	answer: &Impact,
+	search: &Search,
+) -> String {
+	let mut text = output::bold(&workspace.display_path(path));
+	text.push('\n');
+	text.push_str(&output::dim(&describe::header(evaluation)));
+	text.push_str("\n\n");
+	table(
+		&mut text,
+		&[(
+			"File",
+			format!(
+				"a source, cited directly by {}",
+				describe::count(answer.documents.len(), "document", "documents")
+			),
+		)],
+	);
+	heading(&mut text, "Cited by");
+	text.push_str(&super::impact::cited_by(workspace, path, answer, search));
+	text
 }
 
 /// The diagnostics about `subject`, which `check` lists among all the
@@ -146,7 +231,7 @@ fn find<'a>(
 		exit::REFUSED,
 		format!(
 			"nothing named `{argument}` was evaluated: it is not a tracked \
-			 document, an unclaimed file or a series"
+			 document, an unclaimed file or a series, and no document cites it"
 		),
 	))
 }

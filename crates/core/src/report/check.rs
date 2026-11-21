@@ -10,7 +10,7 @@ use super::common::{
 };
 use crate::claims::Mode;
 use crate::evaluate::schedule::Deadline;
-use crate::evaluate::settings::Effective;
+use crate::evaluate::settings::{Effective, EffectiveSettings};
 use crate::evaluate::{
 	self, DocumentState, DocumentSubject, Evaluation, RecordCheck, RecordState,
 	SeriesKey, SeriesSubject, SourceState, Subject, SubjectKind,
@@ -334,11 +334,7 @@ impl DocumentReport {
 			facts,
 			field: document.field.clone(),
 			judgement,
-			mode: match document.mode {
-				Mode::OnFile => "on-file",
-				Mode::LocalLockfile => "lockfile",
-				Mode::RemoteLockfile { .. } => "remote",
-			},
+			mode: mode_name(&document.mode),
 			outcome: subject.outcome(),
 			record: None,
 			settings: SettingsReport::new(subject),
@@ -364,6 +360,15 @@ impl DocumentReport {
 			}
 		}
 		report
+	}
+}
+
+/// How a document's tracking mode is written.
+pub(super) fn mode_name(mode: &Mode) -> &'static str {
+	match mode {
+		Mode::OnFile => "on-file",
+		Mode::LocalLockfile => "lockfile",
+		Mode::RemoteLockfile { .. } => "remote",
 	}
 }
 
@@ -476,7 +481,12 @@ pub struct SettingsReport {
 
 impl SettingsReport {
 	fn new(subject: &Subject) -> Self {
-		let settings = &subject.settings;
+		Self::from(&subject.settings)
+	}
+}
+
+impl From<&EffectiveSettings> for SettingsReport {
+	fn from(settings: &EffectiveSettings) -> Self {
 		Self {
 			cadence: SettingReport::from(&settings.cadence),
 			classes: SettingReport::from(&settings.classes),

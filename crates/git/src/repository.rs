@@ -475,6 +475,44 @@ impl GitRepository {
 		Ok(paths)
 	}
 
+	/// The files that differ between `HEAD`, the index and the working
+	/// tree, as `git status` lists them, sorted and without repeats: with
+	/// `staged_only`, those whose index entry differs from `HEAD`; otherwise
+	/// those too, and every file whose working-tree copy differs from the
+	/// index, and every untracked file that is not ignored. Deleted files
+	/// are included. Renames are not paired, so both the old and the new
+	/// path appear. In a repository without commits, every file in the index
+	/// differs from `HEAD`.
+	///
+	/// The index is the one every other command reads, including the
+	/// temporary index of `git commit -a` in a `pre-commit` hook.
+	///
+	/// A name that is not a canonical repository path is left out: no
+	/// declared source can name it.
+	///
+	/// # Errors
+	///
+	/// Fails when `git` fails.
+	pub fn changed_files(
+		&self,
+		staged_only: bool,
+	) -> Result<Vec<RepoPath>, BackendError> {
+		let output = self.git.output(
+			&[
+				"status",
+				"--porcelain=v1",
+				"-z",
+				"--no-renames",
+				"--untracked-files=all",
+			],
+			None,
+		)?;
+		let mut paths = changed_paths(&output, staged_only);
+		paths.sort();
+		paths.dedup();
+		Ok(paths)
+	}
+
 	/// The index file that `GIT_INDEX_FILE` names, when git is committing
 	/// with a temporary one: a lock file other than the repository's own
 	/// index, which git sets for a `pre-commit` hook of `git commit -a` or
@@ -725,3 +763,51 @@ fn same_directory(
 
 /// The key under which git's configuration remembers the name to record.
 const REVIEWER_KEY: &str = "source-sentry.reviewer";
+
+/// The paths of `git status --porcelain=v1 -z --no-renames` output: each
+/// entry is two status letters, a space and the path, ended by NUL. With
+/// `staged_only`, only entries whose first letter, the index's, records a
+/// change: not ` `, and not `?` for an untracked file.
+fn changed_paths(output: &[u8], staged_only: bool) -> Vec<RepoPath> {
+	output
+		.split(|&byte| byte == 0)
+		.filter_map(|entry| {
+			let (status, path) = (entry.get(..2)?, entry.get(3..)?);
+			if staged_only && matches!(status[0], b' ' | b'?' | b'!') {
+				return None;
+			}
+			crate::index::repo_path(path).ok()
+		})
+		.collect()
+}
+
+#[cfg(test)]
+mod changed_tests {
+	use super::changed_paths;
+
+	#[test]
+	fn status_entries_give_their_paths() {
+		let output = b"M  staged.rs\0 M unstaged.rs\0MM both.rs\0?? new/file.rs\0D  gone.rs\0 D removed.rs\0A  with space.rs\0";
+		let all: Vec<String> = changed_paths(output, false)
+			.iter()
+			.map(ToString::to_string)
+			.collect();
+		assert_eq!(
+			all,
+			[
+				"staged.rs",
+				"unstaged.rs",
+				"both.rs",
+				"new/file.rs",
+				"gone.rs",
+				"removed.rs",
+				"with space.rs"
+			]
+		);
+		let staged: Vec<String> = changed_paths(output, true)
+			.iter()
+			.map(ToString::to_string)
+			.collect();
+		assert_eq!(staged, ["staged.rs", "both.rs", "gone.rs", "with space.rs"]);
+	}
+}

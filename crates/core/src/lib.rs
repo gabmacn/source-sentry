@@ -35,6 +35,7 @@ pub mod adapters;
 pub mod claims;
 pub mod config;
 pub mod evaluate;
+pub mod impact;
 pub mod model;
 pub mod mutate;
 pub mod policy;

@@ -21,9 +21,23 @@ pub fn to_project_json<T: Serialize>(
 	project: &RepoPath,
 	roots: &BTreeSet<RepoPath>,
 ) -> Result<String, serde_json::Error> {
+	serde_json::to_string_pretty(&to_project_value(report, project, roots)?)
+}
+
+/// [`to_project_json`], as a value rather than text, for a report that
+/// rebases its parts on different projects.
+///
+/// # Errors
+///
+/// Fails when the report cannot be represented as JSON.
+pub(super) fn to_project_value<T: Serialize>(
+	report: &T,
+	project: &RepoPath,
+	roots: &BTreeSet<RepoPath>,
+) -> Result<Value, serde_json::Error> {
 	let mut value = serde_json::to_value(report)?;
 	rebase(&mut value, "", project, roots);
-	serde_json::to_string_pretty(&value)
+	Ok(value)
 }
 
 /// Re-expresses a canonical repository path relative to a project.

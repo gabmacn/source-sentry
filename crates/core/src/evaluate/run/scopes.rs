@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use jiff::civil::Date;
 
 use super::model::AppliedContext;
-use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location, Mode};
+use crate::claims::{Claim, Diagnostic, DiagnosticKind, Location};
 use crate::config::{
 	ConfigSet, ContextDefinition, DirectorySettings, DocumentDefaults, Origin,
 	RemoteSettings, Resolved, Series,
@@ -14,9 +14,9 @@ use crate::evaluate::schedule::{
 	EffectiveSchedule, Recurrence, ScheduleError, TimeZone,
 };
 use crate::evaluate::settings::{
-	DeclarationSite, Effective, EffectiveSettings, SettingOrigin,
+	DefaultsOf, Effective, EffectiveSettings, SettingOrigin,
 };
-use crate::model::{ClassName, Context, DocumentId, RepoPath, Rule};
+use crate::model::{ClassName, Context, RepoPath, Rule};
 use crate::policy::{PolicyError, select_context, validate_context};
 use crate::{CONFIG_NAME, DIR_NAME};
 
@@ -342,33 +342,21 @@ impl<'c> Scopes<'c> {
 		&mut self,
 		claim: &Claim,
 	) -> (EffectiveSettings, Vec<Resolved<Rule>>) {
-		let (defaults, rules) = match (&claim.document, &claim.mode) {
-			(DocumentId::Remote(_), Mode::RemoteLockfile { owner }) => {
+		let (defaults, rules) = match DefaultsOf::of(claim) {
+			DefaultsOf::Owner(owner) => {
 				let configs = self.configs;
 				let settings = self
 					.remotes
-					.entry(owner.clone())
+					.entry(owner.to_owned())
 					.or_insert_with_key(|owner| configs.remote_settings(owner));
 				(
 					settings.defaults.clone(),
 					scoped(&settings.rules, self.context.as_deref()),
 				)
 			}
-			(DocumentId::Local(path), _) => self.of_file(path),
-			// A remote identity is only ever claimed by a remote lockfile, so
-			// this arm is never taken; the repository's defaults are the
-			// nearest meaningful ones.
-			(DocumentId::Remote(_), Mode::OnFile | Mode::LocalLockfile) => {
-				self.of_directory(&RepoPath::ROOT)
-			}
+			DefaultsOf::Directory(directory) => self.of_directory(&directory),
 		};
-		let site = DeclarationSite {
-			file: &claim.declared_in,
-			field: &claim.field,
-		};
-		let settings =
-			EffectiveSettings::new(&defaults, Some((&claim.declaration, site)));
-		(settings, rules)
+		(EffectiveSettings::of_claim(&defaults, claim), rules)
 	}
 
 	/// The effective schedule of `settings`, or `None` when its cadence is

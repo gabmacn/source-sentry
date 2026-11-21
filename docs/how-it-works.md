@@ -426,7 +426,7 @@ gate stops on warnings too, so the review day prompts someone.
 > requests turning red.
 
 **`check` is the only gate.** A stale or failing document does not change
-the exit code of `diff`, `explain` or `review`.
+the exit code of `diff`, `explain`, `impact` or `review`.
 
 **Source Sentry sends no notifications.** CI and the forge do that already,
 and doing it here would mean credentials, retries and code for each

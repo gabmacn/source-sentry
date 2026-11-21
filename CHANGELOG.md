@@ -23,6 +23,19 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+### Added
+
+- `impact` lists the documents that describe given files: those whose
+  sources name them, and those that cite those documents in turn, with
+  sealed records listed as unaffected. It takes paths, `-` for paths on
+  standard input (`-z` for NUL-separated ones), `--changed`, `--staged` and
+  `--rev`, and writes text or JSON (`--format json`). It reads declarations
+  only, searches the starting project and its nested projects, says which
+  projects it did not search, and is not a gate.
+- `explain` shows the documents that cite a file. A document or unclaimed
+  file gains a "Cited by" section, and a file that is no document but that
+  documents cite is explained as a source rather than refused.
+
 ### Changed
 
 - Dates and instants are now read and written with `jiff` instead of

@@ -219,8 +219,8 @@ Every command but `check` exits 0 when it applied its change, had nothing
 to change, or printed what was asked; 1 when the question was not
 confirmed; 2 when it refused the request; 3 for a configuration or
 integrity error; 4 when it could not complete; and 64 for invalid usage.
-`diff` and `explain` are not gates: a stale or failing document does not
-change their exit code.
+`diff`, `explain` and `impact` are not gates: a stale or failing document
+does not change their exit code. `impact` exits 0 whatever it finds.
 
 ## Reading results as data
 
@@ -232,10 +232,22 @@ change their exit code.
 - `source-sentry diff <document> --format json` prints the changes of each
   source and `attest`, the command as a list of arguments. Run that list
   from the root of the project named by `project`.
+- `source-sentry impact <path>... --format json` prints `documents`, each
+  with its `project`, its `depth`, `sealed`, and `reached`: the files and
+  declared sources that match it, or the document it was reached through.
+  `inputs` says whether each file matched, and `not-searched` names the
+  projects outside the search.
 
 Prefer these to parsing the human output, which is laid out for reading.
 
 ## Changing code
+
+To learn which documents describe the files you are about to change, or
+have changed, run `source-sentry impact <path>...` or `source-sentry impact
+--changed`: it lists the documents whose sources name them, and those that
+cite those documents in turn, without judging any of them. `explain <path>`
+lists the documents citing one file directly. Both search the project they
+run in and its nested projects, and say which projects they did not search.
 
 When your change touches files that documents describe, run
 `source-sentry check` before you finish. Review every document your change
