@@ -4,8 +4,8 @@
 //! sorted at every level, and a `schema`. Each document is written relative
 //! to its own project, which its `project` names. Projects, the top-level
 //! `project` and each entry of `not-searched`, are repository paths, with
-//! `.` for the repository, as directories are throughout the reports; the
-//! inputs' paths are relative to the project the query ran in.
+//! `.` for the repository, as `project` is in the check report; the inputs'
+//! paths are relative to the project the query ran in.
 //!
 //! ```json
 //! {
