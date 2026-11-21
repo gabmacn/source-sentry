@@ -255,7 +255,8 @@ searches, not on the file's own project, and run from the same place, the
 two commands then agree. A note names the projects that were not searched.
 An unreadable lockfile or config among the searched projects, which may
 hide a citing document, sets the exit code to 3, as it does for `impact`. A
-name that matches nothing, and that no document cites, exits 2.
+name that matches nothing, and that no document cites, exits 2; the message
+names any such error, since it may hide a document that cites the name.
 
 ## Impact
 

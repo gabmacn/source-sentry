@@ -25,9 +25,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+
 use crate::claims::{Claim, Inventory, Mode, ResolvedSource, SourceGlob};
-use crate::config::{ConfigSet, project_of};
-use crate::evaluate::settings::EffectiveSettings;
+use crate::config::{ConfigSet, DocumentDefaults, project_of};
+use crate::evaluate::settings::{DefaultsOf, EffectiveSettings};
 use crate::model::{DocumentId, RepoPath};
 
 /// One searched project: its configs and what discovery found in it.
@@ -155,6 +157,10 @@ pub fn impact(
 			}
 		}
 	}
+	// Defaults are resolved once per directory or owner of each project, as
+	// evaluation resolves them.
+	let mut defaults: BTreeMap<(usize, DefaultsOf<'_>), DocumentDefaults> =
+		BTreeMap::new();
 	let mut documents: Vec<Impacted> = found
 		.into_iter()
 		.map(|(key, (depth, mut reached))| {
@@ -164,6 +170,15 @@ pub fn impact(
 			}
 			let document = &index.documents[key];
 			let (claim, configs) = document.first;
+			let source = DefaultsOf::of(claim);
+			let resolved = defaults
+				.entry((document.configs, source.clone()))
+				.or_insert_with(|| match source {
+					DefaultsOf::Owner(owner) => configs.remote_settings(owner).defaults,
+					DefaultsOf::Directory(directory) => {
+						configs.settings(&directory).defaults
+					}
+				});
 			Impacted {
 				document: document.id.clone(),
 				project: document.project.clone(),
@@ -173,7 +188,7 @@ pub fn impact(
 				sealed: document.sealed,
 				depth,
 				reached,
-				settings: EffectiveSettings::of_claim_in(configs, claim),
+				settings: EffectiveSettings::of_claim(resolved, claim),
 			}
 		})
 		.collect();
@@ -207,6 +222,8 @@ struct Document<'a> {
 	sealed: bool,
 	/// Its first claim, and the configs of the inventory that holds it.
 	first: (&'a Claim, &'a ConfigSet),
+	/// Which searched project's configs those are.
+	configs: usize,
 }
 
 /// Every declared source of the searched projects, indexed for lookup by the
@@ -219,6 +236,11 @@ struct Index<'a> {
 	/// Pattern sources: compiled, with the document's key and the pattern
 	/// as declared.
 	patterns: Vec<(SourceGlob, usize, &'a str)>,
+	/// Every pattern of [`Index::patterns`], in the same order, matched at
+	/// once, so that a path is tested against the few patterns that can
+	/// take it; `None` when one could not be added, and each pattern is then
+	/// tested in turn.
+	set: Option<GlobSet>,
 }
 
 impl<'a> Index<'a> {
@@ -227,10 +249,11 @@ impl<'a> Index<'a> {
 			documents: Vec::new(),
 			paths: BTreeMap::new(),
 			patterns: Vec::new(),
+			set: None,
 		};
 		let mut keys: BTreeMap<(DocumentId, RepoPath), usize> = BTreeMap::new();
 		let mut seen = BTreeSet::new();
-		for project in searched {
+		for (position, project) in searched.iter().enumerate() {
 			let inventory = project.inventory;
 			for claim in &inventory.claims {
 				// A declaration that two inventories read, such as one
@@ -252,12 +275,30 @@ impl<'a> Index<'a> {
 						project: owner,
 						sealed: claim.is_sealed(),
 						first: (claim, project.configs),
+						configs: position,
 					});
 				}
 				index.add(key, claim, &inventory.projects);
 			}
 		}
+		index.set = index.glob_set();
 		index
+	}
+
+	/// [`Index::set`], built with the options [`SourceGlob`] compiles with.
+	fn glob_set(&self) -> Option<GlobSet> {
+		let mut builder = GlobSetBuilder::new();
+		for (glob, _, _) in &self.patterns {
+			let rooted = glob.rooted();
+			builder.add(
+				GlobBuilder::new(rooted.strip_prefix('/').unwrap_or(&rooted))
+					.literal_separator(true)
+					.backslash_escape(false)
+					.build()
+					.ok()?,
+			);
+		}
+		builder.build().ok()
 	}
 
 	/// Adds the resolved sources of `claim`, whose document has `key`.
@@ -296,19 +337,22 @@ impl<'a> Index<'a> {
 	/// The documents whose sources name `path`, with each source as
 	/// declared, without repeats. A document never cites itself.
 	fn cites(&self, path: &RepoPath) -> Vec<(usize, &'a str)> {
+		let candidates: Vec<usize> = match &self.set {
+			Some(set) => set.matches(path.as_str()),
+			None => (0..self.patterns.len()).collect(),
+		};
 		let mut cited: Vec<(usize, &'a str)> = self
 			.paths
 			.get(path)
 			.into_iter()
 			.flatten()
 			.copied()
-			.chain(
-				self
-					.patterns
-					.iter()
-					.filter(|(glob, _, _)| glob.is_match(path))
-					.map(|(_, key, declared)| (*key, *declared)),
-			)
+			.chain(candidates.into_iter().filter_map(|position| {
+				let (glob, key, declared) = &self.patterns[position];
+				// The set only narrows the candidates: each one is confirmed
+				// as discovery matches it, which also leaves lockfiles out.
+				glob.is_match(path).then_some((*key, *declared))
+			}))
 			.filter(|(key, _)| {
 				self.documents[*key].id != DocumentId::Local(path.clone())
 			})

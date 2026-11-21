@@ -457,3 +457,119 @@ fn staged_files_in_a_pre_commit_hook_are_the_commits() {
 	assert_eq!(json["inputs"][0]["path"], "src/a.rs", "{json}");
 	assert_eq!(json["documents"][0]["document"], "docs/guide.md", "{json}");
 }
+
+/// A remote document of the nested project is written relative to it, and a
+/// document of the enclosing project reached through a nested document names
+/// that document relative to its own project.
+#[test]
+fn citations_cross_projects_in_both_directions() {
+	let repo = nested();
+	repo
+		.run(&[
+			"-C",
+			"app",
+			"track",
+			"abstract:clip",
+			"--remote",
+			"crew",
+			"--source",
+			"/code.rs",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.write("docs/overview.md", "# Overview\n");
+	repo
+		.run(&[
+			"track",
+			"docs/overview.md",
+			"--source",
+			"/app/guide.md",
+			"--yes",
+		])
+		.expect_code(0);
+	repo.commit_at("2026-10-02T10:00:00Z");
+	let json = repo
+		.run(&["impact", "app/code.rs", "--format", "json"])
+		.expect_code(0)
+		.json();
+	assert_eq!(
+		documents(&json),
+		[
+			entry(".", "docs/guide.md", 1),
+			entry(".", "abstract:video", 1),
+			entry("app", "guide.md", 1),
+			entry("app", "abstract:clip", 1),
+			entry(".", "docs/overview.md", 2),
+		]
+	);
+	let clip = &json["documents"][3];
+	assert_eq!(clip["owner"], "crew");
+	assert_eq!(clip["declared-in"], ".source-sentry/remotes/crew.lock");
+	assert_eq!(clip["reached"]["matches"][0]["path"], "code.rs");
+	let overview = &json["documents"][4];
+	assert_eq!(overview["reached"]["kind"], "via");
+	assert_eq!(overview["reached"]["document"], "app/guide.md");
+
+	// `explain --rev` reads the commit's declarations.
+	let before =
+		repo.run(&["explain", "app/guide.md", "--rev", "HEAD~1", "--at", AT]);
+	before.expect_code(0);
+	let cited = before
+		.stdout
+		.split("Cited by")
+		.nth(1)
+		.expect(&before.stdout);
+	assert!(
+		cited.contains("no document in the searched projects"),
+		"{}",
+		before.stdout
+	);
+	let after = repo.run(&["explain", "app/guide.md", "--at", AT]);
+	let cited = after.stdout.split("Cited by").nth(1).expect(&after.stdout);
+	assert!(cited.contains("docs/overview.md"), "{}", after.stdout);
+}
+
+/// A name that nothing tracks or cites exits 2, even when an unreadable
+/// lockfile may hide a document citing it, which the message names.
+#[test]
+fn an_uncited_name_exits_2_and_names_what_may_hide_a_citation() {
+	let repo = nested();
+	repo.write("app/source-sentry.lock", "{ not json");
+	let run = repo.run(&["explain", "src/a.rs", "--at", AT]);
+	run.expect_code(2);
+	assert!(
+		run.stderr.contains("no document cites it"),
+		"{}",
+		run.stderr
+	);
+	assert!(run.stderr.contains("invalid-lockfile"), "{}", run.stderr);
+}
+
+/// Before the first commit, every file in the index is staged, and
+/// untracked files count as changed.
+#[test]
+fn changed_and_staged_files_before_the_first_commit() {
+	let repo = TestRepo::init();
+	fs::write(repo.path().join("untracked.txt"), "new\n").unwrap();
+	let changed = repo
+		.run(&["impact", "--changed", "--format", "json"])
+		.expect_code(0)
+		.json();
+	let paths = |json: &Value| -> Vec<String> {
+		json["inputs"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|input| input["path"].as_str().unwrap().to_owned())
+			.collect()
+	};
+	assert_eq!(
+		paths(&changed),
+		["docs/guide.md", "src/a.rs", "untracked.txt"]
+	);
+	let staged = repo
+		.run(&["impact", "--staged", "--format", "json"])
+		.expect_code(0)
+		.json();
+	assert_eq!(paths(&staged), ["docs/guide.md", "src/a.rs"]);
+}

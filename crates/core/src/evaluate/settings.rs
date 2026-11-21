@@ -187,7 +187,7 @@ impl EffectiveSettings {
 }
 
 /// Where a claimed document's defaults come from.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DefaultsOf<'a> {
 	/// A remote document's: its owner's.
 	Owner(&'a str),

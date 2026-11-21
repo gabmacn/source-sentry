@@ -56,8 +56,8 @@ pub(super) fn run(
 			};
 			let (answer, search) =
 				super::impact::citations(workspace, origin, rev, &path)?;
-			if answer.documents.is_empty() && search.hiding.is_empty() {
-				return Err(failure);
+			if answer.documents.is_empty() {
+				return Err(unanswered(workspace, failure, &search));
 			}
 			printer.print(&source(workspace, &evaluation, &path, &answer, &search));
 			return Ok(search.code());
@@ -94,6 +94,26 @@ pub(super) fn run(
 	}
 	printer.print(&explanations.join("\n"));
 	Ok(code)
+}
+
+/// The refusal of a name that matches nothing (exit 2), naming the errors
+/// that may hide a document citing it, when the search met any.
+fn unanswered(
+	workspace: &Workspace,
+	failure: Failure,
+	search: &Search,
+) -> Failure {
+	if search.hiding.is_empty() {
+		return failure;
+	}
+	let mut message = failure.message;
+	message.push_str(
+		". The search for documents citing it met errors that may hide one:",
+	);
+	for line in super::check::diagnostic_lines(workspace, &search.hiding) {
+		let _ = write!(message, "\n  {line}");
+	}
+	Failure::new(failure.code, message)
 }
 
 /// The path of a subject that documents can cite: a local document or an
