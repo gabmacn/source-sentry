@@ -236,7 +236,8 @@ does not change their exit code. `impact` exits 0 whatever it finds.
   with its `project`, its `depth`, `sealed`, and `reached`: the files and
   declared sources that match it, or the document it was reached through.
   `inputs` says whether each file matched, and `not-searched` names the
-  projects outside the search.
+  projects that were not searched: those outside the search, and any inside
+  it whose configs could not be loaded, whose errors `diagnostics` lists.
 
 Prefer these to parsing the human output, which is laid out for reading.
 
