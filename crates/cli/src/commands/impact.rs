@@ -188,25 +188,31 @@ fn is_directory(
 			&& workspace.file(path).is_dir())
 }
 
-/// Whether `path` names a directory in the commit that `revision` selects,
-/// as [`is_directory`] decides: `explain --rev` looks a file up in the
-/// commit it explains, whatever the working tree holds there today.
+/// Whether `path` names a directory in the snapshot that `revision`
+/// selects, or in the working tree without one, as [`is_directory`] decides
+/// for `impact`: `explain` refuses the same directories, and with `--rev`
+/// looks a file up in the commit it explains, whatever the working tree
+/// holds there today.
 ///
 /// # Errors
 ///
 /// Exit 4 when the repository cannot be read.
-pub(super) fn is_committed_directory(
+pub(super) fn names_directory(
 	workspace: &Workspace,
-	revision: &str,
+	revision: Option<&str>,
 	path: &RepoPath,
 ) -> Result<bool, Failure> {
-	let tracked = workspace
-		.repository
-		.commit_snapshot(revision)
-		.map_err(|error| Failure::backend(&error))?
-		.paths()
-		.map_err(|error| Failure::backend(&error))?;
-	Ok(is_directory(workspace, &tracked, path, false))
+	let repository = &workspace.repository;
+	let tracked = match revision {
+		Some(revision) => repository
+			.commit_snapshot(revision)
+			.and_then(|snapshot| snapshot.paths()),
+		None => repository
+			.working_tree_snapshot()
+			.and_then(|snapshot| snapshot.paths()),
+	}
+	.map_err(|error| Failure::backend(&error))?;
+	Ok(is_directory(workspace, &tracked, path, revision.is_none()))
 }
 
 /// The paths on standard input: one per line, relative to the repository

@@ -247,7 +247,8 @@ subject, are left to `check`.
 file gets a "Cited by" section: the documents whose sources name it, each
 with the source as declared. A file that is no document but that documents
 cite, such as `explain src/auth.rs`, is explained as a source, by the same
-list. Only direct citations are listed; [`impact`](#impact) follows them
+list. A directory is no file here either, by the rule of `impact`, so that
+the two commands agree on what they look up. Only direct citations are listed; [`impact`](#impact) follows them
 further. The citing documents are searched from where `explain` runs, in
 that project and the projects nested in it, as `impact` searches, even when
 the subject lies in another project: who cites a file depends on how far one
@@ -298,7 +299,9 @@ file under both its names. `--staged`, for a `pre-commit` hook, reads the
 index that git gives the hook, including the temporary index of `git commit
 -a`. `--rev` reads a commit's declarations, as `check` and `explain` do, and
 cannot be combined with `--changed` or `--staged`. A directory is refused:
-name its files. `impact` without any input is a usage error, so that an
+name its files. A directory is one in git's view of the snapshot read, so a
+submodule, which git tracks as one entry, is a file; in the working tree, a
+directory on disk that git does not track is one too. `impact` without any input is a usage error, so that an
 empty variable in a script fails loudly; `--changed` on a clean tree, or
 empty standard input, is an empty answer.
 

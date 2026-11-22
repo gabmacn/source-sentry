@@ -139,8 +139,10 @@ fn subject_path(subject: &Subject) -> Option<&RepoPath> {
 }
 
 /// The file that `argument` names, when it names one: not a remote
-/// identity, not the repository root and not a directory. With `--rev`, a
-/// directory is one in the commit explained; without it, one on disk.
+/// identity, not the repository root and not a directory. A directory is
+/// one that `impact` refuses: one in git's view of the snapshot explained,
+/// or, in the working tree, a directory on disk that git does not track as
+/// a file.
 ///
 /// # Errors
 ///
@@ -156,12 +158,7 @@ fn local_path(
 	else {
 		return Ok(None);
 	};
-	let directory = match rev {
-		Some(revision) => {
-			super::impact::is_committed_directory(workspace, revision, &path)?
-		}
-		None => workspace.file(&path).is_dir(),
-	};
+	let directory = super::impact::names_directory(workspace, rev, &path)?;
 	Ok((!directory).then_some(path))
 }
 

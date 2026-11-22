@@ -871,6 +871,41 @@ fn explain_rev_looks_up_a_file_in_the_commit_it_explains() {
 	);
 }
 
+/// In the working tree, `explain` and `impact` take the same view of what a
+/// directory is, git's: a submodule, which git tracks as one entry, is a
+/// file to both, though the disk holds a directory there.
+#[test]
+fn explain_and_impact_agree_that_a_submodule_is_no_directory() {
+	let repo = TestRepo::init();
+	repo.add_populated_submodule();
+	repo.write(
+		"docs/guide.md",
+		"---
+source-sentry:
+  sources:
+    - path: /vendor/lib
+---
+# Guide
+",
+	);
+	repo.commit_at("2026-10-03T10:00:00Z");
+
+	let impact = repo.run(&["impact", "vendor/lib"]);
+	assert!(impact.stdout.contains("docs/guide.md"), "{}", impact.stdout);
+	let explain = repo.run(&["explain", "vendor/lib", "--at", AT]);
+	assert_eq!(
+		explain.code, impact.code,
+		"{}{}",
+		explain.stdout, explain.stderr
+	);
+	let cited = explain
+		.stdout
+		.split("Cited by")
+		.nth(1)
+		.expect(&explain.stdout);
+	assert!(cited.contains("docs/guide.md"), "{}", explain.stdout);
+}
+
 /// The `impact` command that `explain --rev` prints reads the same commit,
 /// with the revision quoted for the shell, and lists the documents that
 /// cite the file there, in a source's explanation and in a document's.
