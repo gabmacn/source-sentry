@@ -5,15 +5,17 @@
 //! The colours are the deck's: an ink ground, cream text, and blue only as
 //! a fill, never as text.
 
+use std::collections::BTreeMap;
+
 use ratatui::buffer::{Buffer, CellWidth as _};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use source_sentry_core::model::Outcome;
 
-use super::super::Batch;
 use super::super::changes::Row;
 use super::super::state::Key as Id;
+use super::super::{Batch, BulkReread};
 use super::app::{
 	App, Area, Cursor, Field, Focus, Kept, Key, Kind, Listed, Overlay, Pane,
 	Past, Shown, Target,
@@ -1546,7 +1548,7 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 				"Record the picked"
 			};
 			let keys = [("y", "record them all"), ("n", "go back, the default")];
-			all_box(app, comparisons, title, &ask, &keys, pen, area);
+			all_box(app, comparisons, (title, &ask), None, &keys, pen, area);
 		}
 		Overlay::Reviewer(name) => {
 			let inside = frame(pen, area, 60, 8, "Reviewer");
@@ -1631,29 +1633,70 @@ fn overlay_box(app: &App, overlay: &Overlay, pen: &mut Pen, area: Rect) {
 fn batch_box(app: &App, batch: &Batch, pen: &mut Pen, area: Rect) {
 	let documents =
 		|count| crate::describe::count(count, "document", "documents");
-	let ask = if batch.due.is_empty() {
+	let with = batch.with_rereads;
+	let ((due, unseen), (later, unseen_later)) =
+		(batch.counts(false, with), batch.counts(true, with));
+	let ask = if due > 0 {
 		format!(
-			"None is due yet. Record the {} anyway, including {} you have not seen?",
-			documents(batch.later.len()),
-			batch.unseen_later
+			"Record the {} that are due, including {unseen} you have not seen?",
+			documents(due)
+		)
+	} else if later > 0 {
+		format!(
+			"Nothing else is due. Record the {} not due yet anyway, including \
+			 {unseen_later} you have not seen?",
+			documents(later)
 		)
 	} else {
-		format!(
-			"Record the {} that are due, including {} you have not seen?",
-			documents(batch.due.len()),
-			batch.unseen
-		)
+		"Every document left can only be recorded as reread.".to_owned()
 	};
+	// The documents recorded only by a reread are named, and included only
+	// when the reviewer says so.
+	let note = (!batch.rereads.is_empty()).then(|| {
+		let named = batch.rereads_named(true);
+		if with {
+			format!("Recorded as reread, each read whole: {named}.")
+		} else {
+			format!("Left out, as they can only be recorded as reread: {named}.")
+		}
+	});
 	let listed: Vec<_> = batch.due.iter().chain(&batch.later).cloned().collect();
 	let mut keys = Vec::new();
-	if !batch.due.is_empty() {
+	if due > 0 {
 		keys.push(("y", "record the due ones"));
 	}
-	if !batch.later.is_empty() {
+	if later > 0 {
 		keys.push(("i", "include those not due yet"));
 	}
+	if !batch.rereads.is_empty() {
+		keys.push(("r", if with { "no rereads" } else { "rereads too" }));
+	}
 	keys.push(("n", "go back, the default"));
-	all_box(app, &listed, "Record all remaining", &ask, &keys, pen, area);
+	let rereads = Rereads {
+		marked: &batch.rereads,
+		included: with,
+		note: note.as_deref(),
+	};
+	all_box(
+		app,
+		&listed,
+		("Record all remaining", &ask),
+		Some(&rereads),
+		&keys,
+		pen,
+		area,
+	);
+}
+
+/// The documents of a confirmation that can only be recorded by a reread:
+/// each is marked in the list, and a note under the question names them.
+struct Rereads<'a> {
+	/// The documents, and why each is recorded by a reread.
+	marked: &'a BTreeMap<Id, BulkReread>,
+	/// Whether the reviewer included them.
+	included: bool,
+	/// The note that names them, if any.
+	note: Option<&'a str>,
 }
 
 /// A box with a path or a name whole, wrapped where a row had to cut it,
@@ -2023,8 +2066,8 @@ fn keys_box(pen: &mut Pen, area: Rect) {
 fn all_box(
 	app: &App,
 	comparisons: &[(Id, source_sentry_core::mutate::DocumentDiff)],
-	title: &str,
-	ask: &str,
+	(title, ask): (&str, &str),
+	rereads: Option<&Rereads<'_>>,
 	keys: &[(&str, &str)],
 	pen: &mut Pen,
 	area: Rect,
@@ -2032,6 +2075,9 @@ fn all_box(
 	let rows = count(comparisons.len()).saturating_add(8);
 	let inside = frame(pen, area, 76, rows, title);
 	pen.text(inside.x, inside.y, ask, strong(), inside.width);
+	if let Some(note) = rereads.and_then(|rereads| rereads.note) {
+		pen.text(inside.x, inside.y + 1, note, dim(), inside.width);
+	}
 	// Only the list scrolls: the question above it and the keys below it
 	// stay in place.
 	let list = Rect::new(
@@ -2073,8 +2119,20 @@ fn all_box(
 				Style::new().fg(outcome_color(Outcome::Warn))
 			},
 		);
-		if later {
-			pen.right(end.saturating_sub(2), y, NOT_DUE, not_due());
+		let end = if later {
+			pen.right(end.saturating_sub(2), y, NOT_DUE, not_due())
+		} else {
+			end
+		};
+		if let Some(rereads) = rereads
+			&& rereads.marked.contains_key(id)
+		{
+			let (tag, style) = if rereads.included {
+				("reread", strong())
+			} else {
+				("left out", dim())
+			};
+			pen.right(end.saturating_sub(2), y, tag, style);
 		}
 	});
 	pen.keys(inside.x, inside.bottom() - 1, keys);

@@ -88,7 +88,8 @@ pub struct Seal {
 	pub oid: ObjectId,
 }
 
-/// A schedule: a grace period and an optional cadence.
+/// A schedule: a grace period, an optional cadence and an optional reread
+/// schedule.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Schedule {
@@ -100,9 +101,14 @@ pub struct Schedule {
 	/// inherited value applies.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub grace: Option<u32>,
+	/// The dates on which the whole document is due to be reread: inherited
+	/// when absent, removed by `null`, or set. It is written as a cadence is.
+	#[serde(default, skip_serializing_if = "CadenceSetting::is_inherit")]
+	pub reread: CadenceSetting,
 }
 
-/// What a schedule says about its cadence.
+/// What a schedule says about its cadence, or about its reread schedule,
+/// which is written the same way.
 ///
 /// Written as a missing key, `null` or a cadence. `null` is the one empty value
 /// with a meaning: it removes a cadence that would otherwise be inherited.

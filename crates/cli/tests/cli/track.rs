@@ -421,10 +421,13 @@ fn track_writes_the_declaration_it_is_given() {
 			"docs/other.md",
 			"--on-file",
 			"--no-cadence",
+			"--no-reread",
 			"--yes",
 		])
 		.expect_code(0);
-	assert!(repo.read("docs/other.md").contains("cadence: null"));
+	let other = repo.read("docs/other.md");
+	assert!(other.contains("cadence: null"), "{other}");
+	assert!(other.contains("reread: null"), "{other}");
 }
 
 /// `track` on a tracked document adds to its declaration where it is,

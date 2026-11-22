@@ -19,7 +19,7 @@ use crate::evaluate::clock::ClockStart;
 use crate::evaluate::schedule::Deadline;
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{
-	DocumentId, Fact, Lifecycle, ObjectId, Outcome, RepoPath, Rule,
+	DocumentId, Fact, Lifecycle, ObjectId, Outcome, RepoPath, Review, Rule,
 };
 use crate::policy::{
 	ContextOrigin, ErrorKind, ExitCode, Judgement, RuleRef, SelectedContext,
@@ -216,16 +216,18 @@ pub enum RuleOrigin {
 pub struct Subject {
 	/// What is judged, and the evidence specific to it.
 	pub kind: SubjectKind,
-	/// The effective classes, owners, grace and cadence, each with its origin.
+	/// The effective classes, owners, grace, cadence and reread schedule, each
+	/// with its origin.
 	/// An unclaimed file and a series take the defaults of their directory or
 	/// scope.
 	pub settings: EffectiveSettings,
 	/// The facts.
 	pub facts: BTreeSet<Fact>,
 	/// The next deadline: for a document, the earliest outstanding one of its
-	/// clocks; for a series, the end of its first uncredited window
-	/// that is not missed. It lies in the past when the subject is
-	/// overdue. `None` when no clock runs.
+	/// clocks, its reread deadline included, whose kind says which it is; for
+	/// a series, the end of its first uncredited window that is not missed.
+	/// It lies in the past when the subject is overdue. `None` when no clock
+	/// runs.
 	pub deadline: Option<Deadline>,
 	/// The rules that configs add to the applied context for this subject's
 	/// scope, in resolution order. [`RuleRef::Scoped`] indexes this list.
@@ -308,6 +310,11 @@ pub struct LiveDocument {
 	/// declaration, which started at the commit that introduced it. `None`
 	/// when the document has been reviewed.
 	pub unattested: Option<Timing>,
+	/// Its reread schedule, evaluated, when one applies to it. `None` when
+	/// it has no reread schedule, when its reread schedule is invalid or its
+	/// last reread is dated in the future, which a configuration error
+	/// reports, and for a series entry awaiting its seal.
+	pub reread: Option<Box<RereadClock>>,
 	/// Each source path, in declared order; a pattern contributes each of
 	/// its current matches and attested members, sorted by path.
 	pub sources: Vec<SourceReport>,
@@ -319,6 +326,73 @@ pub struct LiveDocument {
 	/// which make this document `upstream-due`. Each is also among
 	/// `stale_upstreams`.
 	pub due_upstreams: Vec<RepoPath>,
+}
+
+impl LiveDocument {
+	/// The earliest outstanding deadline of its changes: its declaration's
+	/// while it has never been reviewed, otherwise its sources'. `None` when
+	/// no change clock runs. Its reread deadline is not among them.
+	#[must_use]
+	pub fn change_deadline(&self) -> Option<Deadline> {
+		earliest(self.change_deadlines())
+	}
+
+	/// Every outstanding deadline of its changes, as
+	/// [`Self::change_deadline`] chooses from.
+	pub fn change_deadlines(&self) -> impl Iterator<Item = Deadline> + '_ {
+		self
+			.unattested
+			.iter()
+			.chain(self.sources.iter().map(|source| &source.timing))
+			.filter_map(Timing::deadline)
+	}
+
+	/// Its reread deadline, when it has one.
+	#[must_use]
+	pub fn reread_deadline(&self) -> Option<&Deadline> {
+		self.reread.as_ref()?.deadline.as_ref()
+	}
+}
+
+/// The deadline due first among `deadlines`: by the instant it is due, then
+/// a started one before a provisional one, then by the instant it is
+/// overdue, then a change's before a reread's.
+pub(crate) fn earliest(
+	deadlines: impl IntoIterator<Item = Deadline>,
+) -> Option<Deadline> {
+	deadlines.into_iter().min_by_key(|deadline| {
+		(
+			deadline.due_from,
+			deadline.provisional,
+			deadline.overdue_from,
+			deadline.kind,
+		)
+	})
+}
+
+/// A live document's reread schedule, evaluated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RereadClock {
+	/// What its count starts from.
+	pub base: RereadBase,
+	/// When the document is due to be reread whole, or `None` when it
+	/// cannot be computed: the time zone is invalid, the declaration's clock
+	/// could not be dated, or the schedule has no due date, which a
+	/// diagnostic reports.
+	pub deadline: Option<Deadline>,
+}
+
+/// What a reread schedule counts from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RereadBase {
+	/// The document's last whole-document reread, its declaration's
+	/// `reviewed`, at the instant stored there.
+	Reread(Review),
+	/// The document was never reread, so the count starts at its
+	/// declaration: the clock that starts at the commit that introduced it,
+	/// as an unattested document's does. Its deadline, if any, is the
+	/// reread deadline.
+	Declared(Timing),
 }
 
 /// One source of a live document.
@@ -400,6 +474,20 @@ pub enum Timing {
 	/// The clock could not be dated: the history is shallow or the
 	/// timestamp is too far in the future. An operational error says which.
 	Failed,
+}
+
+impl Timing {
+	/// The deadline this clock gives, when it gives one: a started clock's,
+	/// or the provisional deadline of a change that exists only in the
+	/// working tree.
+	#[must_use]
+	pub fn deadline(&self) -> Option<Deadline> {
+		match self {
+			Self::Started(clock) => clock.deadline,
+			Self::NotStarted(provisional) => *provisional,
+			Self::Idle | Self::Unknown | Self::Failed => None,
+		}
+	}
 }
 
 /// A clock that started, with the deadline it gives.

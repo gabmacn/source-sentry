@@ -9,7 +9,7 @@ use super::common::{
 	instant, scope,
 };
 use crate::claims::Mode;
-use crate::evaluate::schedule::Deadline;
+use crate::evaluate::schedule::{Deadline, DeadlineKind};
 use crate::evaluate::settings::{Effective, EffectiveSettings};
 use crate::evaluate::{
 	self, DocumentState, DocumentSubject, Evaluation, RecordCheck, RecordState,
@@ -413,6 +413,9 @@ pub struct DeadlineReport {
 	pub due: Option<String>,
 	/// The first instant at which it is due.
 	pub due_from: String,
+	/// What it asks for: `change`, the review of a change, or `reread`, a
+	/// reread of the whole document on its reread schedule.
+	pub kind: &'static str,
 	/// The first instant at which it is overdue.
 	pub overdue_from: String,
 	/// Whether the deadline dates a change that exists only in the working
@@ -426,6 +429,10 @@ impl From<&Deadline> for DeadlineReport {
 		Self {
 			due: deadline.due.map(|due| due.to_string()),
 			due_from: instant(deadline.due_from),
+			kind: match deadline.kind {
+				DeadlineKind::Change => "change",
+				DeadlineKind::Reread => "reread",
+			},
 			overdue_from: instant(deadline.overdue_from),
 			provisional: deadline.provisional,
 		}
@@ -477,6 +484,8 @@ pub struct SettingsReport {
 	pub grace: SettingReport<u32>,
 	/// The owner identifiers.
 	pub owners: SettingReport<Vec<String>>,
+	/// The reread schedule, or `null` for none.
+	pub reread: SettingReport<Option<Cadence>>,
 }
 
 impl SettingsReport {
@@ -492,6 +501,7 @@ impl From<&EffectiveSettings> for SettingsReport {
 			classes: SettingReport::from(&settings.classes),
 			grace: SettingReport::from(&settings.grace),
 			owners: SettingReport::from(&settings.owners),
+			reread: SettingReport::from(&settings.reread),
 		}
 	}
 }

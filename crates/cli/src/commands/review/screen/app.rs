@@ -19,7 +19,9 @@ use source_sentry_core::mutate::{
 use super::super::Batch;
 use super::super::changes::{self, Entry, Row};
 use super::super::session::{CHANGED, Session, Undone, Written};
-use super::super::state::{Document, Key as Id, Stamp, State as Evaluated};
+use super::super::state::{
+	Document, Key as Id, Reread, Stamp, State as Evaluated,
+};
 use crate::cli::ReviewArgs;
 use crate::describe;
 use crate::exit::Failure;
@@ -1743,23 +1745,35 @@ impl<'a> App<'a> {
 		match (overlay, key) {
 			(_, Key::Interrupt) => return Ok(Flow::Quit),
 			(Overlay::All(batch), Key::Char('y' | 'Y')) => {
-				if batch.due.is_empty() {
-					// Nothing is due; only `i` records.
+				if batch.counts(false, batch.with_rereads).0 == 0 {
+					// Nothing it would take is due; only `i` or `r` changes that.
 					self.overlay = Some(Overlay::All(batch));
 				} else {
-					return self.record_all(batch.due, false);
+					return self.record_all(batch.chosen(false, batch.with_rereads));
 				}
 			}
 			(Overlay::All(batch), Key::Char('i' | 'I')) => {
-				if batch.later.is_empty() {
+				if batch.counts(true, batch.with_rereads).0 == 0 {
 					self.overlay = Some(Overlay::All(batch));
 				} else {
-					let every = batch.due.into_iter().chain(batch.later).collect();
-					return self.record_all(every, false);
+					return self.record_all(batch.chosen(true, batch.with_rereads));
 				}
 			}
+			// Includes the documents that can only be recorded by a reread,
+			// or leaves them out again.
+			(Overlay::All(mut batch), Key::Char('r' | 'R')) => {
+				if !batch.rereads.is_empty() {
+					batch.with_rereads = !batch.with_rereads;
+				}
+				self.overlay = Some(Overlay::All(batch));
+			}
 			(Overlay::Picked(comparisons, _, reread), Key::Char('y' | 'Y')) => {
-				return self.record_all(comparisons, reread);
+				return self.record_all(
+					comparisons
+						.into_iter()
+						.map(|(id, compared)| (id, compared, reread))
+						.collect(),
+				);
 			}
 			(Overlay::Reviewer(mut name), Key::Char(character)) => {
 				name.push(character);
@@ -2061,7 +2075,10 @@ impl<'a> App<'a> {
 	}
 
 	/// Holds an answer until Enter confirms it, when the document can take
-	/// that answer.
+	/// that answer. A plain yes to the whole document holds a reread when
+	/// its reread is due and none of its sources changed, since nothing else
+	/// is left to confirm, and when it has no sources, since it takes no
+	/// other review; its question then says so.
 	fn arm(&mut self, reread: bool) {
 		// Several documents are confirmed in a box that lists them.
 		if !self.picked.is_empty() {
@@ -2085,7 +2102,14 @@ impl<'a> App<'a> {
 				"Nothing changed since the last review; r records a reread.".to_owned(),
 			);
 		} else {
-			self.armed = Some(reread);
+			// A document without sources takes no other review, so its
+			// question names the reread it records.
+			let rereads = self.picked_sources.is_empty()
+				&& shown.compared.as_ref().is_some_and(|compared| {
+					compared.sources.is_empty()
+						|| self.session.yes_rereads(&shown.id, compared)
+				});
+			self.armed = Some(reread || rereads);
 		}
 	}
 
@@ -2162,8 +2186,10 @@ impl<'a> App<'a> {
 
 	/// Opens the confirmation for recording every document that needs
 	/// review, with the comparisons of the latest evaluation, which the
-	/// screen has mostly read already. It records the due documents, and
-	/// those not due yet only on request. Each write checks its comparison
+	/// screen has mostly read already. It records the due documents, those
+	/// not due yet only on request, and those that can only be recorded by
+	/// a reread only when the reviewer includes them with `r`, which says
+	/// that each is then recorded as reread. Each write checks its comparison
 	/// against the working tree again. A document that cannot be compared
 	/// cannot be recorded, so it is left out.
 	fn ask_all(&mut self) {
@@ -2185,8 +2211,9 @@ impl<'a> App<'a> {
 	}
 
 	/// Opens the confirmation for recording the picked documents, in the
-	/// sidebar's order. A plain yes needs something to review, so it leaves
-	/// out a document that needs nothing; a reread takes every live one.
+	/// sidebar's order. A plain yes needs something to review and records no
+	/// reread, so it leaves out a document that needs nothing and one that it
+	/// could only record by a reread; a reread takes every live one.
 	fn ask_picked(&mut self, reread: bool) {
 		let picked: Vec<Id> = self
 			.open
@@ -2199,7 +2226,7 @@ impl<'a> App<'a> {
 			.into_iter()
 			.filter_map(|id| {
 				let compared = self.cached(&id).compared.clone()?;
-				self.takes(&id, reread).then_some((id, compared))
+				self.takes(&id, &compared, reread).then_some((id, compared))
 			})
 			.collect();
 		if comparisons.is_empty() {
@@ -2214,38 +2241,46 @@ impl<'a> App<'a> {
 	}
 
 	/// Whether a document takes an answer given to several at once, by the
-	/// latest evaluation: a reread takes every live document, and a plain yes
-	/// one that needs review, whether or not it was named when the session
-	/// started. The confirmation lists what this takes, and the batch records
+	/// latest evaluation and `compared`, the comparison the answer records: a
+	/// reread takes every live document, and a plain yes one that needs
+	/// review, whether or not it was named when the session started. A plain
+	/// yes leaves out a document that it could only record by a reread, one
+	/// whose reread is all it needs or one without sources, since nothing is
+	/// reread without the word before the person who confirms it; `r` takes
+	/// them. The confirmation lists what this takes, and the batch records
 	/// what it still takes when its turn comes.
-	fn takes(&self, id: &Id, reread: bool) -> bool {
+	fn takes(&self, id: &Id, compared: &DocumentDiff, reread: bool) -> bool {
 		self
 			.session
 			.state
 			.documents
 			.get(id)
-			.is_some_and(|document| reread || document.pending)
+			.is_some_and(|document| {
+				reread
+					|| (document.pending
+						&& document.reread != Reread::Only
+						&& !compared.sources.is_empty())
+			})
 	}
 
-	/// Records every confirmed comparison. One that no longer takes the
-	/// answer, such as one that no longer needs review after an earlier
-	/// write, is passed over. A source that changed since the confirmation
+	/// Records every confirmed comparison, each with whether it records a
+	/// reread. One that no longer takes the answer, such as one that no
+	/// longer needs review after an earlier write, is passed over. A source that changed since the confirmation
 	/// stops the batch. A write that fails stops it too, and ends the
 	/// session: the reviews written before it stand, so the failure says how
 	/// many there were and which document was not recorded, and is kept in
 	/// [`Self::failed`] until the closing has listed them.
 	fn record_all(
 		&mut self,
-		comparisons: Vec<(Id, DocumentDiff)>,
-		reread: bool,
+		comparisons: Vec<(Id, DocumentDiff, bool)>,
 	) -> Result<Flow, Failure> {
 		let mut recorded = 0;
 		let mut stopped = false;
 		let mut failed = None;
 		// One answer records them all, so they are taken back together.
 		let from = self.session.steps().len();
-		for (id, compared) in comparisons {
-			if !self.takes(&id, reread) {
+		for (id, compared, reread) in comparisons {
+			if !self.takes(&id, &compared, reread) {
 				continue;
 			}
 			self.cache.remove(&id);

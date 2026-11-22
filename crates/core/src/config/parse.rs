@@ -17,10 +17,10 @@ use super::error::{ConfigError, ConfigErrorKind, Position};
 use super::pattern::{PathPattern, PatternError, SeriesPattern, quote};
 use super::{SUPPORTED_VERSIONS, diagnose};
 use crate::adapters::Adapter;
-use crate::evaluate::schedule::EffectiveSchedule;
+use crate::evaluate::schedule::invalid_rules;
 use crate::model::{
-	ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule, Schedule,
-	VersionKind,
+	CadenceSetting, ClassName, Context, Fact, Lifecycle, Outcome, RepoPath, Rule,
+	Schedule, VersionKind,
 };
 use crate::yaml::{StrictSchedule, WholeNumber};
 
@@ -154,11 +154,12 @@ pub(super) struct Parsed {
 	pub(super) classes: Option<Located<Vec<Located<ClassName>>>>,
 	pub(super) owners: Option<Located<Vec<String>>>,
 	pub(super) schedule: Option<Located<Schedule>>,
-	/// Where `schedule.grace` and `schedule.cadence` themselves are, when
-	/// they are written, so that their origins name their own lines rather
-	/// than the `schedule` mapping's.
+	/// Where `schedule.grace`, `schedule.cadence` and `schedule.reread`
+	/// themselves are, when they are written, so that their origins name
+	/// their own lines rather than the `schedule` mapping's.
 	pub(super) grace_position: Option<Position>,
 	pub(super) cadence_position: Option<Position>,
+	pub(super) reread_position: Option<Position>,
 	pub(super) documents: Option<Located<Documents>>,
 	pub(super) rules: Option<Located<RuleMap>>,
 	pub(super) series:
@@ -596,6 +597,9 @@ impl Converter<'_> {
 			cadence_position: schedule
 				.as_ref()
 				.and_then(|_| self.position_of("schedule.cadence")),
+			reread_position: schedule
+				.as_ref()
+				.and_then(|_| self.position_of("schedule.reread")),
 			schedule,
 			documents,
 			rules,
@@ -641,16 +645,17 @@ impl Converter<'_> {
 		}
 	}
 
-	/// Reports a cadence that is not a valid recurrence rule, whether or not
-	/// any document uses it yet.
+	/// Reports each cadence or reread schedule that is not a valid
+	/// recurrence rule, at its own field, whether or not any document uses
+	/// it yet.
 	fn schedule(
 		&mut self,
 		schedule: &Schedule,
 		setting: &str,
 		position: Position,
 	) {
-		if let Err(error) = EffectiveSchedule::new(schedule) {
-			let field = format!("{setting}.cadence");
+		for (rule, error) in invalid_rules(schedule) {
+			let field = format!("{setting}.{rule}");
 			let position = self.position_of(&field).unwrap_or(position);
 			self.report(
 				ConfigErrorKind::InvalidSchedule {
@@ -661,6 +666,38 @@ impl Converter<'_> {
 				None,
 			);
 		}
+	}
+
+	/// Reports a series' own schedule that sets `reread`, in favour of the
+	/// schedule of the config itself, and validates its cadence as any
+	/// other.
+	fn series_schedule(
+		&mut self,
+		schedule: &Schedule,
+		setting: &str,
+		position: Position,
+	) {
+		if !schedule.reread.is_inherit() {
+			let field = format!("{setting}.reread");
+			let at = self.position_of(&field).unwrap_or(position);
+			self.report(
+				ConfigErrorKind::RereadInSeries,
+				&field,
+				at,
+				Some(
+					"Set `reread` in this file's top-level `schedule` instead, which \
+					 applies to the documents of its directory, the series' living \
+					 entry included"
+						.to_owned(),
+				),
+			);
+		}
+
+		let cadence = Schedule {
+			reread: CadenceSetting::Inherit,
+			..schedule.clone()
+		};
+		self.schedule(&cadence, setting, position);
 	}
 
 	fn time_zone(
@@ -952,11 +989,8 @@ impl Converter<'_> {
 				.value(raw.value.schedule, &format!("{setting}.schedule"))
 				.map(StrictSchedule::located)
 				.map(|schedule| {
-					self.schedule(
-						&schedule.value,
-						&format!("{setting}.schedule"),
-						schedule.position,
-					);
+					let field = format!("{setting}.schedule");
+					self.series_schedule(&schedule.value, &field, schedule.position);
 					schedule.value
 				});
 			let pattern = pattern.and_then(|pattern| {

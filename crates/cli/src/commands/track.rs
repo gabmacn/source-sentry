@@ -161,36 +161,57 @@ fn register_request(
 	})
 }
 
-/// The schedule that `--grace`, `--cadence` and `--no-cadence` write, if
-/// any.
+/// The schedule that `--grace`, `--cadence`, `--no-cadence`, `--reread` and
+/// `--no-reread` write, if any.
 fn schedule(args: &TrackArgs) -> Result<Option<Schedule>, Failure> {
 	let cadence = if args.no_cadence {
 		CadenceSetting::Remove
 	} else if let Some(values) = &args.cadence {
-		let [dtstart, rrule] = values.as_slice() else {
-			return Err(Failure::usage(
-				"--cadence takes two values: <dtstart> <rrule>",
-			));
-		};
-		let dtstart = parse_date(dtstart).ok_or_else(|| {
-			Failure::usage(format!(
-				"the cadence's start `{dtstart}` is not a date written YYYY-MM-DD, such as 2026-12-01"
-			))
-		})?;
-		CadenceSetting::Set(Cadence {
-			dtstart,
-			rrule: rrule.clone(),
-		})
+		CadenceSetting::Set(rule(values, "--cadence", "cadence")?)
 	} else {
 		CadenceSetting::Inherit
 	};
-	if args.grace.is_none() && cadence.is_inherit() {
+	let reread = if args.no_reread {
+		CadenceSetting::Remove
+	} else if let Some(values) = &args.reread {
+		CadenceSetting::Set(rule(values, "--reread", "reread schedule")?)
+	} else {
+		CadenceSetting::Inherit
+	};
+
+	if args.grace.is_none() && cadence.is_inherit() && reread.is_inherit() {
 		return Ok(None);
 	}
 	Ok(Some(Schedule {
 		cadence,
 		grace: args.grace,
+		reread,
 	}))
+}
+
+/// The rule that `option`, such as `--cadence`, gives as its two `values`:
+/// its first due date and its recurrence rule. `what` names the rule in an
+/// error, such as `cadence`. The schedule module validates the rule.
+fn rule(
+	values: &[String],
+	option: &str,
+	what: &str,
+) -> Result<Cadence, Failure> {
+	let [dtstart, rrule] = values else {
+		return Err(Failure::usage(format!(
+			"{option} takes two values: <dtstart> <rrule>"
+		)));
+	};
+	let dtstart = parse_date(dtstart).ok_or_else(|| {
+		Failure::usage(format!(
+			"the {what}'s start `{dtstart}` is not a date written YYYY-MM-DD, such as 2026-12-01"
+		))
+	})?;
+
+	Ok(Cadence {
+		dtstart,
+		rrule: rrule.clone(),
+	})
 }
 
 /// A placement, with its directory converted to a repository path.
@@ -329,6 +350,16 @@ fn declaration_fields(
 				);
 			}
 		}
+		match &schedule.reread {
+			CadenceSetting::Inherit => {}
+			CadenceSetting::Remove => {
+				text.push_str("  reread   none, even if one is inherited\n");
+			}
+			CadenceSetting::Set(reread) => {
+				let _ =
+					writeln!(text, "  reread   {} from {}", reread.rrule, reread.dtstart);
+			}
+		}
 	}
 	if let Some(url) = &declaration.url {
 		let _ = writeln!(text, "  url      {url}");
@@ -415,7 +446,7 @@ fn names<T: AsRef<str>>(names: &[T]) -> String {
 	}
 }
 
-/// A cadence, or `none`.
+/// A cadence or a reread schedule, or `none`.
 fn cadence(cadence: Option<&Cadence>) -> String {
 	cadence.map_or_else(
 		|| "none".to_owned(),
@@ -449,6 +480,11 @@ pub(super) fn settings_preview(text: &mut String, preview: &SettingsPreview) {
 				"cadence",
 				cadence(preview.before.cadence.value.as_ref()),
 				cadence(preview.after.cadence.value.as_ref()),
+			),
+			Setting::Reread => (
+				"reread",
+				cadence(preview.before.reread.value.as_ref()),
+				cadence(preview.after.reread.value.as_ref()),
 			),
 		};
 		let _ = writeln!(text, "  {name} changes: {before} → {after}");

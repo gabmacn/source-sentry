@@ -32,6 +32,7 @@ fn predecessor(sealed: bool) -> Declaration {
 				dtstart: "2026-12-01".parse().unwrap(),
 				rrule: "FREQ=MONTHLY".to_owned(),
 			}),
+			reread: CadenceSetting::Inherit,
 		}),
 		sources: vec![
 			SourceDecl::Path(PathSource {
@@ -227,6 +228,7 @@ fn additions_and_schedule_overrides_match_extension() {
 	request.schedule = Some(Schedule {
 		grace: Some(14),
 		cadence: CadenceSetting::Remove,
+		reread: CadenceSetting::Inherit,
 	});
 	let planned =
 		track(&tree.snapshot, &tree.configs, &tree.inventory, &request).unwrap();
@@ -289,6 +291,7 @@ fn partial_schedule_overrides_preserve_other_fields() {
 			Schedule {
 				grace: Some(14),
 				cadence: CadenceSetting::Inherit,
+				reread: CadenceSetting::Inherit,
 			},
 			Schedule {
 				grace: Some(14),
@@ -299,10 +302,12 @@ fn partial_schedule_overrides_preserve_other_fields() {
 			Schedule {
 				grace: None,
 				cadence: CadenceSetting::Remove,
+				reread: CadenceSetting::Inherit,
 			},
 			Schedule {
 				grace: Some(7),
 				cadence: CadenceSetting::Remove,
+				reread: CadenceSetting::Inherit,
 			},
 		),
 	] {

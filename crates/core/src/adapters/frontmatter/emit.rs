@@ -2,10 +2,10 @@
 //! `structure/example.yaml`.
 //!
 //! - Fields come in this order: `reviewed`, `completed`, `renamed`, `classes`,
-//!   `owners`, `schedule` (`grace`, then `cadence`) and `sources`; a path
-//!   source lists `path`, `oid` and `reviewed`, and a pattern source lists
-//!   `pattern`, `reviewed` and `members`. `completed`, which the example lacks,
-//!   follows `reviewed`, the other review event.
+//!   `owners`, `schedule` (`grace`, `cadence`, then `reread`) and `sources`;
+//!   a path source lists `path`, `oid` and `reviewed`, and a pattern source
+//!   lists `pattern`, `reviewed` and `members`. `completed`, which the
+//!   example lacks, follows `reviewed`, the other review event.
 //! - Indentation is two spaces, and sequences of mappings are indented under
 //!   their key.
 //! - `classes` and `owners` are flow sequences.
@@ -102,7 +102,10 @@ impl Out<'_> {
 	}
 
 	fn schedule(&mut self, schedule: &Schedule) {
-		if schedule.grace.is_none() && schedule.cadence.is_inherit() {
+		if schedule.grace.is_none()
+			&& schedule.cadence.is_inherit()
+			&& schedule.reread.is_inherit()
+		{
 			self.line(1, "schedule: {}");
 			return;
 		}
@@ -110,14 +113,20 @@ impl Out<'_> {
 		if let Some(grace) = schedule.grace {
 			self.line(2, &format!("grace: {grace}"));
 		}
-		match &schedule.cadence {
+		self.rule("cadence", &schedule.cadence);
+		self.rule("reread", &schedule.reread);
+	}
+
+	/// A schedule's `cadence` or `reread`, named `key`: nothing when it is
+	/// inherited, `null` when it removes an inherited one, or the rule.
+	fn rule(&mut self, key: &str, setting: &CadenceSetting) {
+		match setting {
 			CadenceSetting::Inherit => {}
-			// Removes an inherited cadence.
-			CadenceSetting::Remove => self.line(2, "cadence: null"),
-			CadenceSetting::Set(cadence) => {
-				self.line(2, "cadence:");
-				self.line(3, &format!("dtstart: {}", cadence.dtstart));
-				self.line(3, &format!("rrule: {}", quote(&cadence.rrule)));
+			CadenceSetting::Remove => self.line(2, &format!("{key}: null")),
+			CadenceSetting::Set(rule) => {
+				self.line(2, &format!("{key}:"));
+				self.line(3, &format!("dtstart: {}", rule.dtstart));
+				self.line(3, &format!("rrule: {}", quote(&rule.rrule)));
 			}
 		}
 	}

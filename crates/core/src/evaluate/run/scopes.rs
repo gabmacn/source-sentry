@@ -387,6 +387,25 @@ impl<'c> Scopes<'c> {
 			cadence,
 		})
 	}
+
+	/// The validated reread schedule of `settings`, or `None` when it has
+	/// none or it is invalid. As with [`Self::schedule`], an invalid written
+	/// reread schedule has already been reported where it is written, and a
+	/// reread schedule shares the expansion of a cadence with the same rule.
+	pub(super) fn reread(
+		&mut self,
+		settings: &EffectiveSettings,
+	) -> Option<Recurrence> {
+		let reread = settings.reread.value.as_ref()?;
+
+		self
+			.cadences
+			.entry((reread.dtstart, reread.rrule.clone()))
+			.or_insert_with(|| Recurrence::new(reread))
+			.as_ref()
+			.ok()
+			.cloned()
+	}
 }
 
 /// The rules that `rules` add to `context`, or none without a context.

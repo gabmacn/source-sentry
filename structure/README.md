@@ -109,6 +109,11 @@ a record, which must never change.
 A review, seal or rename entry must include `by`; use `null` when nobody
 can be identified. This also applies to completion and retirement entries.
 
+A declaration's `schedule` may carry **`reread`**, a reread schedule written
+as `cadence` is, in a lockfile as in frontmatter. The schema remains 1,
+since only files that use it change; Source Sentry 0.1.0 refuses such a
+file as having an unknown field.
+
 **`completed`**, also allowed in frontmatter, holds `at` and `by` for a
 living-series entry's first complete source review. The preset example
 explains how committed completion and seal markers credit series windows.
@@ -206,12 +211,16 @@ format for tools that read it, such as CI jobs.
   - its `outcome`;
   - a `judgement` per fact, whose `rule` is `null` for the context's fallback
     or for `fresh`, which always passes;
-  - for documents, the effective `settings`, each with its origin, the
-    `sources` with their state and clock, and the next `deadline`: the `due`
-    day (`null` when due at once), `due-from` and `overdue-from`, the
-    instants it becomes due and overdue, and `provisional`, true when it
-    dates a change that exists only in the working tree as if committed at
-    `at`; such a deadline moves once the change is committed.
+  - for documents, the effective `settings`, each with its origin: `cadence`,
+    `classes`, `grace`, `owners` and `reread`, the reread schedule; the
+    `sources` with their state and clock; and the next `deadline`, the
+    earliest of the document's change deadlines and its reread deadline:
+    the `due` day (`null` when due at once), `due-from` and `overdue-from`,
+    the instants it becomes due and overdue, `kind`, which is `change` for
+    the review of a change and `reread` for a reread of the whole document,
+    and `provisional`, true when it dates a change or a declaration that
+    exists only in the working tree as if committed at `at`; such a
+    deadline moves once the change is committed.
 - **`origin`** is one of three kinds:
   - `config`: a file, line, import chain and scope. The scope is `repository`,
     `directory:<path>` or `remote:<owner>`, written like `track`'s placements;
@@ -242,7 +251,8 @@ Other JSON variants:
 
 When a config cannot be loaded, nothing is evaluated: the report has
 `context: null`, an empty `subjects` array and an `invalid-config` diagnostic
-for each config error, except invalid cadences, which use `invalid-schedule`.
+for each config error, except invalid cadences and reread schedules, which use
+`invalid-schedule`.
 Its location names the config, so its message says only what is wrong. The
 exit code is 3.
 
@@ -280,7 +290,8 @@ Context rules cannot downgrade errors.
 | `unsupported-defaults-version` | configuration-error | This build lacks the pinned default policy. |
 | `broken-defaults` | configuration-error | The built-in default context is unreadable. |
 | `invalid-time-zone` | configuration-error | The time zone is not an IANA name. |
-| `invalid-schedule` | configuration-error | Cadence is invalid or has no required due date. |
+| `invalid-schedule` | configuration-error | A cadence or reread schedule is invalid or has no required due date. |
+| `future-reread` | configuration-error | A whole-document reread is dated after the evaluation, on a document with a reread schedule. |
 | `submodule` | configuration-error | A source is an unsupported submodule. |
 | `sealed-head` | configuration-error | The newest living-series entry is sealed. |
 | `missing-head` | configuration-error | The newest living entry is missing or retired. |

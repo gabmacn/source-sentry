@@ -127,8 +127,9 @@ pub struct ContextDefinition {
 /// schedule. `None` means that nothing sets the value, since the built-in
 /// defaults set none of them.
 ///
-/// `grace` and `cadence` resolve separately, as two settings, so a config
-/// that sets only `schedule.grace` keeps the inherited cadence.
+/// `grace`, `cadence` and `reread` resolve separately, as three settings, so
+/// a config that sets only `schedule.grace` keeps the inherited cadence and
+/// reread schedule.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DocumentDefaults {
 	/// Classes assigned to documents, including unclaimed files.
@@ -141,6 +142,11 @@ pub struct DocumentDefaults {
 	/// removed an inherited cadence with `cadence: null`. Its rule is kept as
 	/// written; the schedule module validates it.
 	pub cadence: Option<Resolved<Option<Cadence>>>,
+	/// The dates on which a document is due to be reread whole. A value of
+	/// `None` means that a config removed an inherited reread schedule with
+	/// `reread: null`. Its rule is kept as written; the schedule module
+	/// validates it.
+	pub reread: Option<Resolved<Option<Cadence>>>,
 }
 
 impl DocumentDefaults {
@@ -171,12 +177,19 @@ impl DocumentDefaults {
 						.origin(file.grace_position.unwrap_or(schedule.position)),
 				});
 			}
-			// An absent cadence inherits; `null` removes.
+			// An absent cadence or reread schedule inherits; `null` removes.
 			if !schedule.value.cadence.is_inherit() {
 				self.cadence = Some(Resolved {
 					value: schedule.value.cadence.as_set().cloned(),
 					origin: contribution
 						.origin(file.cadence_position.unwrap_or(schedule.position)),
+				});
+			}
+			if !schedule.value.reread.is_inherit() {
+				self.reread = Some(Resolved {
+					value: schedule.value.reread.as_set().cloned(),
+					origin: contribution
+						.origin(file.reread_position.unwrap_or(schedule.position)),
 				});
 			}
 		}

@@ -7,6 +7,7 @@ mod projects;
 mod records;
 mod remotes;
 mod renames;
+mod rereads;
 mod schedules;
 mod series;
 

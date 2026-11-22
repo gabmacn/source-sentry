@@ -21,7 +21,8 @@ use crate::claims::{
 use crate::config::{Resolved, Series};
 use crate::evaluate::cadence::{self, CadenceStatus, Completion};
 use crate::evaluate::schedule::{
-	Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone, add_days,
+	Deadline, DeadlineKind, EffectiveSchedule, Recurrence, ScheduleError,
+	TimeZone, add_days,
 };
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{DocumentId, Fact, Lifecycle, RepoPath, Review, Rule, Seal};
@@ -504,5 +505,6 @@ fn next_deadline(
 		due_from: zone.start_of_day(last_day)?,
 		overdue_from: zone.start_of_day(after)?,
 		provisional: false,
+		kind: DeadlineKind::Change,
 	}))
 }

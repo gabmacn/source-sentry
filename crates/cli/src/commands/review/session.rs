@@ -27,7 +27,7 @@ use source_sentry_git::{ApplyError, WorkingTreeSnapshot};
 use super::closing::{Closing, Part};
 use super::opening::Opening;
 use super::state::{Checkpoint, State, changed_sources};
-use super::{Answer, Batch, Bulk, Interface, View};
+use super::{Answer, Batch, Bulk, BulkReread, Interface, RereadWhy, View};
 use crate::cli::ReviewArgs;
 use crate::exit::{self, Failure};
 use crate::workspace::{Workspace, load_project};
@@ -285,13 +285,60 @@ impl<'a> Session<'a> {
 			.is_some_and(|document| document.due)
 	}
 
+	/// Whether a plain `y` for `id` records a reread of the whole document,
+	/// as `r` does: when its reread is due and none of the sources in
+	/// `compared`, the comparison it answers, changed, so that nothing else
+	/// is left to confirm. A document without sources records one anyway, as
+	/// [`Self::write_selected`] ensures.
+	pub(super) fn yes_rereads(
+		&self,
+		id: &DocumentId,
+		compared: &DocumentDiff,
+	) -> bool {
+		let rereads = self
+			.state
+			.documents
+			.get(id)
+			.is_some_and(|document| document.reread.is_due());
+		rereads
+			&& compared
+				.sources
+				.iter()
+				.flat_map(|source| &source.entries)
+				.all(|entry| !entry.is_changed())
+	}
+
 	/// The confirmation of `a` for `comparisons`: the due documents first,
 	/// then those not due yet, with how many of each the reviewer has not
-	/// seen.
+	/// seen. Among them are named the documents that `a` can only record by
+	/// a reread: those whose reread is due and none of whose sources
+	/// changed, which a plain `y` rereads, and those without sources, which
+	/// take no other review. `a` records them only when the reviewer
+	/// includes them, so that no reread is recorded without the word before
+	/// the person who confirms it.
 	pub(super) fn batch(
 		&self,
 		comparisons: Vec<(DocumentId, DocumentDiff)>,
 	) -> Batch {
+		let rereads = comparisons
+			.iter()
+			.filter_map(|(id, compared)| {
+				let why = if compared.sources.is_empty() {
+					RereadWhy::NoSources
+				} else if self.yes_rereads(id, compared) {
+					RereadWhy::Due
+				} else {
+					return None;
+				};
+				let reread = BulkReread {
+					name: id.display(self.workspace),
+					why,
+					unseen: !self.has_seen(id, compared),
+				};
+				Some((id.clone(), reread))
+			})
+			.collect();
+
 		let (due, later): (Vec<_>, Vec<_>) =
 			comparisons.into_iter().partition(|(id, _)| self.is_due(id));
 		Batch {
@@ -299,6 +346,8 @@ impl<'a> Session<'a> {
 			unseen_later: self.unseen(&later),
 			due,
 			later,
+			rereads,
+			with_rereads: false,
 		}
 	}
 
@@ -701,8 +750,10 @@ impl<'a> Session<'a> {
 	/// Captures and confirms the current queue once. Every source expectation
 	/// is frozen before confirmation; cascades outside this batch are prompted
 	/// individually, and a changed comparison stops the batch for reinspection.
-	/// The confirmation records the due documents by default, and offers to
-	/// include those not due yet, which the queue holds with `--all`.
+	/// The confirmation records the due documents by default, offers to
+	/// include those not due yet, which the queue holds with `--all`, and
+	/// asks whether to include those that can only be recorded by a reread,
+	/// which are then each recorded as reread.
 	fn all(
 		&mut self,
 		view: &View,
@@ -718,16 +769,13 @@ impl<'a> Session<'a> {
 		let comparisons = match ui.confirm_all(&batch)? {
 			None => return Ok(false),
 			Some(Bulk::Leave) => return Ok(true),
-			Some(Bulk::Due) => batch.due,
-			Some(Bulk::Everything) => {
-				batch.due.into_iter().chain(batch.later).collect()
-			}
+			Some(Bulk::Record { later, rereads }) => batch.chosen(later, rereads),
 		};
 		// One answer recorded them all, so they form one step.
 		let from = self.steps.len();
-		for (id, compared) in comparisons {
+		for (id, compared, reread) in comparisons {
 			if self.queue()?.contains(&id)
-				&& !self.record(&id, &compared, false, ui)?
+				&& !self.record(&id, &compared, reread, ui)?
 			{
 				break;
 			}
@@ -824,6 +872,7 @@ pub(super) fn run(
 			reason: session.reasons.get(&id).cloned(),
 			facts: session.state.documents[&id].facts.clone(),
 			outcome: session.state.documents[&id].outcome(),
+			rereads: session.state.documents[&id].reread.is_due(),
 		};
 		session.see(&id, &view.compared);
 		ui.show(workspace, &view);
@@ -857,7 +906,8 @@ pub(super) fn run(
 				}
 				Some(answer @ (Answer::Yes | Answer::Reread)) => {
 					// These variants share the expectation-bound write path.
-					let reread = answer == Answer::Reread;
+					let reread = answer == Answer::Reread
+						|| session.yes_rereads(&id, &view.compared);
 					if !session.record(&id, &view.compared, reread, ui)? {
 						retry = Some(id.clone());
 					}

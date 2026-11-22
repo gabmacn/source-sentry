@@ -35,8 +35,45 @@ that version's section, so a release cannot be made without one.
 - `explain` shows the documents that cite a file. A document or unclaimed
   file gains a "Cited by" section, and a file that is no document but that
   documents cite is explained as a source rather than refused.
+- Reread schedules: `schedule.reread`, written as `cadence` is, gives the
+  dates on which a whole document is due to be reread, so that a document
+  whose sources cannot change, such as one without sources, no longer
+  passes forever. It may be set wherever a schedule may, except in a
+  series' own schedule, and is inherited; `reread: null` removes it. A
+  document is due on the first date after its last reread, or after its
+  declaration when it was never reread, and overdue from the next day,
+  with no grace. Only `attest --reread`, or an answer in `review` that
+  records a reread, resets it.
+- The facts `reread-due` and `reread-overdue`, which the built-in `default`
+  context warns on. They never spread to the documents that cite a
+  document, and never make it `due`, `overdue` or `stale`.
+- `track --reread <dtstart> <rrule>` writes a reread schedule.
+- In `review`, `y` records a reread for a document whose reread is due and
+  whose sources did not change. The confirmation of `a` names the
+  documents it can only record by a reread, those and the documents without
+  sources, and records them, each as reread, only when the reviewer
+  includes them: `r` in the full screen, or a question of its own in the
+  line mode.
+- `check` and `explain` print `attest <document> --reread` for a document
+  whose reread is all it needs, and `explain` shows its last reread and its
+  reread deadline.
+- The JSON report gives the reread schedule among a document's `settings`,
+  in the check report as in the impact report, and says with
+  `"kind": "change"` or `"kind": "reread"` what the `deadline` asks for.
+- The configuration error `future-reread`, for a whole-document reread
+  dated after the check on a document with a reread schedule, since it
+  would postpone the next reread.
+- Lockfiles and frontmatter that use `reread` keep schema 1. Source Sentry
+  0.1.0 refuses such a file as having an unknown field.
 
 ### Changed
+
+- In `review`, neither `a` nor a plain `y` given to several picked
+  documents records a document without sources any longer, since recording
+  such a document records that it was reread whole: `a` records it only
+  when the reviewer includes the rereads in its confirmation, and `r` takes
+  picked ones. A `y` given to a single document still records the reread,
+  and the full screen's question for it now says so.
 
 - Dates and instants are now read and written with `jiff` instead of
   `chrono`, which has been declared unmaintained (RUSTSEC-2026-0543).

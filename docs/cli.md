@@ -156,10 +156,14 @@ is reported but never changes the exit code. Exit 0 can still accompany
 diagnostic warnings or outcomes below the selected threshold; read the
 report even when the gate passes.
 
-Every written cadence is validated when its config or declaration loads,
-including unused presets, overridden settings and sealed records. An invalid
-cadence is reported once at its written line as `invalid-schedule`, a
-configuration error (exit 3). Deadlines and series windows are also checked
+Every written cadence and reread schedule is validated when its config or
+declaration loads, including unused presets, overridden settings and sealed
+records. An invalid one is reported once at its written line as
+`invalid-schedule`, a configuration error (exit 3). A reread schedule in a
+series' own schedule is an `invalid-config` error that points to the
+config's own `schedule`, and a whole-document reread dated after `--at`, on
+a document with a reread schedule, is a `future-reread` configuration error
+at its `reviewed` field. Deadlines and series windows are also checked
 when the inherited grace, repository time zone and relevant clocks are
 resolved; a valid cadence can still lack a required future due date.
 
@@ -187,8 +191,13 @@ warning  empty-pattern  docs/source-sentry.lock:31  `/db/legacy/*.sql` matches n
 The facts are written for people: a fact implied by a more urgent one is
 left out, so an overdue document reads `overdue`, not `stale, due,
 overdue`, and its date says when the review was asked for. A stale document
-that is not due yet says when it will be (`review by`). The JSON report lists
-every fact.
+that is not due yet says when it will be (`review by`). A document on a
+[reread schedule](how-it-works.md#reread-schedules) reads
+`reread-due (reread by 2026-12-01)` or
+`reread-overdue (missed reread by 2026-12-01)`, with the date of its
+reread rather than that of a change. The JSON report lists every fact, and
+its `deadline`, the earliest of a document's change deadlines and its
+reread deadline, says which it is with `kind`: `change` or `reread`.
 
 A change is dated by its clock, which counts from the earliest committer
 date from that commit to the one checked. A later commit dated earlier, for
@@ -220,6 +229,10 @@ A diagnostic about a document, such as a missing source, is shown under that
 document, which is then listed even when it passes. Other diagnostics follow
 the subjects.
 
+For a document whose reread is all it needs, `reread-due` or
+`reread-overdue` and no other fact, `check` and `explain` show the
+`source-sentry attest <document> --reread` command that records the reread.
+
 For an unclaimed series entry with a declared predecessor, `check` and
 `explain` show the `source-sentry track <path>` command and the predecessor
 whose declaration it would inherit. The JSON unclaimed subject adds
@@ -232,32 +245,35 @@ yet. It never changes the exit code.
 
 `explain <document|path|series>` prints each subject it names in full: its
 effective settings and where each comes from, its facts, the rules that
-matched, the timing evidence and its next deadline. A document claimed twice
-is explained once per claim, and a series name defined in several scopes
-once per scope. It takes the same `--context`, `--rev` and `--at` as
-`check`, but it is not a gate: a failing subject still exits 0. The
-diagnostics about the subject follow: those about its document, and the
-errors of its own project that stop it being judged, such as a `--context`
-that the project does not declare. An error among them sets the exit code
-as it would for `check`: 3, or 4 when, for example, a clock cannot be
-dated. Diagnostics of other projects, and those that do not concern the
+matched, the timing evidence and its next deadline. For a document on a
+reread schedule, that evidence includes its last reread, or, when it was
+never reread, the clock of its declaration, with its reread deadline. A
+document claimed twice is explained once per claim, and a series name
+defined in several scopes once per scope. It takes the same `--context`,
+`--rev` and `--at` as `check`, but it is not a gate: a failing subject still
+exits 0. The diagnostics about the subject follow: those about its document,
+and the errors of its own project that stop it being judged, such as a
+`--context` that the project does not declare. An error among them sets the
+exit code as it would for `check`: 3, or 4 when, for example, a clock cannot
+be dated. Diagnostics of other projects, and those that do not concern the
 subject, are left to `check`.
 
-`explain` also shows who cites a file. A local document or an unclaimed
-file gets a "Cited by" section: the documents whose sources name it, each
-with the source as declared. A file that is no document but that documents
-cite, such as `explain src/auth.rs`, is explained as a source, by the same
-list. A directory is no file here either, by the rule of `impact`, so that
-the two commands agree on what they look up. Only direct citations are listed; [`impact`](#impact) follows them
-further. The citing documents are searched from where `explain` runs, in
-that project and the projects nested in it, as `impact` searches, even when
-the subject lies in another project: who cites a file depends on how far one
-searches, not on the file's own project, and run from the same place, the
-two commands then agree. A note names the projects that were not searched.
-An unreadable lockfile or config among the searched projects, which may
-hide a citing document, sets the exit code to 3, as it does for `impact`. A
-name that matches nothing, and that no document cites, exits 2; the message
-names any such error, since it may hide a document that cites the name.
+`explain` also shows who cites a file. A local document or an unclaimed file
+gets a "Cited by" section: the documents whose sources name it, each with
+the source as declared. A file that is no document but that documents cite,
+such as `explain src/auth.rs`, is explained as a source, by the same list. A
+directory is no file here either, by the rule of `impact`, so that the two
+commands agree on what they look up. Only direct citations are listed;
+[`impact`](#impact) follows them further. The citing documents are searched
+from where `explain` runs, in that project and the projects nested in it, as
+`impact` searches, even when the subject lies in another project: who cites
+a file depends on how far one searches, not on the file's own project, and
+run from the same place, the two commands then agree. A note names the
+projects that were not searched. An unreadable lockfile or config among the
+searched projects, which may hide a citing document, sets the exit code to
+3, as it does for `impact`. A name that matches nothing, and that no
+document cites, exits 2; the message names any such error, since it may hide
+a document that cites the name.
 
 ## Impact
 
@@ -330,7 +346,7 @@ listed, and the exit code is 3.
 
 Each document carries what its declarations and configs say: how it is
 tracked, a remote document's owner, its classes, its owners, its grace
-period and its cadence. Its current state is not given, since that needs
+period, its cadence and its reread schedule. Its current state is not given, since that needs
 the full evaluation; `check` and `explain` give it.
 
 Human output, sketched:
@@ -445,13 +461,15 @@ that also matches a pattern leaves the pattern and its members unchanged.
 Unselected sources keep their reviews. A pattern's review counts as evidence
 that the document was reviewed, but does not attest new matches or record a
 whole-document reread. Member oids still determine source changes, and
-stored review timestamps never date deadlines.
+stored review timestamps date no deadline, except that a reread schedule
+counts from the time stored with the last whole-document reread.
 
 `review` traverses the starting project and every project nested inside it,
 using each project's configs. It walks the live documents whose facts
-include `stale`, `due`, `overdue`, `unattested`, `upstream-stale` or
-`upstream-due`. A document among them that is neither due nor waiting on a
-due upstream document is **not due yet**: it can wait for its review day.
+include `stale`, `due`, `overdue`, `reread-due`, `reread-overdue`,
+`unattested`, `upstream-stale` or `upstream-due`. A document among them that
+is neither due, for a change or for its reread, nor waiting on a due
+upstream document is **not due yet**: it can wait for its review day.
 The full screen lists it with a `not due` tag; the line mode leaves it out
 unless `--all` is given or the document is named. `--context` defaults to
 `default` and decides their order. A project lacking that context uses its own `default`,
@@ -520,7 +538,7 @@ starts, and any document may be opened at any time.
 | `y` | Answer that the document is still accurate |
 | `r` | Give the same answer and record a whole-document reread |
 | `Enter` | Record a held answer; `Esc` or any other key withdraws it |
-| `a` | Answer `y` for every due document, after a confirmation that can include those not due yet |
+| `a` | Answer `y` for every due document, after a confirmation that can include those not due yet and, with `r`, the documents it can only record by a reread |
 | `u` | List the answers recorded in this session; `u` there takes the newest back |
 | `e` | Edit the document in an editor, then evaluate again |
 | `?` | Show the keys |
@@ -548,8 +566,12 @@ those documents.
 Several rows can be picked to share one answer. A picked row carries a bar
 at its left edge. With documents picked, `y` and `r` list them in a
 confirmation like that of `a`, with whether each has been seen, and record
-them on `y`. A plain `y` leaves out a picked document that needs nothing;
-`r` takes every picked document that is not a sealed record. With changed
+them on `y`. A plain `y` leaves out a picked document that needs nothing,
+and one that it could only record by a reread: one whose reread is due and
+none of whose sources changed, or one without sources. `r` takes every
+picked document that is not a sealed record. A `y` given to a single
+document still records the reread that such a document takes, and its
+question says so. With changed
 files picked, `y` and `r` record a review of their sources alone, as
 `attest --source` does, and the document stays in the queue while another
 source still needs review. The files of a pattern are picked together,
@@ -593,7 +615,9 @@ the next one that needs review. So does a document that still waits on an
 upstream one after its review, since reviewing it again would add nothing;
 it returns when one of its sources or that upstream document changes. A
 document that needs nothing takes `r` but
-no `y`; a sealed record can only be read.
+no `y`; a sealed record can only be read. A document whose reread is due,
+and none of whose sources changed, holds a reread on `y` as on `r`, and the
+confirmation says so.
 
 Each document is compared once, against the working tree as an evaluation
 read it, and stays so while later evaluations find the same evidence for
@@ -650,7 +674,10 @@ erase that change; the refusal says so and names the file.
 
 `a` lists every document that needs review with its outcome and whether its
 current comparison has been seen. `y` records the due ones; `i` includes the
-documents not due yet, which the list tags. The arrow keys, `PgUp`, `PgDn`
+documents not due yet, which the list tags. The documents that `a` can only
+record by a reread are named under the question and tagged `left out`; `r`
+includes them, each then tagged `reread` and recorded as reread, and `r`
+again leaves them out. The arrow keys, `PgUp`, `PgDn`
 and the wheel scroll the list; any other key that the screen uses goes
 back. A source that changes during the batch stops it, and a
 document that cannot be compared is left out. A document counts as seen
@@ -701,16 +728,39 @@ one-letter answer and submit it with Enter:
 | `n`, or Enter alone | Leave the document as it is |
 | `y` | Record the review, bound to the source oids shown |
 | `r` | Record the same review and a whole-document reread |
-| `a` | Record all remaining due documents after a second confirmation states how many current comparisons have not been shown; with `--all`, the confirmation also offers to include the documents not due yet |
+| `a` | Record all remaining due documents after a second confirmation states how many current comparisons have not been shown; with `--all`, the confirmation also offers to include the documents not due yet. It asks separately whether to include the documents it can only record by a reread, each then recorded as reread |
 | `d` | Open the complete diff, then return to the prompt |
 | `e` | Open the document in an editor, wait for it to close, then evaluate and show it again if it still needs review |
 | `q` | Quit, preserving earlier reviews |
 
 For a document without sources, `y` and `r` both record a reread. A source
 changed after display refuses that answer and shows the document again with
-its current changes. Each accepted review is written immediately through
-the same planner and atomic write path as `attest`. The answer confirms
-that write; there is no further plan question.
+its current changes.
+
+For a document whose reread is due, `reread-due` or `reread-overdue`:
+
+- With none of its sources changed, `y` records a reread, as `r` does,
+  since nothing else is left to confirm.
+- With a changed source, `y` records the review of the sources alone, and
+  the reread stays due; `r` records both.
+- A plain `y` given to several picked documents in the full screen leaves
+  out a document whose reread is all it needs, as it leaves out a document
+  without sources, and `r` takes both.
+
+The prompt says which applies before the answer. Each accepted review is
+written immediately through the same planner and atomic write path as
+`attest`. The answer confirms that write; there is no further plan question.
+
+`a` records a reread only when the reviewer says so, so that no reread is
+recorded without the word before the person who confirms it. Its
+confirmation names the documents that it can only record by a reread:
+those whose reread is due and none of whose sources changed, and those
+without sources, which take no other review. The line mode lists each of
+them before its question, with its reason and whether it has not been seen
+yet; the full screen tags them in its list. It asks whether to include
+them, saying that this records that each was reread. Declining leaves them
+for answers of their own, and the rest of the batch is recorded as chosen.
+When only such documents remain, `a` asks about them alone.
 
 After every write and editor visit, the working tree is evaluated again.
 Documents that become fresh leave the queue, and documents that become stale
@@ -780,7 +830,7 @@ source-sentry track <document> [--on-file | --lockfile [<directory>] | --remote 
                     [--url <url>] [--source <path>]... [--pattern <glob>]...
                     [--class <name>]... [--owner <id>]...
                     [--grace <days>] [--cadence <dtstart> <rrule> | --no-cadence]
-                    [--dry-run] [--yes]
+                    [--reread <dtstart> <rrule> | --no-reread] [--dry-run] [--yes]
 source-sentry track <document>... --from <placement> --to <placement> [--dry-run] [--yes]
 source-sentry untrack <document> [--source <path>]... [--pattern <glob>]... [--dry-run] [--yes]
 source-sentry rename <old> <new> [--by <name>] [--dry-run] [--yes]
@@ -797,7 +847,7 @@ source-sentry migrate [--dry-run] [--yes]
   - new sources, unattested: a reviewed document is stale until they are
     reviewed, and one never reviewed stays unattested;
   - classes and owners it lacks;
-  - the grace, cadence or url given.
+  - the grace, cadence, reread schedule or url given.
 
   Existing reviews are kept. A source already declared is refused, under
   any spelling that resolves to it: `/docs/src/*.rs` repeats `src/*.rs`
@@ -809,11 +859,13 @@ source-sentry migrate [--dry-run] [--yes]
   series lifecycles use this rule. Without a declared predecessor,
   registration proceeds as usual.
 
-  It copies the declared classes, owners, grace, cadence and sources.
+  It copies the declared classes, owners, grace, cadence, reread schedule
+  and sources.
   Relative source paths and patterns are re-expressed for the new document's
   directory; `/`-rooted spellings stay unchanged. Attestations, the document's
   `reviewed`, its seal, `completed` and `renamed` are never copied. Options
-  add sources, classes and owners, and override grace or cadence, as when
+  add sources, classes and owners, and override grace, cadence or reread
+  schedule, as when
   extending a tracked document. Placement follows the usual rules. The plan names the
   predecessor and shows the copied declaration before the options apply.
   A source that cannot be re-expressed or registered refuses the whole plan.
@@ -838,6 +890,13 @@ source-sentry migrate [--dry-run] [--yes]
   recurrence rule. A malformed date is invalid usage (exit 64); a parsed cadence that violates the schedule
   rules is refused (exit 2). Invalid cadences already written in configs or
   declarations remain configuration errors (exit 3).
+- **`--reread`** writes a [reread schedule](how-it-works.md#reread-schedules):
+  the dates on which the whole document is due to be reread, whether or not
+  its sources change. It takes a start date and a recurrence rule, written
+  and validated as `--cadence` takes them. Use it for a document whose
+  sources cannot show that it has gone out of date, such as one without
+  sources. `--no-reread` writes `reread: null`, which removes an inherited
+  reread schedule, as `--no-cadence` writes `cadence: null`.
 - **`--grace` and `--cadence`** postpone when a stale document is due. Under
   the built-in default context it is a notice until then, and a warning
   from its due day. A cadence batches the reviews of a document that

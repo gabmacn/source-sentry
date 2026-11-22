@@ -81,7 +81,8 @@ the document's correction and the review can be committed together.
 
 **Rereading the whole document is a separate claim.** The document's own
 `reviewed` means that all of it was reread, and only `--reread` sets it. A
-document without sources can only be reviewed this way.
+document without sources can only be reviewed this way. A
+[reread schedule](#reread-schedules) puts a deadline on this claim.
 
 > **Why.** "I checked the document against this change" and "I read the
 > whole document again" are different statements, and a reader of the
@@ -109,8 +110,10 @@ moment `attest` ran, in UTC, to the second; there is no option to set it.
 > entered today was entered today.
 
 **Names and stored times are information, not evidence.** They do not
-authenticate anyone, and they never date a deadline. Deadlines come from the
-repository's history; see [Clocks](#clocks-and-deadlines).
+authenticate anyone, and they date no deadline but one: a
+[reread schedule](#reread-schedules) counts from the time stored with the
+last reread. Every other deadline comes from the repository's history; see
+[Clocks](#clocks-and-deadlines).
 
 ## What counts as a change
 
@@ -311,6 +314,91 @@ or end date, no list mixing plain and numbered weekdays, numbered weekdays
 from -4 to 5 in a monthly rule and from -52 to 53 in a yearly one, and no
 occurrence more than 400 years ahead.
 
+## Reread schedules
+
+**A reread schedule asks for the whole document to be reread on its
+dates.** `schedule.reread` is written as `cadence` is, with `dtstart` and
+`rrule`, follows the same rules and is validated in the same way. It may be
+set wherever a schedule may: in a document's declaration, in the project
+config, a directory config, a preset or a remote owner's config. It is
+inherited, and `reread: null` removes an inherited one, as `cadence: null`
+does.
+
+> **Why.** A document without sources, such as one describing a host that
+> can only be checked over SSH, has no source that can change. A cadence
+> only batches the reviews of source changes, so it never makes such a
+> document due: a document reread in August would still pass in November.
+> The reread claim already exists and, for such a document, already means
+> "I checked it again"; only a deadline on it was missing. The setting
+> bears the name of the claim it asks for.
+
+**It is a setting of its own, never a meaning of `cadence`.**
+
+> **Why.** If a cadence asked for rereads of a document without sources,
+> adding a source later would silently change what the setting means.
+
+A source that holds a snapshot of what the document describes, produced by
+a script and committed, can still be added beside the schedule, to detect
+drift between rereads.
+
+**A document is due on the first date of its reread schedule after its last
+reread, and overdue from the next day.** The last reread is the time stored
+in the document's `reviewed`, read as a local date in the project's time
+zone, so a reread on one of the schedule's dates is due again at the next
+one. Grace does not apply.
+
+> **Why.** Grace gives time after a change that arrives unannounced, while
+> a reread schedule's dates are known in advance and are themselves the
+> deadlines. The stored time is used rather than the commit that recorded
+> it, since relying on history for it would only invite it to break later.
+
+**A reread schedule keeps no windows.** A date that passes without a
+reread is not `missed`, and one reread answers every date before it.
+
+> **Why.** A series is a promise of time, while a reread schedule is a
+> promise of recency rather than a track record. Windows would also need
+> every earlier reread, read from history, where this rule needs only the
+> one recorded.
+
+**Only a reread of the whole document resets it:** `attest --reread`, or an
+answer in `review` that records one. Reviewing a source does not.
+
+> **Why.** The record keeps "checked against this change" and "read the
+> whole document again" apart; see [Reviews](#reviews).
+
+**A document never reread counts from its declaration,** from the commit
+that introduced it, as the clock of an unattested document does: it is due
+on the first date of its schedule after it was tracked. A schedule's dates
+begin at its `dtstart`, so a `dtstart` after that is itself the first due
+date. A declaration not yet committed counts from the instant of the check,
+provisionally, as a change not yet committed does: it can make the document
+`reread-due`, but never `reread-overdue`.
+
+> **Why.** A document tracked later still gets a full interval, and a
+> future `dtstart` gives existing documents time when the setting is
+> adopted.
+
+**A reread dated after the instant of the check is a configuration
+error,** `future-reread`, on a document with a reread schedule.
+
+> **Why.** A stored date could otherwise be written in the future to
+> postpone the deadline.
+
+**It applies to every live document:** local and remote documents, and the
+living entry of a series. It does not apply to a sealed record, nor to a
+superseded series entry awaiting its seal.
+
+> **Why.** A sealed record never changes, and `awaiting-seal` already flags
+> an entry awaiting its seal.
+
+**A series' own schedule cannot set `reread`;** set it in the schedule of
+the config itself, which applies to the documents of its directory, the
+series' living entry included.
+
+> **Why.** A series' cadence already asks for a new entry each window. A
+> `reread` that the series ignored would be a setting that silently does
+> nothing.
+
 ## Facts, contexts and outcomes
 
 | Fact | Meaning |
@@ -319,6 +407,8 @@ occurrence more than 400 years ahead.
 | `stale` | A source changed since its review, or was never reviewed |
 | `due` | A deadline has arrived: its due day has begun |
 | `overdue` | A deadline has passed |
+| `reread-due` | A reread deadline has arrived: its due day has begun |
+| `reread-overdue` | A reread deadline has passed |
 | `unattested` | Nothing about the document was ever reviewed |
 | `upstream-stale` | A document it uses as a source needs review |
 | `upstream-due` | A document it uses as a source is due |
@@ -333,6 +423,18 @@ stale.
 > **Why.** If becoming overdue replaced being stale, a document could
 > escape a rule written for stale documents at the very moment it became
 > more urgent.
+
+**A due reread has facts of its own, which never spread.** A
+[reread schedule](#reread-schedules) makes a document `reread-due` from its
+due day, and `reread-overdue`, which is also `reread-due`, from the day
+after. Neither makes it `due`, `overdue` or `stale`, and a document that
+cites it as a source gains neither `upstream-due` nor `upstream-stale`.
+
+> **Why.** A due reread says nothing about a change in content. Each fact
+> has its own outcome, with the rule behind it, so that `explain` can
+> account for every fact separately; a `due` that spread or not depending
+> on its cause would break that. A pair, mirroring `due` and `overdue`,
+> lets a context warn on one and fail on the other.
 
 **Each fact is judged on its own, and the document takes the most severe
 outcome.** A fact can therefore make a document more severe, never less.
@@ -368,7 +470,8 @@ a failure to evaluate.
 
 **The built-in `default` context** passes `fresh`; gives `stale`,
 `upstream-stale` and `missed` a notice; and warns on everything else,
-`due`, `upstream-due` and `overdue` included. A stale document is thus a
+`due`, `upstream-due`, `overdue`, `reread-due` and `reread-overdue`
+included. A stale document is thus a
 notice until it is due, and a warning from its due day. A document without a
 schedule is due as soon as it is stale, so it warns at once.
 
@@ -377,7 +480,9 @@ schedule is due as soon as it is stale, so it warns at once.
 > nothing.
 
 A project that declares its own `default` replaces it entirely, and keeps
-none of its rules.
+none of its rules. A fact that none of its rules names takes its fallback,
+as `reread-due` and `reread-overdue` do in a context written before they
+existed, until rules are added for them.
 
 > **Why.** Full replacement is what makes gradual adoption possible: a
 > project can give `unattested` a notice while it works through documents
@@ -615,6 +720,9 @@ becomes `missed`.
 > count a file that merely exists, and keeps later changes from rewriting
 > what was done on time. `missed` is kept apart from `overdue` so that
 > skipped work is neither forgotten nor a permanent block.
+
+**The living entry follows a [reread schedule](#reread-schedules) as any
+live document does.** A series' own schedule cannot set one.
 
 ## Discovery
 

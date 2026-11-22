@@ -94,8 +94,9 @@ fn a_drag_onto_another_document_withdraws_a_held_answer() {
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
 	app.click(Target::Row(Cursor::Open(0))).unwrap();
+	// Without sources, a yes records a reread, which its question names.
 	press(&mut app, &[Key::Char('y')]);
-	assert_eq!(app.armed, Some(false));
+	assert_eq!(app.armed, Some(true));
 
 	app.drag(Target::Row(Cursor::Open(1)));
 	assert!(app.shown.as_ref().unwrap().name.ends_with("b.md"));
@@ -212,7 +213,9 @@ fn a_document_whose_review_changed_outside_the_screen_is_compared_again() {
 /// for named documents.
 #[test]
 fn a_confirmed_document_outside_the_named_ones_is_recorded() {
-	let repo = Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}}));
+	let repo = Repo::new(
+		json!({"docs/a.md": {}, "docs/b.md": {"sources": [{"path": "/src/a.rs"}]}}),
+	);
 	let (workspace, args) = (repo.workspace(), repo.args(&["docs/a.md"]));
 	let mut app = App::new(&workspace, &args).unwrap();
 	press(
@@ -232,7 +235,7 @@ fn a_confirmed_document_outside_the_named_ones_is_recorded() {
 	assert_eq!(comparisons[0].0.document.to_string(), "docs/b.md");
 
 	press(&mut app, &[Key::Char('y')]);
-	assert!(repo.entry("docs/b.md")["reviewed"].is_object());
+	assert!(repo.entry("docs/b.md")["sources"][0]["reviewed"].is_object());
 	assert!(repo.entry("docs/a.md")["reviewed"].is_null());
 	assert_eq!(app.session.recorded.len(), 1);
 	assert_eq!(app.notice.as_deref(), Some("Recorded 1 review."));
@@ -276,6 +279,7 @@ fn a_batch_that_fails_partway_accounts_for_what_it_recorded() {
 	let mut read_only = writable.clone();
 	read_only.set_readonly(true);
 	std::fs::set_permissions(&lock, read_only).unwrap();
+	press(&mut app, &[Key::Char('r')]);
 	let flow = app.key(Key::Char('y'));
 	std::fs::set_permissions(&lock, writable).unwrap();
 
@@ -502,5 +506,79 @@ fn a_reviewed_document_waiting_on_an_upstream_one_leaves_the_queue() {
 			.others
 			.iter()
 			.any(|other| other.id.document.to_string() == "docs/a.md")
+	);
+}
+
+/// A document whose reread is all it needs holds a reread on a plain `y`,
+/// since nothing else is left to confirm. `a` names it as a reread and
+/// records it only once `r` includes the rereads.
+#[test]
+fn a_plain_yes_rereads_a_document_that_needs_only_its_reread() {
+	let schedule =
+		json!({"reread": {"dtstart": "2026-01-01", "rrule": "FREQ=MONTHLY"}});
+	let repo = Repo::new(json!({
+		"docs/a.md": {"schedule": schedule, "sources": [{"path": "/src/a.rs"}]},
+	}));
+	repo.attest("docs/a.md");
+	repo.git(&["add", "--all"]);
+	repo.git(&["commit", "--quiet", "-m", "Reread in October"]);
+	let earlier = repo.entry("docs/a.md")["reviewed"]["at"].clone();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	assert_eq!(app.open.len(), 1);
+
+	press(&mut app, &[Key::Char('a')]);
+	let Some(Overlay::All(batch)) = &app.overlay else {
+		panic!("expected the confirmation");
+	};
+	assert_eq!((batch.due.len(), batch.rereads.len()), (1, 1));
+	let screen = drawn(&app, 120, 30);
+	assert!(
+		shows(
+			&screen,
+			"Every document left can only be recorded as reread."
+		),
+		"{screen:#?}"
+	);
+	assert!(shows(&screen, "left out"), "{screen:#?}");
+	// Nothing it would take is due until the rereads are included.
+	press(&mut app, &[Key::Char('y')]);
+	assert!(matches!(app.overlay, Some(Overlay::All(_))));
+	press(&mut app, &[Key::Char('r')]);
+	assert!(shows(
+		&drawn(&app, 120, 30),
+		"Recorded as reread, each read whole"
+	));
+	press(&mut app, &[Key::Char('n')]);
+	assert_eq!(repo.entry("docs/a.md")["reviewed"]["at"], earlier);
+
+	press(&mut app, &[Key::Char('y')]);
+	assert_eq!(app.armed, Some(true));
+	assert!(shows(&drawn(&app, 120, 30), "reread in full"));
+	press(&mut app, &[Key::Enter]);
+	assert_ne!(repo.entry("docs/a.md")["reviewed"]["at"], earlier);
+	assert_eq!(app.open, Vec::new());
+}
+
+/// `a` records the documents without sources, which can only take a
+/// reread, only once `r` includes them, and records each as reread.
+#[test]
+fn all_records_documents_without_sources_only_when_included() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/c.md": {"sources": [{"path": "/src/a.rs"}]},
+	}));
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	press(&mut app, &[Key::Char('a'), Key::Char('y')]);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_null());
+	assert!(repo.entry("docs/c.md")["sources"][0]["reviewed"].is_object());
+	assert_eq!(app.notice.as_deref(), Some("Recorded 1 review."));
+
+	press(&mut app, &[Key::Char('a'), Key::Char('r'), Key::Char('y')]);
+	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
+	assert_eq!(
+		app.session.recorded.last().map(|(_, reread)| *reread),
+		Some(true)
 	);
 }

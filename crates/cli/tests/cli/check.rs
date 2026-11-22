@@ -517,6 +517,7 @@ fn unknown_timing_never_calls_a_future_deadline_missed() {
 			json!({
 				"due": "2026-12-15",
 				"due-from": "2026-12-15T00:00:00Z",
+				"kind": "change",
 				"overdue-from": "2026-12-16T00:00:00Z",
 				"provisional": false,
 			})

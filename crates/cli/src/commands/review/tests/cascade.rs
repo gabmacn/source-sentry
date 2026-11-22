@@ -248,7 +248,7 @@ fn documents_not_due_yet_wait_unless_the_reviewer_asks_for_them() {
 	let repo = fixture();
 	let mut script = Script::new(
 		&repo,
-		[Step::Answer(Some(Answer::All)), Step::Confirm(Some(true))],
+		[Step::Answer(Some(Answer::All)), Step::ConfirmRereads],
 	);
 	repo.run(&[], &mut script).unwrap();
 	assert_eq!(script.shown, [local("docs/a.md")]);
@@ -263,7 +263,7 @@ fn documents_not_due_yet_wait_unless_the_reviewer_asks_for_them() {
 	let repo = fixture();
 	let mut script = Script::new(
 		&repo,
-		[Step::Answer(Some(Answer::All)), Step::Confirm(Some(true))],
+		[Step::Answer(Some(Answer::All)), Step::ConfirmRereads],
 	);
 	repo.run_all(&mut script).unwrap();
 	assert_eq!(script.later, [1]);
@@ -274,7 +274,10 @@ fn documents_not_due_yet_wait_unless_the_reviewer_asks_for_them() {
 	let repo = fixture();
 	let mut script = Script::new(
 		&repo,
-		[Step::Answer(Some(Answer::All)), Step::ConfirmEverything],
+		[
+			Step::Answer(Some(Answer::All)),
+			Step::ConfirmEverythingAndRereads,
+		],
 	);
 	repo.run_all(&mut script).unwrap();
 	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
@@ -288,7 +291,7 @@ fn all_confirms_the_unseen_count_and_records_each_remaining_document() {
 		Repo::new(json!({"docs/a.md": {}, "docs/b.md": {}, "docs/c.md": {}}));
 	let mut script = Script::new(
 		&repo,
-		[Step::Answer(Some(Answer::All)), Step::Confirm(Some(true))],
+		[Step::Answer(Some(Answer::All)), Step::ConfirmRereads],
 	);
 	repo.run(&[], &mut script).unwrap();
 	assert_eq!(script.confirmations, [(3, 2)]);
@@ -311,7 +314,7 @@ fn bulk_confirmation_counts_changed_versions_as_unseen() {
 			Step::Answer(Some(Answer::Edit)),
 			Step::Edit(vec![("src/a.rs", "new version\n".to_owned())]),
 			Step::Answer(Some(Answer::All)),
-			Step::Confirm(Some(true)),
+			Step::ConfirmRereads,
 		],
 	);
 	repo.run(&[], &mut script).unwrap();
@@ -370,7 +373,7 @@ fn bulk_expectations_remain_frozen_across_the_batch() {
 		&repo,
 		[
 			Step::Answer(Some(Answer::All)),
-			Step::Confirm(Some(true)),
+			Step::ConfirmRereads,
 			Step::ChangeAfterReview(
 				"src/b.rs",
 				"edited during bulk review\n".to_owned(),
@@ -407,7 +410,7 @@ fn a_newly_stale_document_outside_the_batch_gets_an_individual_prompt() {
 		&repo,
 		[
 			Step::Answer(Some(Answer::All)),
-			Step::Confirm(Some(true)),
+			Step::ConfirmRereads,
 			Step::ChangeAfterReview(
 				"src/b.rs",
 				"edited outside the batch\n".to_owned(),

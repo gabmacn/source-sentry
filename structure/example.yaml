@@ -14,8 +14,12 @@ source-sentry:
   # .source-sentry/source-sentry.yaml.
   classes: ['privacy']
   owners: ['legal']
-  # Overrides grace and cadence separately; omitted fields stay inherited.
-  # Set `cadence: null` to remove an inherited cadence.
+  # Overrides grace, cadence and reread separately; omitted fields stay
+  # inherited. Set `cadence: null` to remove an inherited cadence, and
+  # `reread: null` to remove an inherited reread schedule.
+  # `reread`, written as `cadence` is, gives the dates on which the whole
+  # document is due to be reread, from the date of `reviewed` above, or from
+  # the commit that declared it when it was never reread.
   schedule:
     # Grace is an unquoted whole number. It counts calendar days from the
     # local date when drift started.

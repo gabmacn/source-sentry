@@ -256,7 +256,10 @@ pub(super) fn render(
 		for detail in details {
 			let _ = writeln!(text, "      {}", output::dim(&detail));
 		}
-		if let Some(hint) = describe::inheritance_hint(workspace, subject) {
+		let hints = describe::inheritance_hint(workspace, subject)
+			.into_iter()
+			.chain(describe::reread_hint(workspace, subject));
+		for hint in hints {
 			let _ = writeln!(text, "      {hint}");
 		}
 		for line in diagnostic_lines(workspace, own.iter().copied()) {

@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 
-use source_sentry_core::mutate::DocumentDiff;
+use source_sentry_core::mutate::{DocumentDiff, EntryDiff};
 
 use super::View;
 use super::changes::{self, Entry, Row};
@@ -77,6 +77,20 @@ pub(super) fn document(
 		paint,
 		width,
 	));
+	if view.rereads && !view.compared.sources.is_empty() {
+		let changed = view
+			.compared
+			.sources
+			.iter()
+			.flat_map(|source| &source.entries)
+			.any(EntryDiff::is_changed);
+		text.push_str(if changed {
+			"  Its reread is due too: `y` records the sources alone, and `r` the \
+			 reread as well.\n"
+		} else {
+			"  Its reread is due: `y` and `r` both record a whole-document reread.\n"
+		});
+	}
 	text
 }
 

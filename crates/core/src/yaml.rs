@@ -79,12 +79,15 @@ impl<'de> Deserialize<'de> for StrictSchedule {
 			cadence: CadenceSetting,
 			#[serde(default)]
 			grace: Option<WholeNumber>,
+			#[serde(default)]
+			reread: CadenceSetting,
 		}
 
 		let fields = Fields::deserialize(deserializer)?;
 		Ok(Self(Schedule {
 			cadence: fields.cadence,
 			grace: fields.grace.map(|grace| grace.0),
+			reread: fields.reread,
 		}))
 	}
 }

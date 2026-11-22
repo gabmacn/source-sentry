@@ -14,6 +14,8 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::io::{self, IsTerminal as _};
 
 use source_sentry_core::model::DocumentId;
@@ -76,11 +78,15 @@ struct View {
 	facts: String,
 	/// The outcome of those facts in the session's context.
 	outcome: source_sentry_core::model::Outcome,
+	/// Whether its reread is due, which a plain `y` records when none of its
+	/// sources changed.
+	rereads: bool,
 }
 
 /// What `a` would record: the due documents, and those not due yet, each
 /// with its frozen comparison, and how many of each the reviewer has not
-/// seen as they are now.
+/// seen as they are now. Among them, the documents that can only be recorded
+/// by a reread, which `a` records only when the reviewer includes them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Batch {
 	/// The documents that are due, or wait on one that is.
@@ -91,6 +97,140 @@ struct Batch {
 	unseen: usize,
 	/// How many documents not due yet the reviewer has not seen.
 	unseen_later: usize,
+	/// The documents, due or not, that `a` would record by a reread, and
+	/// why.
+	rereads: BTreeMap<state::Key, BulkReread>,
+	/// Whether the full screen's confirmation includes them, which the
+	/// reviewer toggles. The line mode asks instead.
+	with_rereads: bool,
+}
+
+/// A document that `a` can only record by a reread.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BulkReread {
+	/// Its name as the session shows it, relative to the effective
+	/// directory.
+	name: String,
+	/// Why a reread is the review it takes.
+	why: RereadWhy,
+	/// Whether the reviewer has not seen its comparison as it is now.
+	unseen: bool,
+}
+
+/// Why `a` would record a document by a reread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RereadWhy {
+	/// Its reread is due and none of its sources changed, so a reread is all
+	/// that is left to confirm, as a plain `y` records it.
+	Due,
+	/// It has no sources, so a reread is the only review it can take.
+	NoSources,
+}
+
+impl Batch {
+	/// The documents that an answer records, each with whether it records a
+	/// reread: the due ones, and with `later` those not due yet too, leaving
+	/// out the rereads unless `rereads` includes them.
+	fn chosen(
+		&self,
+		later: bool,
+		rereads: bool,
+	) -> Vec<(state::Key, DocumentDiff, bool)> {
+		let listed = if later {
+			self.due.iter().chain(&self.later).collect::<Vec<_>>()
+		} else {
+			self.due.iter().collect()
+		};
+		listed
+			.into_iter()
+			.filter_map(|(id, compared)| {
+				let reread = self.rereads.contains_key(id);
+				(rereads || !reread).then(|| (id.clone(), compared.clone(), reread))
+			})
+			.collect()
+	}
+
+	/// How many of the due documents, or of those not due yet with `later`,
+	/// an answer records, with the rereads or without, and how many of them
+	/// the reviewer has not seen.
+	fn counts(&self, later: bool, rereads: bool) -> (usize, usize) {
+		let (listed, unseen) = if later {
+			(&self.later, self.unseen_later)
+		} else {
+			(&self.due, self.unseen)
+		};
+		if rereads {
+			return (listed.len(), unseen);
+		}
+
+		let left: Vec<&BulkReread> = listed
+			.iter()
+			.filter_map(|(id, _)| self.rereads.get(id))
+			.collect();
+		let left_unseen = left.iter().filter(|reread| reread.unseen).count();
+		(listed.len() - left.len(), unseen - left_unseen)
+	}
+
+	/// The rereads among the due documents, and with `later` among those
+	/// not due yet too: how many there are for each reason, its reread due
+	/// or no sources, and how many the reviewer has not seen.
+	fn reread_counts(&self, later: bool) -> (usize, usize, usize) {
+		let listed = self
+			.due
+			.iter()
+			.chain(self.later.iter().filter(|_| later))
+			.filter_map(|(id, _)| self.rereads.get(id));
+		let (mut due, mut sourceless, mut unseen) = (0, 0, 0);
+		for reread in listed {
+			match reread.why {
+				RereadWhy::Due => due += 1,
+				RereadWhy::NoSources => sourceless += 1,
+			}
+			if reread.unseen {
+				unseen += 1;
+			}
+		}
+		(due, sourceless, unseen)
+	}
+
+	/// The rereads of [`Self::reread_counts`], named for people: `1 whose
+	/// reread is due and whose sources did not change and 2 without
+	/// sources`.
+	fn rereads_named(&self, later: bool) -> String {
+		let (due, sourceless, _) = self.reread_counts(later);
+		let mut parts = Vec::new();
+		if due > 0 {
+			parts.push(format!(
+				"{due} whose reread is due and whose sources did not change"
+			));
+		}
+		if sourceless > 0 {
+			parts.push(format!("{sourceless} without sources"));
+		}
+		parts.join(" and ")
+	}
+
+	/// The rereads among the due documents, and with `later` among those
+	/// not due yet too, one line each, in the order they would be recorded:
+	/// the document's name, why it can only be recorded by a reread, and
+	/// whether the reviewer has not seen it. Empty when there are none.
+	fn rereads_listing(&self, later: bool) -> String {
+		let mut text = String::new();
+		let listed = self
+			.due
+			.iter()
+			.chain(self.later.iter().filter(|_| later))
+			.filter_map(|(id, _)| self.rereads.get(id));
+		for reread in listed {
+			let why = match reread.why {
+				RereadWhy::Due => "its reread is due and no source changed",
+				RereadWhy::NoSources => "it has no sources",
+			};
+			let seen = if reread.unseen { ", not seen yet" } else { "" };
+			let _ = writeln!(text, "  {}  {why}{seen}", reread.name);
+		}
+		text
+	}
 }
 
 /// The answer to the confirmation of `a`.
@@ -98,11 +238,15 @@ struct Batch {
 enum Bulk {
 	/// Record nothing, and go on.
 	Leave,
-	/// Record the due documents: the default, which keeps the others for
-	/// their review day.
-	Due,
-	/// Record the documents not due yet as well.
-	Everything,
+	/// Record the due documents, and with `later` those not due yet too,
+	/// including those recorded by a reread only with `rereads`.
+	Record {
+		/// Whether the documents not due yet are recorded too.
+		later: bool,
+		/// Whether the documents that can only be recorded by a reread are
+		/// recorded, each as reread.
+		rereads: bool,
+	},
 }
 
 /// The session's human interaction boundary. Scripted tests use the same
@@ -115,9 +259,11 @@ trait Interface {
 	fn show(&mut self, workspace: &Workspace, view: &View);
 	/// Asks for one answer; `None` means end of input or cancellation.
 	fn answer(&mut self) -> Result<Option<Answer>, Failure>;
-	/// Confirms the current batch, explicitly naming its unseen count, and
-	/// offering to include the documents not due yet when it has any.
-	/// `None` ends the session rather than accepting the batch.
+	/// Confirms the current batch, explicitly naming its unseen count,
+	/// offering to include the documents not due yet when it has any, and
+	/// asking whether to include the documents that can only be recorded by
+	/// a reread, saying that this records that each was reread. `None` ends
+	/// the session rather than accepting the batch.
 	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure>;
 	/// Opens the full comparison and waits for the viewer to close.
 	fn full_diff(

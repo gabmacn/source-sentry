@@ -36,6 +36,9 @@ fn the_approved_examples_load() {
 	assert!(configs.contexts().contains_key("production"));
 	let docs = configs.settings(&path("docs"));
 	assert_eq!(docs.series.len(), 2);
+	let reread = docs.defaults.reread.unwrap();
+	assert_eq!(reread.value.unwrap().rrule, "FREQ=MONTHLY;BYDAY=1MO");
+	assert_eq!(reread.origin.file, Some(path("docs/source-sentry.yaml")));
 	let legal = configs.remote_settings("legal");
 	assert_eq!(legal.defaults.grace.map(|grace| grace.value), Some(14));
 }

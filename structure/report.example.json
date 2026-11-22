@@ -39,6 +39,7 @@
       "deadline": {
         "due": "2026-11-03",
         "due-from": "2026-11-03T00:00:00Z",
+        "kind": "change",
         "overdue-from": "2026-11-04T00:00:00Z",
         "provisional": false
       },
@@ -170,6 +171,12 @@
           "value": [
             "legal"
           ]
+        },
+        "reread": {
+          "origin": {
+            "kind": "built-in"
+          },
+          "value": null
         }
       },
       "sources": [

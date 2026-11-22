@@ -120,6 +120,7 @@ fn reads_the_approved_example() {
 				rrule: "FREQ=MONTHLY;INTERVAL=2".to_owned(),
 			}),
 			grace: Some(14),
+			reread: CadenceSetting::Inherit,
 		})
 	);
 	assert_eq!(declaration.sources.len(), 3);
@@ -1226,6 +1227,7 @@ fn awkward_strings_round_trip() {
 		schedule: Some(Schedule {
 			cadence: CadenceSetting::Remove,
 			grace: None,
+			reread: CadenceSetting::Inherit,
 		}),
 		sources: vec![SourceDecl::Path(PathSource {
 			oid: Some(oid('b')),
@@ -1259,4 +1261,34 @@ fn writing_is_deterministic() {
 		read_str(&written).unwrap().unwrap().sources,
 		reordered.sources
 	);
+}
+
+/// A reread schedule is written after the cadence, as the cadence is, and
+/// `reread: null` survives the round trip.
+#[test]
+fn a_reread_schedule_is_written_after_the_cadence() {
+	let rule = Cadence {
+		dtstart: "2026-01-01".parse().unwrap(),
+		rrule: "FREQ=MONTHLY".to_owned(),
+	};
+	for reread in [CadenceSetting::Set(rule.clone()), CadenceSetting::Remove] {
+		let declaration = Declaration {
+			schedule: Some(Schedule {
+				cadence: CadenceSetting::Set(rule.clone()),
+				grace: None,
+				reread: reread.clone(),
+			}),
+			..Declaration::default()
+		};
+		let written = write_str("Body\n", Some(&declaration)).unwrap();
+		let cadence = written.find("cadence:").unwrap();
+		let at = written.find("reread:").unwrap();
+		assert!(cadence < at, "{written}");
+		assert_eq!(
+			written.contains("reread: null"),
+			reread == CadenceSetting::Remove,
+			"{written}"
+		);
+		assert_eq!(read_str(&written), Ok(Some(declaration)), "{written}");
+	}
 }

@@ -157,6 +157,10 @@ pub enum DiagnosticKind {
 	/// A cadence that is invalid, reported when configs or declarations load,
 	/// or that has no due date where evaluation needs one.
 	InvalidSchedule,
+	/// A whole-document reread dated after the evaluation instant, on a
+	/// document with a reread schedule, which would postpone its next reread.
+	/// Reported by evaluation.
+	FutureReread,
 	/// A source that is a submodule, which Source Sentry does not support.
 	/// Reported by evaluation, at the declaration that
 	/// names it.
@@ -224,6 +228,7 @@ impl DiagnosticKind {
 			Self::BrokenDefaults => "broken-defaults",
 			Self::InvalidTimeZone => "invalid-time-zone",
 			Self::InvalidSchedule => "invalid-schedule",
+			Self::FutureReread => "future-reread",
 			Self::Submodule => "submodule",
 			Self::SealedHead => "sealed-head",
 			Self::MissingHead => "missing-head",
@@ -274,6 +279,7 @@ impl DiagnosticKind {
 			| Self::BrokenDefaults
 			| Self::InvalidTimeZone
 			| Self::InvalidSchedule
+			| Self::FutureReread
 			| Self::Submodule
 			| Self::SealedHead
 			| Self::MissingHead => Severity::Configuration,
@@ -366,10 +372,23 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-	/// A schedule error at its written cadence or resolved setting. Calendar
-	/// overflow remains operational; other schedule errors are configuration
-	/// errors.
+	/// A schedule error at its written cadence or reread schedule, or at its
+	/// resolved setting. A location whose field ends in `reread` names a
+	/// reread schedule. Calendar overflow remains operational; other schedule
+	/// errors are configuration errors.
 	pub(crate) fn schedule(error: &ScheduleError, location: Location) -> Self {
+		let reread = location
+			.field
+			.as_deref()
+			.is_some_and(|field| field.ends_with("reread"));
+		let consequence = if reread {
+			"Until the reread schedule is corrected, the documents that use it have \
+			 no reread deadline"
+		} else {
+			"Until the cadence is corrected, the documents and series that use it \
+			 have no deadline"
+		};
+
 		let (kind, message) = match error {
 			ScheduleError::OutOfRange => (
 				DiagnosticKind::DateOutOfRange,
@@ -387,10 +406,7 @@ impl Diagnostic {
 			| ScheduleError::NoOccurrence { .. }
 			| ScheduleError::DtstartNotOccurrence { .. } => (
 				DiagnosticKind::InvalidSchedule,
-				format!(
-					"{error}. Until the cadence is corrected, the documents and series \
-					 that use it have no deadline"
-				),
+				format!("{error}. {consequence}"),
 			),
 		};
 		Self::new(kind, location, message)

@@ -5,21 +5,26 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use jiff::Timestamp;
 
-use super::clocks::{Answers, ClockContext, Requests, Slot};
+use super::clocks::{
+	Answer, Answers, ClockContext, Requests, Slot, clock_diagnostic,
+};
 use super::hashing::Hashes;
 use super::history::{Condition, Query, Site, SiteKind};
 use super::model::{
 	DocumentState, DocumentSubject, LiveDocument, RecordCheck, RecordState,
-	SourceReport, SourceState, Subject, SubjectKind, Timing,
+	RereadBase, RereadClock, SourceReport, SourceState, StartedClock, Subject,
+	SubjectKind, Timing, earliest,
 };
-use super::scopes::Scopes;
+use super::scopes::{Scopes, schedule_diagnostic};
 use crate::LOCKFILE_NAME;
 use crate::claims::{
 	Attestation, Claim, Diagnostic, DiagnosticKind, Inventory, Location, Mode,
 	Presence, ResolvedPath, ResolvedPattern, ResolvedSource,
 };
 use crate::config::{ConfigSet, Resolved};
-use crate::evaluate::schedule::{Deadline, EffectiveSchedule, TimeZone};
+use crate::evaluate::schedule::{
+	Deadline, EffectiveSchedule, Recurrence, TimeZone, reread_deadline,
+};
 use crate::evaluate::settings::EffectiveSettings;
 use crate::model::{
 	Declaration, DocumentId, Fact, ObjectId, RepoPath, Rule, SourceDecl,
@@ -28,12 +33,17 @@ use crate::model::{
 /// Where a config writes a document's cadence.
 const CADENCE_FIELD: &str = "schedule.cadence";
 
+/// Where a config writes a document's reread schedule.
+const REREAD_FIELD: &str = "schedule.reread";
+
 /// One claim, ready for its clocks to be answered.
 pub(super) struct DocumentPlan<'a> {
 	claim: &'a Claim,
 	settings: EffectiveSettings,
 	scoped: Vec<Resolved<Rule>>,
 	schedule: Option<EffectiveSchedule>,
+	/// The validated reread schedule of a live document, if it has one.
+	reread: Option<Recurrence>,
 	body: Body,
 }
 
@@ -43,8 +53,12 @@ enum Body {
 	Record(RecordCheck),
 	/// A live obligation, whose clocks are pending.
 	Live {
-		/// The declaration's clock, for an unattested document.
-		unattested: Option<Slot>,
+		/// Whether the document has never been reviewed, so that its
+		/// declaration's clock is its change clock.
+		unattested: bool,
+		/// The declaration's clock: for an unattested document, and for a
+		/// document never reread whose reread schedule counts from it.
+		declared: Option<Slot>,
 		/// Each source, with its pending clock.
 		sources: Vec<Pending>,
 	},
@@ -69,6 +83,9 @@ pub(super) struct Planner<'i, 'm, 'c> {
 	/// The projects whose declarations are read for a source that the
 	/// inventory does not track.
 	pub(super) elsewhere: &'m Elsewhere<'m>,
+	/// Whether reread schedules are evaluated, which they are not for the
+	/// documents another project cites.
+	pub(super) rereads: bool,
 }
 
 impl<'i> Planner<'i, '_, '_> {
@@ -84,13 +101,22 @@ impl<'i> Planner<'i, '_, '_> {
 				settings,
 				scoped,
 				schedule: None,
+				reread: None,
 				body: Body::Record(check),
 			};
 		}
 		let schedule = self.scopes.schedule(&settings);
+		let reread = if self.rereads {
+			self.scopes.reread(&settings)
+		} else {
+			None
+		};
 		let unattested = is_unattested(&claim.declaration);
+		// A document never reread counts its reread schedule from its
+		// declaration, as an unattested document counts its review.
+		let never_reread = reread.is_some() && claim.declaration.reviewed.is_none();
 		let sites = sites(claim, self.inventory, self.scopes);
-		let unattested_slot = unattested.then(|| {
+		let declared = (unattested || never_reread).then(|| {
 			self.requests.start(Query {
 				project: self.inventory.project.clone(),
 				projects: self.inventory.projects.clone(),
@@ -116,8 +142,10 @@ impl<'i> Planner<'i, '_, '_> {
 			settings,
 			scoped,
 			schedule,
+			reread,
 			body: Body::Live {
-				unattested: unattested_slot,
+				unattested,
+				declared,
 				sources,
 			},
 		}
@@ -538,6 +566,12 @@ pub(super) struct Finisher<'a> {
 	pub(super) zone: Option<&'a TimeZone>,
 	pub(super) at: Timestamp,
 	pub(super) diagnostics: &'a mut Vec<Diagnostic>,
+	/// The series entries awaiting their seal, which `awaiting-seal`
+	/// already flags, so that no reread schedule applies to them.
+	pub(super) awaiting: &'a BTreeSet<DocumentId>,
+	/// Whether reread schedules are evaluated, which they are not for the
+	/// documents another project cites.
+	pub(super) rereads: bool,
 }
 
 impl Finisher<'_> {
@@ -549,6 +583,7 @@ impl Finisher<'_> {
 			settings,
 			scoped,
 			schedule,
+			reread,
 			body,
 		} = plan;
 		let (state, facts, deadline) = match body {
@@ -563,6 +598,7 @@ impl Finisher<'_> {
 			}
 			Body::Live {
 				unattested,
+				declared,
 				sources,
 			} => {
 				let context = ClockContext {
@@ -573,11 +609,12 @@ impl Finisher<'_> {
 					claim,
 					at: self.at,
 				};
-				let unattested = unattested.map(|slot| {
+				let declared = declared.map(|slot| self.answers.get(slot));
+				let unattested = declared.filter(|_| unattested).map(|answer| {
 					context.timing(
-						self.answers.get(slot),
+						answer,
 						&claim.location(),
-						&format!("the declaration of `{}`", claim.document),
+						&declaration_clock(claim),
 						self.diagnostics,
 					)
 				});
@@ -600,14 +637,17 @@ impl Finisher<'_> {
 						report
 					})
 					.collect();
-				let (facts, deadline) =
-					live_facts(unattested.as_ref(), &sources, self.at);
+				let reread = self
+					.reread(claim, &settings, reread.as_ref(), declared)
+					.map(Box::new);
 				let live = LiveDocument {
 					unattested,
+					reread,
 					sources,
 					stale_upstreams: Vec::new(),
 					due_upstreams: Vec::new(),
 				};
+				let (facts, deadline) = live_facts(&live, self.at);
 				(DocumentState::Live(live), facts, deadline)
 			}
 		};
@@ -629,69 +669,217 @@ impl Finisher<'_> {
 	}
 }
 
+impl Finisher<'_> {
+	/// The reread schedule of a live document, evaluated, or `None` when no
+	/// reread schedule applies to it: it has none, it is a series entry
+	/// awaiting its seal, it is only cited by the project evaluated, or its
+	/// last reread is dated after the instant of evaluation, which is
+	/// reported. `recurrence` is its validated reread
+	/// schedule, or `None` when the schedule is invalid, which was reported
+	/// where it is written. `declared` answers its declaration's clock when
+	/// it was never reread.
+	///
+	/// The count starts at the stored instant of its last reread, or, for a
+	/// document never reread, at its declaration's clock. A declaration that
+	/// exists only in the working tree counts from the instant of evaluation,
+	/// provisionally, so that it can make the document `reread-due` but not
+	/// `reread-overdue`.
+	fn reread(
+		&mut self,
+		claim: &Claim,
+		settings: &EffectiveSettings,
+		recurrence: Option<&Recurrence>,
+		declared: Option<Answer<'_>>,
+	) -> Option<RereadClock> {
+		if !self.rereads
+			|| settings.reread.value.is_none()
+			|| self.awaiting.contains(&claim.document)
+		{
+			return None;
+		}
+
+		if let Some(review) = &claim.declaration.reviewed
+			&& review.at > self.at
+		{
+			self
+				.diagnostics
+				.push(future_reread(claim, review.at, self.at));
+			return None;
+		}
+
+		let recurrence = recurrence?;
+		let (base, start) = match (&claim.declaration.reviewed, declared) {
+			(Some(review), _) => {
+				(RereadBase::Reread(review.clone()), Some(review.at))
+			}
+			(None, Some(Answer::Started(start))) => (
+				RereadBase::Declared(Timing::Started(StartedClock {
+					start: start.clone(),
+					deadline: None,
+				})),
+				// A clock dated in the future, within the tolerance that lets
+				// it be used, counts from the instant of evaluation.
+				Some(start.timestamp.min(self.at)),
+			),
+			(None, Some(Answer::NotStarted)) => (
+				RereadBase::Declared(Timing::NotStarted(None)),
+				Some(self.at),
+			),
+			(None, Some(Answer::Failed(error))) => {
+				self.diagnostics.push(clock_diagnostic(
+					error,
+					claim.location(),
+					&claim.document,
+					&declaration_clock(claim),
+				));
+				(RereadBase::Declared(Timing::Failed), None)
+			}
+			// A declaration's clock is never fresh or of unknown timing, and
+			// a document never reread always asks for it.
+			(None, Some(Answer::Fresh | Answer::Unknown) | None) => {
+				(RereadBase::Declared(Timing::Failed), None)
+			}
+		};
+
+		let provisional =
+			matches!(base, RereadBase::Declared(Timing::NotStarted(_)));
+		let deadline = start.zip(self.zone).and_then(|(start, zone)| {
+			match reread_deadline(recurrence, start, zone) {
+				Ok(deadline) => Some(Deadline {
+					provisional,
+					..deadline
+				}),
+				Err(error) => {
+					self.diagnostics.push(schedule_diagnostic(
+						&error,
+						&settings.reread.origin,
+						REREAD_FIELD,
+						Some(claim),
+					));
+					None
+				}
+			}
+		});
+
+		let base = match base {
+			RereadBase::Declared(Timing::Started(clock)) => {
+				RereadBase::Declared(Timing::Started(StartedClock {
+					deadline,
+					..clock
+				}))
+			}
+			RereadBase::Declared(Timing::NotStarted(_)) => {
+				RereadBase::Declared(Timing::NotStarted(deadline))
+			}
+			other => other,
+		};
+		Some(RereadClock { base, deadline })
+	}
+}
+
+/// The diagnostic for a whole-document reread dated `reviewed`, after the
+/// instant of evaluation `at`, on a document with a reread schedule.
+fn future_reread(
+	claim: &Claim,
+	reviewed: Timestamp,
+	at: Timestamp,
+) -> Diagnostic {
+	Diagnostic::new(
+		DiagnosticKind::FutureReread,
+		claim.location_of(format!("{}.reviewed", claim.field)),
+		format!(
+			"the last reread of `{}` is dated {reviewed}, after the instant of \
+			 evaluation, {at}. A reread dated in the future would postpone the \
+			 next one: correct `reviewed.at` to when the document was reread",
+			claim.document
+		),
+	)
+	.about(claim.document.clone())
+}
+
 /// A live document's own facts and its next deadline.
 ///
 /// - An unattested document carries `unattested`, and its declaration's
-///   clock is its only clock.
+///   clock is its only change clock.
 /// - Otherwise a drifted, unattested, added or removed source makes it
 ///   `stale`, and a source whose timing is unknown makes it
 ///   `timing-unknown`, `stale`, `due` and `overdue` at once.
 /// - The document is `due` once `at` reaches the earliest instant any
-///   deadline is due, provisional deadlines included, and `overdue` once
-///   `at` reaches a deadline that is not provisional. An overdue document
-///   is always due.
-/// - The deadline reported is the one due first; between a provisional
-///   deadline and a started one due at the same instant, the started one.
+///   change deadline is due, provisional deadlines included, and `overdue`
+///   once `at` reaches a change deadline that is not provisional. An
+///   overdue document is always due.
+/// - Its reread deadline gives `reread-due` and `reread-overdue` by the
+///   same rules, and never `due` or `overdue`. A `reread-overdue` document
+///   is always `reread-due`.
+/// - The deadline reported is the one due first, of either kind; between a
+///   provisional deadline and a started one due at the same instant, the
+///   started one.
 fn live_facts(
-	unattested: Option<&Timing>,
-	sources: &[SourceReport],
+	live: &LiveDocument,
 	at: Timestamp,
 ) -> (BTreeSet<Fact>, Option<Deadline>) {
 	let mut facts = BTreeSet::new();
-	let mut deadlines = Vec::new();
-	let mut started = |timing: &Timing| match timing {
-		Timing::Started(clock) => deadlines.extend(clock.deadline),
-		Timing::NotStarted(provisional) => deadlines.extend(*provisional),
-		Timing::Idle | Timing::Unknown | Timing::Failed => {}
-	};
-	if let Some(timing) = unattested {
+	if live.unattested.is_some() {
 		facts.insert(Fact::Unattested);
-		started(timing);
 	} else {
-		if sources.iter().any(|source| source.state.is_stale()) {
+		if live.sources.iter().any(|source| source.state.is_stale()) {
 			facts.insert(Fact::Stale);
 		}
-		for source in sources {
-			if source.timing == Timing::Unknown {
-				facts.extend([
-					Fact::TimingUnknown,
-					Fact::Stale,
-					Fact::Due,
-					Fact::Overdue,
-				]);
-			}
-			started(&source.timing);
+		if live
+			.sources
+			.iter()
+			.any(|source| source.timing == Timing::Unknown)
+		{
+			facts.extend([
+				Fact::TimingUnknown,
+				Fact::Stale,
+				Fact::Due,
+				Fact::Overdue,
+			]);
 		}
 	}
+
+	let changes: Vec<Deadline> = live.change_deadlines().collect();
+	deadline_facts(&changes, at, [Fact::Due, Fact::Overdue], &mut facts);
+
+	let reread = live.reread_deadline().copied();
+	deadline_facts(
+		reread.as_slice(),
+		at,
+		[Fact::RereadDue, Fact::RereadOverdue],
+		&mut facts,
+	);
+
+	(facts, earliest(changes.into_iter().chain(reread)))
+}
+
+/// Adds `due`, the first of a pair such as `due` and `overdue`, once `at`
+/// reaches the instant any of `deadlines` is due, and `overdue`, the second,
+/// once it reaches the instant one that is not provisional is overdue. An
+/// overdue document is always due.
+fn deadline_facts(
+	deadlines: &[Deadline],
+	at: Timestamp,
+	[due, overdue]: [Fact; 2],
+	facts: &mut BTreeSet<Fact>,
+) {
 	if deadlines
 		.iter()
 		.any(|deadline| !deadline.provisional && deadline.is_overdue(at))
 	{
-		facts.insert(Fact::Overdue);
+		facts.insert(overdue);
 	}
-	if facts.contains(&Fact::Overdue)
+
+	if facts.contains(&overdue)
 		|| deadlines.iter().any(|deadline| deadline.is_due(at))
 	{
-		facts.insert(Fact::Due);
+		facts.insert(due);
 	}
-	let deadline = deadlines.into_iter().min_by_key(|deadline| {
-		(
-			deadline.due_from,
-			deadline.provisional,
-			deadline.overdue_from,
-		)
-	});
-	(facts, deadline)
+}
+
+/// How a declaration's clock is named in a diagnostic.
+fn declaration_clock(claim: &Claim) -> String {
+	format!("the declaration of `{}`", claim.document)
 }
 
 /// The diagnostic for a record that no longer matches its seal.

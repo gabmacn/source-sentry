@@ -59,6 +59,7 @@ pub(super) fn preview(
 			Setting::Cadence,
 			before.cadence.value != after.cadence.value,
 		),
+		(Setting::Reread, before.reread.value != after.reread.value),
 	]
 	.into_iter()
 	.filter_map(|(setting, changed)| changed.then_some(setting))

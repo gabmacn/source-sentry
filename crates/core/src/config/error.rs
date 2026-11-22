@@ -324,6 +324,13 @@ pub enum ConfigErrorKind {
 		/// Why.
 		reason: String,
 	},
+	/// A series' own schedule that sets `reread`, which a series cannot
+	/// take: its cadence already asks for a new entry each window.
+	#[error(
+		"a series' schedule cannot set `reread`, since its cadence already asks \
+		 for a new entry each window"
+	)]
+	RereadInSeries,
 	/// A rule with an empty `facts` list, which matches nothing.
 	#[error("a rule's `facts` list is empty, so the rule matches nothing")]
 	NoFacts,

@@ -11,7 +11,7 @@ use super::{
 use crate::claims::Mode;
 use crate::config::Scope;
 use crate::evaluate::run::{DocumentState, SourceState, Timing};
-use crate::evaluate::schedule::Deadline;
+use crate::evaluate::schedule::{Deadline, DeadlineKind};
 use crate::evaluate::settings::SettingOrigin;
 use crate::model::{DocumentId, Fact, Outcome};
 use crate::policy::ExitCode;
@@ -233,6 +233,7 @@ fn uncommitted_drift_is_stale_and_due_but_not_started() {
 		due_from: day(10),
 		overdue_from: day(10),
 		provisional: true,
+		kind: DeadlineKind::Change,
 	};
 	assert_eq!(subject.deadline, Some(provisional));
 	assert_eq!(

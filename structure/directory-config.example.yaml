@@ -17,6 +17,19 @@ imports: ['logs']
 # yet.
 classes: ['internal-docs']
 owners: ['platform']
+schedule:
+  # The dates on which each document here is due to be reread whole, written
+  # and validated as a cadence is: here, the first Monday of every month. A
+  # document is due on the first date after its last reread, or after its
+  # declaration when it was never reread, and overdue from the next day,
+  # with no grace. Only a reread resets it: `attest --reread`, or a review
+  # that records one. It suits a document whose sources cannot show that it
+  # has gone out of date, such as one with no sources at all. A document can
+  # remove it with `reread: null`. A series' own schedule cannot set it; this
+  # one applies to its living entry, and never to sealed records.
+  reread:
+    dtstart: 2026-12-07
+    rrule: 'FREQ=MONTHLY;BYDAY=1MO'
 
 documents:
   # Added to the ignores inherited from parent directories. A leading `!`

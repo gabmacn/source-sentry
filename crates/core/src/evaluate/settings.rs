@@ -17,7 +17,7 @@ use crate::model::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingOrigin {
 	/// Nothing sets it, so the built-in value applies: no classes, no owners,
-	/// a grace of 0 days and no cadence.
+	/// a grace of 0 days, no cadence and no reread schedule.
 	BuiltIn,
 	/// A config or preset, through resolution.
 	Config(Origin),
@@ -72,6 +72,8 @@ pub struct EffectiveSettings {
 	pub grace: Effective<u32>,
 	/// The cadence that due dates fall on, if any.
 	pub cadence: Effective<Option<Cadence>>,
+	/// The dates on which the whole document is due to be reread, if any.
+	pub reread: Effective<Option<Cadence>>,
 }
 
 impl EffectiveSettings {
@@ -82,9 +84,10 @@ impl EffectiveSettings {
 	/// written; pass `None` for an unclaimed file, which has none.
 	///
 	/// Each field of a declaration replaces the default as a whole: a
-	/// non-empty `classes` or `owners` list, a `grace`, or a `cadence`. An
-	/// empty list is an absent one, as the formats omit it. `cadence: null`
-	/// removes an inherited cadence.
+	/// non-empty `classes` or `owners` list, a `grace`, a `cadence` or a
+	/// `reread`. An empty list is an absent one, as the formats omit it.
+	/// `cadence: null` removes an inherited cadence, and `reread: null` an
+	/// inherited reread schedule.
 	#[must_use]
 	pub fn new(
 		defaults: &DocumentDefaults,
@@ -119,6 +122,12 @@ impl EffectiveSettings {
 					origin: site.origin("schedule.cadence"),
 				};
 			}
+			if !schedule.reread.is_inherit() {
+				settings.reread = Effective {
+					value: schedule.reread.as_set().cloned(),
+					origin: site.origin("schedule.reread"),
+				};
+			}
 		}
 		settings
 	}
@@ -146,6 +155,7 @@ impl EffectiveSettings {
 			owners: from_config(defaults.owners.as_ref(), Vec::new()),
 			grace: from_config(defaults.grace.as_ref(), 0),
 			cadence: from_config(defaults.cadence.as_ref(), None),
+			reread: from_config(defaults.reread.as_ref(), None),
 		}
 	}
 
@@ -176,12 +186,15 @@ impl EffectiveSettings {
 	/// [`EffectiveSchedule::new`](super::schedule::EffectiveSchedule::new).
 	#[must_use]
 	pub fn schedule(&self) -> Schedule {
+		let setting = |value: &Option<Cadence>| match value {
+			Some(cadence) => CadenceSetting::Set(cadence.clone()),
+			None => CadenceSetting::Remove,
+		};
+
 		Schedule {
-			cadence: match &self.cadence.value {
-				Some(cadence) => CadenceSetting::Set(cadence.clone()),
-				None => CadenceSetting::Remove,
-			},
+			cadence: setting(&self.cadence.value),
 			grace: Some(self.grace.value),
+			reread: setting(&self.reread.value),
 		}
 	}
 }
@@ -253,6 +266,7 @@ mod tests {
 				value: Some(cadence("FREQ=MONTHLY")),
 				origin: origin(".source-sentry/source-sentry.yaml"),
 			}),
+			reread: None,
 		}
 	}
 
@@ -274,6 +288,7 @@ mod tests {
 			schedule: Some(Schedule {
 				cadence: CadenceSetting::Inherit,
 				grace: Some(0),
+				reread: CadenceSetting::Inherit,
 			}),
 			..Declaration::default()
 		};
@@ -307,6 +322,7 @@ mod tests {
 			schedule: Some(Schedule {
 				cadence: CadenceSetting::Remove,
 				grace: None,
+				reread: CadenceSetting::Inherit,
 			}),
 			..Declaration::default()
 		};
@@ -323,6 +339,7 @@ mod tests {
 			Schedule {
 				cadence: CadenceSetting::Remove,
 				grace: Some(14),
+				reread: CadenceSetting::Remove,
 			}
 		);
 	}

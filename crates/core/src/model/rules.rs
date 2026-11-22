@@ -30,6 +30,12 @@ pub enum Fact {
 	Due,
 	/// A deadline has passed.
 	Overdue,
+	/// A reread deadline has arrived: from the start of the day the reread
+	/// schedule names. A document that is `reread-overdue` is also
+	/// `reread-due`.
+	RereadDue,
+	/// A reread deadline has passed.
+	RereadOverdue,
 	/// Declared, but never reviewed.
 	Unattested,
 	/// Inside a root, eligible as a document, and claimed by nothing.
@@ -55,6 +61,8 @@ impl Fact {
 			Self::Stale => "stale",
 			Self::Due => "due",
 			Self::Overdue => "overdue",
+			Self::RereadDue => "reread-due",
+			Self::RereadOverdue => "reread-overdue",
 			Self::Unattested => "unattested",
 			Self::Unclaimed => "unclaimed",
 			Self::UpstreamStale => "upstream-stale",

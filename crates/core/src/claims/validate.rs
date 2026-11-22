@@ -9,7 +9,7 @@ use super::{
 	Tombstone,
 };
 use crate::config::ConfigSet;
-use crate::evaluate::schedule::EffectiveSchedule;
+use crate::evaluate::schedule::invalid_rules;
 use crate::model::DocumentId;
 
 /// Reports double claims, including a remote identity that another project's
@@ -57,9 +57,9 @@ fn schedules(claims: &[Claim], diagnostics: &mut Vec<Diagnostic>) {
 		let Some(schedule) = &claim.declaration.schedule else {
 			continue;
 		};
-		if let Err(error) = EffectiveSchedule::new(schedule) {
+		for (rule, error) in invalid_rules(schedule) {
 			let location =
-				claim.location_of(format!("{}.schedule.cadence", claim.field));
+				claim.location_of(format!("{}.schedule.{rule}", claim.field));
 			diagnostics.push(
 				Diagnostic::schedule(&error, location).about(claim.document.clone()),
 			);

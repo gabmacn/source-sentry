@@ -7,11 +7,11 @@ use std::fmt::Write as _;
 use source_sentry_core::claims::{Diagnostic, DiagnosticKind, Mode, Severity};
 use source_sentry_core::evaluate::{
 	CompletionState, DocumentState, DocumentSubject, Evaluation, LiveDocument,
-	RecordCheck, RecordState, SeriesSubject, SourceState, Subject, SubjectKind,
-	Timing,
+	RecordCheck, RecordState, RereadBase, RereadClock, SeriesSubject,
+	SourceState, Subject, SubjectKind, Timing,
 };
 use source_sentry_core::model::{
-	ClassName, DocumentId, Lifecycle, ObjectId, VersionKind,
+	Cadence, ClassName, DocumentId, Lifecycle, ObjectId, VersionKind,
 };
 use source_sentry_core::policy::Basis;
 
@@ -321,7 +321,10 @@ fn explain(
 			.unwrap_or_else(|| "none: no clock runs".to_owned()),
 	));
 	table(&mut text, &rows);
-	if let Some(hint) = describe::inheritance_hint(workspace, subject) {
+	let hints = describe::inheritance_hint(workspace, subject)
+		.into_iter()
+		.chain(describe::reread_hint(workspace, subject));
+	for hint in hints {
 		let _ = writeln!(text, "\n{hint}");
 	}
 
@@ -333,10 +336,14 @@ fn explain(
 		.iter()
 		.map(ClassName::as_str)
 		.collect();
-	let cadence = settings.cadence.value.as_ref().map_or_else(
-		|| "none".to_owned(),
-		|cadence| format!("{} from {}", cadence.rrule, cadence.dtstart),
-	);
+	let rule = |rule: Option<&Cadence>| {
+		rule.map_or_else(
+			|| "none".to_owned(),
+			|rule| format!("{} from {}", rule.rrule, rule.dtstart),
+		)
+	};
+	let cadence = rule(settings.cadence.value.as_ref());
+	let reread = rule(settings.reread.value.as_ref());
 	let values = [
 		("classes", list(&classes), &settings.classes.origin),
 		(
@@ -350,6 +357,7 @@ fn explain(
 			&settings.grace.origin,
 		),
 		("cadence", cadence, &settings.cadence.origin),
+		("reread", reread, &settings.reread.origin),
 	];
 	let width = values
 		.iter()
@@ -407,6 +415,9 @@ fn document_rows(
 					format!("never reviewed; declared{}", clock(timing)),
 				));
 			}
+			if let Some(reread) = &live.reread {
+				rows.push(("Reread", reread_state(reread)));
+			}
 		}
 	}
 	if let Some(series) = &document.awaiting_seal {
@@ -418,6 +429,36 @@ fn document_rows(
 				describe::scope(workspace, &series.scope)
 			),
 		));
+	}
+}
+
+/// When a document was last reread whole, and when it is due to be reread
+/// again: `last reread at 2026-08-05 10:00 UTC by QA; reread by
+/// 2026-09-01: …`, or, for a document never reread, its declaration's clock.
+fn reread_state(reread: &RereadClock) -> String {
+	match &reread.base {
+		RereadBase::Reread(review) => {
+			let by = review
+				.by
+				.as_ref()
+				.map_or_else(String::new, |by| format!(" by {by}"));
+			let deadline = reread
+				.deadline
+				.as_ref()
+				.map_or_else(String::new, |deadline| {
+					format!("; {}", describe::deadline(deadline))
+				});
+			format!(
+				"last reread at {}{by}{deadline}",
+				describe::instant(review.at)
+			)
+		}
+		RereadBase::Declared(timing) => {
+			format!(
+				"never reread; counted from the declaration{}",
+				clock(timing)
+			)
+		}
 	}
 }
 

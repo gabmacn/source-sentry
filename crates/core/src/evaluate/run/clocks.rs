@@ -102,7 +102,8 @@ impl Requests {
 		{
 			return Err(BackendError::new(
 				BackendErrorKind::Git,
-				"the history walk answered a different number of clock questions 				 than were asked",
+				"the history walk answered a different number of clock questions \
+				 than were asked",
 			));
 		}
 		Ok(answers)
@@ -137,7 +138,8 @@ impl Answers {
 	pub(super) fn get(&self, slot: Slot) -> Answer<'_> {
 		#[expect(
 			clippy::expect_used,
-			reason = "every slot comes from the requests that `Requests::answer` 			          answered, and it checks that each question has its answer"
+			reason = "every slot comes from the requests that `Requests::answer` \
+			          answered, and it checks that each question has its answer"
 		)]
 		match slot {
 			Slot::Drift(position) => {

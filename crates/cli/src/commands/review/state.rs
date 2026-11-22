@@ -80,9 +80,13 @@ pub(super) struct Document {
 	outcome: Outcome,
 	/// Whether its facts require review, independently of the outcome.
 	pub(super) pending: bool,
-	/// Whether it is due, or one of its upstream documents is: a pending
-	/// document that is not due can wait for its review day.
+	/// Whether it is due, for a change or for its reread, or one of its
+	/// upstream documents is: a pending document that is not due can wait
+	/// for its review day.
 	pub(super) due: bool,
+	/// Whether its reread is due, and whether it is all the document is
+	/// pending for.
+	pub(super) reread: Reread,
 	/// Its current facts as people read them, for the prompt and closing
 	/// summary: `stale (review by 2026-11-20)`.
 	pub(super) facts: String,
@@ -99,6 +103,66 @@ impl Document {
 	/// Its outcome in the selected context.
 	pub(super) fn outcome(&self) -> Outcome {
 		self.outcome
+	}
+}
+
+/// How a document's reread figures in its review.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Reread {
+	/// Its reread is not due.
+	NotDue,
+	/// Its reread is due, or overdue, beside other work.
+	Due,
+	/// Its reread is due, or overdue, and it is all the document is pending
+	/// for. An answer given to every document at once never records it.
+	Only,
+}
+
+impl Reread {
+	/// Whether the reread is due, alone or beside other work.
+	pub(super) fn is_due(self) -> bool {
+		self != Self::NotDue
+	}
+}
+
+/// Whether a fact requires review.
+fn is_pending(fact: Fact) -> bool {
+	matches!(
+		fact,
+		Fact::Stale
+			| Fact::Due
+			| Fact::Overdue
+			| Fact::RereadDue
+			| Fact::RereadOverdue
+			| Fact::Unattested
+			| Fact::UpstreamStale
+			| Fact::UpstreamDue
+	)
+}
+
+/// Whether a fact makes a document due: for a change, for its reread, or
+/// through an upstream document.
+fn is_due(fact: Fact) -> bool {
+	matches!(
+		fact,
+		Fact::Due
+			| Fact::Overdue
+			| Fact::RereadDue
+			| Fact::RereadOverdue
+			| Fact::UpstreamDue
+	)
+}
+
+/// How the reread figures among `facts`.
+fn reread(facts: &BTreeSet<Fact>) -> Reread {
+	let rereads =
+		|fact: Fact| matches!(fact, Fact::RereadDue | Fact::RereadOverdue);
+	if !facts.iter().any(|&fact| rereads(fact)) {
+		Reread::NotDue
+	} else if facts.iter().all(|&fact| rereads(fact) || !is_pending(fact)) {
+		Reread::Only
+	} else {
+		Reread::Due
 	}
 }
 
@@ -236,20 +300,9 @@ impl State {
 				Document {
 					outcome,
 					reports: live.sources.clone(),
-					pending: subject.facts.iter().any(|fact| {
-						matches!(
-							fact,
-							Fact::Stale
-								| Fact::Due
-								| Fact::Overdue
-								| Fact::Unattested
-								| Fact::UpstreamStale
-								| Fact::UpstreamDue
-						)
-					}),
-					due: subject.facts.iter().any(|fact| {
-						matches!(fact, Fact::Due | Fact::Overdue | Fact::UpstreamDue)
-					}),
+					pending: subject.facts.iter().copied().any(is_pending),
+					due: subject.facts.iter().copied().any(is_due),
+					reread: reread(&subject.facts),
 					facts: crate::describe::facts(subject, evaluation.at),
 					stamp: Stamp {
 						sources: live

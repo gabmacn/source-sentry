@@ -468,6 +468,18 @@ pub(crate) struct TrackArgs {
 	/// Remove an inherited cadence: writes `cadence: null`.
 	#[arg(long)]
 	pub(crate) no_cadence: bool,
+	/// A reread schedule, the dates on which the whole document is due to be
+	/// reread: its first due date, and an RFC 5545 recurrence rule.
+	#[arg(
+		long,
+		num_args = 2,
+		value_names = ["DTSTART", "RRULE"],
+		conflicts_with = "no_reread"
+	)]
+	pub(crate) reread: Option<Vec<String>>,
+	/// Remove an inherited reread schedule: writes `reread: null`.
+	#[arg(long)]
+	pub(crate) no_reread: bool,
 	/// Move the documents from this placement: `on-file`,
 	/// `lockfile:<directory>` or `remote:<owner>` or `remote:<owner>@<project-directory>`.
 	#[arg(
@@ -477,7 +489,8 @@ pub(crate) struct TrackArgs {
 		requires = "to",
 		conflicts_with_all = [
 			"on_file", "lockfile", "remote", "url", "sources", "patterns",
-			"classes", "owners", "grace", "cadence", "no_cadence",
+			"classes", "owners", "grace", "cadence", "no_cadence", "reread",
+			"no_reread",
 		]
 	)]
 	pub(crate) from: Option<PlacementArg>,

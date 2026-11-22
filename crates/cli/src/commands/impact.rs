@@ -684,7 +684,8 @@ fn summary(document: &Impacted) -> String {
 }
 
 /// The settings worth showing: classes and owners when there are any, a
-/// grace period when there is one, and a cadence when one is set.
+/// grace period when there is one, and a cadence and a reread schedule when
+/// they are set.
 pub(super) fn settings_parts(settings: &EffectiveSettings) -> Vec<String> {
 	let mut parts = Vec::new();
 	if !settings.classes.value.is_empty() {
@@ -710,6 +711,9 @@ pub(super) fn settings_parts(settings: &EffectiveSettings) -> Vec<String> {
 			"cadence {} from {}",
 			cadence.rrule, cadence.dtstart
 		));
+	}
+	if let Some(reread) = &settings.reread.value {
+		parts.push(format!("reread {} from {}", reread.rrule, reread.dtstart));
 	}
 	parts
 }

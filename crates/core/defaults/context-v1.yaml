@@ -9,8 +9,9 @@
 # due, and a document whose upstream document is stale is a notice until that
 # document is due: `due`, `upstream-due` and `overdue` warn through the
 # fallback. A document without a schedule is due as soon as it is stale, so it
-# warns at once. A missed series entry is listed in the report without
-# failing it, and every other finding warns.
+# warns at once. A document whose reread is due warns too, through the
+# fallback: `reread-due` and `reread-overdue`. A missed series entry is listed
+# in the report without failing it, and every other finding warns.
 
 fallback: warn # For any finding that no rule matches.
 rules:

@@ -73,64 +73,55 @@ impl Interface for Terminal {
 	}
 
 	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure> {
-		let documents =
-			|count| crate::describe::count(count, "document", "documents");
-		let (due, later) = (batch.due.len(), batch.later.len());
-		// Without a choice between the two, a plain question.
-		if due == 0 || later == 0 {
-			let (question, accepted) = if later == 0 {
-				(
-					format!(
-						"Record the remaining {}, including {} you have not seen?",
-						documents(due),
-						batch.unseen
-					),
-					Bulk::Due,
-				)
-			} else {
-				(
-					format!(
-						"None is due yet. Record the remaining {} anyway, including {} you have not seen?",
-						documents(later),
-						batch.unseen_later
-					),
-					Bulk::Everything,
-				)
-			};
-			let answer = answer_or_end(
-				Confirm::new(&question)
-					.with_default(false)
-					.with_render_config(render_config())
-					.prompt(),
-			)?;
-			return Ok(answer.map(|yes| if yes { accepted } else { Bulk::Leave }));
-		}
-		// The first choice is the default: it keeps the documents not due yet
-		// for their review day.
-		let choices = vec![
-			format!(
-				"Record the {} that are due, including {} you have not seen",
-				documents(due),
-				batch.unseen
-			),
-			format!(
-				"Record all {}, including the {} not due yet; {} you have not seen",
-				due + later,
+		// Which documents: the due ones, or those not due yet too. When the
+		// due documents can all be recorded only by a reread, the question
+		// about rereads alone remains.
+		let only_rereads =
+			batch.later.is_empty() && batch.rereads.len() == batch.due.len();
+		let later = if only_rereads {
+			false
+		} else {
+			match scope(batch)? {
+				Some(Bulk::Record { later, .. }) => later,
+				Some(Bulk::Leave) => return Ok(Some(Bulk::Leave)),
+				None => return Ok(None),
+			}
+		};
+
+		let (due, sourceless, unseen) = batch.reread_counts(later);
+		let count = due + sourceless;
+		if count == 0 {
+			return Ok(Some(Bulk::Record {
 				later,
-				batch.unseen + batch.unseen_later
-			),
-			"Record nothing".to_owned(),
-		];
+				rereads: false,
+			}));
+		}
+		// Each of them by name, with why and whether it was seen, before the
+		// question that records them.
+		output::data(batch.rereads_listing(later).trim_end_matches('\n'));
+		let documents = crate::describe::count(count, "document", "documents");
+		let question = if only_rereads {
+			format!(
+				"The remaining {documents} can only be recorded as reread: {}. Record that each was reread, including {unseen} you have not seen?",
+				batch.rereads_named(later)
+			)
+		} else {
+			format!(
+				"{documents} of these can only be recorded as reread: {}. Record that each of them was reread too, including {unseen} you have not seen? No leaves them for answers of their own.",
+				batch.rereads_named(later)
+			)
+		};
 		let answer = answer_or_end(
-			Select::new("Record which documents?", choices.clone())
+			Confirm::new(&question)
+				.with_default(false)
 				.with_render_config(render_config())
 				.prompt(),
 		)?;
-		Ok(answer.map(|chosen| {
-			match choices.iter().position(|choice| *choice == chosen) {
-				Some(0) => Bulk::Due,
-				Some(1) => Bulk::Everything,
-				_ => Bulk::Leave,
+		Ok(answer.map(|rereads| {
+			if only_rereads && !rereads {
+				Bulk::Leave
+			} else {
+				Bulk::Record { later, rereads }
 			}
 		}))
 	}
@@ -158,6 +149,77 @@ impl Interface for Terminal {
 	fn close(&mut self, closing: &Closing, part: Part) {
 		self.closing.show(closing, part);
 	}
+}
+
+/// Asks which documents `a` records: the due ones, or those not due yet as
+/// well, as a [`Bulk`] that leaves out the rereads; `None` is the end of
+/// input. The counts include the documents that can only be recorded by a
+/// reread, about which a question of their own follows.
+fn scope(batch: &Batch) -> Result<Option<Bulk>, Failure> {
+	let record = |later| Bulk::Record {
+		later,
+		rereads: false,
+	};
+	let documents =
+		|count| crate::describe::count(count, "document", "documents");
+	let (due, later) = (batch.due.len(), batch.later.len());
+
+	// Without a choice between the two, a plain question.
+	if due == 0 || later == 0 {
+		let question = if later == 0 {
+			format!(
+				"Record the remaining {}, including {} you have not seen?",
+				documents(due),
+				batch.unseen
+			)
+		} else {
+			format!(
+				"None is due yet. Record the remaining {} anyway, including {} you have not seen?",
+				documents(later),
+				batch.unseen_later
+			)
+		};
+		let answer = answer_or_end(
+			Confirm::new(&question)
+				.with_default(false)
+				.with_render_config(render_config())
+				.prompt(),
+		)?;
+		return Ok(answer.map(
+			|yes| {
+				if yes { record(later > 0) } else { Bulk::Leave }
+			},
+		));
+	}
+
+	// The first choice is the default: it keeps the documents not due yet
+	// for their review day.
+	let choices = vec![
+		format!(
+			"Record the {} that are due, including {} you have not seen",
+			documents(due),
+			batch.unseen
+		),
+		format!(
+			"Record all {}, including the {} not due yet; {} you have not seen",
+			due + later,
+			later,
+			batch.unseen + batch.unseen_later
+		),
+		"Record nothing".to_owned(),
+	];
+	let answer = answer_or_end(
+		Select::new("Record which documents?", choices.clone())
+			.with_render_config(render_config())
+			.prompt(),
+	)?;
+	Ok(answer.map(|chosen| {
+		match choices.iter().position(|choice| *choice == chosen) {
+			Some(0) => record(false),
+			Some(1) => record(true),
+			_ => Bulk::Leave,
+		}
+	}))
 }
 
 /// Applies the CLI's explicit colour choice to inquire as well as to normal

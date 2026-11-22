@@ -72,7 +72,7 @@ pub struct SettingsPreview {
 	/// The settings where it moves to.
 	pub after: EffectiveSettings,
 	/// The settings whose values change, in this order: classes, owners,
-	/// grace, cadence. A change of origin alone is not listed.
+	/// grace, cadence, reread. A change of origin alone is not listed.
 	pub changed: Vec<Setting>,
 }
 
@@ -87,6 +87,8 @@ pub enum Setting {
 	Grace,
 	/// Its cadence.
 	Cadence,
+	/// Its reread schedule.
+	Reread,
 }
 
 /// The errors about a document that a move tolerates: the two it exists to

@@ -350,7 +350,9 @@ fn the_confirmation_of_a_lists_every_document_and_records_them_all() {
 		let repo = many(count);
 		let (workspace, args) = (repo.workspace(), repo.args(&[]));
 		let mut app = App::new(&workspace, &args).unwrap();
-		press(&mut app, &[Key::Char('a')]);
+		// The documents have no sources, so they are recorded only with the
+		// rereads.
+		press(&mut app, &[Key::Char('a'), Key::Char('r')]);
 		assert!(
 			matches!(&app.overlay, Some(Overlay::All(batch)) if batch.due.len() == count)
 		);
@@ -399,7 +401,8 @@ fn the_confirmation_of_a_still_goes_back_on_its_keys() {
 }
 
 /// Picked documents are confirmed in the same box: it lists all of them,
-/// scrolls on the same keys, and `y` records each one.
+/// scrolls on the same keys, and `y` records each one. Without sources, they
+/// take no plain yes, so `r` opens it.
 #[test]
 fn the_confirmation_of_picked_documents_lists_and_records_them_all() {
 	let repo = many(11);
@@ -408,6 +411,8 @@ fn the_confirmation_of_picked_documents_lists_and_records_them_all() {
 	press(&mut app, &[Key::Extend(true); 10]);
 	assert_eq!(app.picked.len(), 11);
 	press(&mut app, &[Key::Char('y')]);
+	assert!(app.overlay.is_none());
+	press(&mut app, &[Key::Char('r')]);
 	assert!(matches!(app.overlay, Some(Overlay::Picked(..))));
 	confirmation_lists_each_once(
 		&mut app,
@@ -418,7 +423,7 @@ fn the_confirmation_of_picked_documents_lists_and_records_them_all() {
 	press(&mut app, &[Key::Escape]);
 	assert!(app.overlay.is_none());
 	assert_eq!(app.session.recorded, Vec::new());
-	press(&mut app, &[Key::Char('y')]);
+	press(&mut app, &[Key::Char('r')]);
 	press(&mut app, &SCROLLING);
 	press(&mut app, &[Key::Char('y')]);
 	assert_eq!(app.session.recorded.len(), 11);

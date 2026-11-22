@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use jiff::Timestamp;
 use source_sentry_core::claims::Location;
 use source_sentry_core::config::{Origin, Scope};
-use source_sentry_core::evaluate::schedule::Deadline;
+use source_sentry_core::evaluate::schedule::{Deadline, DeadlineKind};
 use source_sentry_core::evaluate::settings::SettingOrigin;
 use source_sentry_core::evaluate::{
 	DocumentState, Evaluation, RuleOrigin, SourceReport, SourceState, Subject,
@@ -116,39 +116,40 @@ pub(crate) fn inheritance_hint(
 /// A subject's facts at `at`, the instant of the check, as one line:
 /// `overdue (missed review by 2026-11-03)`. `fresh` is left out, so a
 /// passing subject reads `fresh`. A fact that a more urgent one implies is
-/// left out too: an overdue document is also due and stale, and a document
-/// with a due upstream document also has a stale one. The JSON report lists
-/// every fact.
+/// left out too: an overdue document is also due and stale, a document
+/// overdue for its reread is also due for it, and a document with a due
+/// upstream document also has a stale one. The JSON report lists every
+/// fact.
 ///
 /// A deadline is called missed only once it has passed at `at`. A document
 /// that is overdue only because a source's timing is unknown reads
 /// `overdue, timing unknown`, whatever deadline its other sources set.
+/// `due` and `overdue` name the deadline of a change, and `reread-due` and
+/// `reread-overdue` that of a reread: `reread-due (reread by 2026-12-01)`.
 pub(crate) fn facts(subject: &Subject, at: Timestamp) -> String {
 	let has = |fact: Fact| subject.facts.contains(&fact);
+	let change = change_deadline(subject);
+	let reread = reread_deadline(subject);
 	let mut phrases = Vec::new();
 	for &fact in &subject.facts {
 		let phrase = match fact {
 			Fact::Fresh => continue,
 			Fact::Stale if has(Fact::Due) || has(Fact::Overdue) => continue,
 			Fact::Due if has(Fact::Overdue) => continue,
+			Fact::RereadDue if has(Fact::RereadOverdue) => continue,
 			Fact::UpstreamStale if has(Fact::UpstreamDue) => continue,
-			Fact::Stale | Fact::Due => match &subject.deadline {
+			Fact::Stale | Fact::Due => match &change {
 				Some(deadline) => {
 					format!("{fact} ({})", review_by(deadline, task(subject)))
 				}
 				None => fact.name().to_owned(),
 			},
-			Fact::Overdue => match &subject.deadline {
-				Some(deadline) if is_missed(deadline, at) => match deadline.due {
-					Some(due) => {
-						format!("overdue (missed {} by {due})", task(subject))
-					}
-					None => {
-						format!("overdue (since {})", date(deadline.overdue_from))
-					}
-				},
-				Some(_) | None => "overdue".to_owned(),
+			Fact::Overdue => overdue(fact, change.as_ref(), task(subject), at),
+			Fact::RereadDue => match &reread {
+				Some(deadline) => format!("{fact} ({})", review_by(deadline, "reread")),
+				None => fact.name().to_owned(),
 			},
+			Fact::RereadOverdue => overdue(fact, reread.as_ref(), "reread", at),
 			Fact::Unattested => match unattested_since(subject) {
 				Some(since) => format!("unattested since {since}"),
 				None => "unattested".to_owned(),
@@ -164,6 +165,46 @@ pub(crate) fn facts(subject: &Subject, at: Timestamp) -> String {
 		"fresh".to_owned()
 	} else {
 		phrases.join(", ")
+	}
+}
+
+/// The phrase for `fact`, `overdue` or `reread-overdue`, whose deadline is
+/// `deadline` and asks for `task`: `overdue (missed review by 2026-11-03)`
+/// once the deadline has passed at `at`, or `overdue (since 2026-11-03)` for
+/// a deadline that was due at once.
+fn overdue(
+	fact: Fact,
+	deadline: Option<&Deadline>,
+	task: &str,
+	at: Timestamp,
+) -> String {
+	match deadline {
+		Some(deadline) if is_missed(deadline, at) => match deadline.due {
+			Some(due) => format!("{fact} (missed {task} by {due})"),
+			None => format!("{fact} (since {})", date(deadline.overdue_from)),
+		},
+		Some(_) | None => fact.name().to_owned(),
+	}
+}
+
+/// The deadline that a subject's `stale`, `due` and `overdue` name: the
+/// earliest deadline of its changes, whatever its reread deadline. For a
+/// subject other than a live document, its deadline.
+pub(crate) fn change_deadline(subject: &Subject) -> Option<Deadline> {
+	match subject.deadline {
+		Some(deadline) if deadline.kind == DeadlineKind::Change => Some(deadline),
+		_ => match &subject.document()?.state {
+			DocumentState::Live(live) => live.change_deadline(),
+			DocumentState::Record(_) => None,
+		},
+	}
+}
+
+/// The reread deadline of a live document, when it has one.
+pub(crate) fn reread_deadline(subject: &Subject) -> Option<Deadline> {
+	match &subject.document()?.state {
+		DocumentState::Live(live) => live.reread_deadline().copied(),
+		DocumentState::Record(_) => None,
 	}
 }
 
@@ -307,7 +348,7 @@ pub(crate) fn changes(
 			let due = evaluation
 				.upstream_subjects_of(&DocumentId::Local(upstream.clone()))
 				.find(|found| found.facts.contains(&Fact::Due));
-			match due.and_then(|found| found.deadline.as_ref()) {
+			match due.and_then(change_deadline).as_ref() {
 				Some(deadline) => format!(
 					"its source {path} is due ({})",
 					review_by(deadline, "review")
@@ -483,30 +524,63 @@ pub(crate) fn subject_deadline(subject: &Subject) -> Option<String> {
 }
 
 /// A deadline in full: `review by 2026-11-03: due from 2026-11-03 00:00 UTC,
-/// overdue from 2026-11-04 00:00 UTC`. A provisional deadline says that it
-/// holds only if the change is committed now.
+/// overdue from 2026-11-04 00:00 UTC`, or `reread by …` for a reread
+/// deadline. A provisional deadline says that it holds only if the change
+/// is committed now.
 pub(crate) fn deadline(deadline: &Deadline) -> String {
+	let task = match deadline.kind {
+		DeadlineKind::Change => "review",
+		DeadlineKind::Reread => "reread",
+	};
 	match (deadline.due, deadline.provisional) {
 		(Some(due), false) => format!(
-			"review by {due}: due from {}, overdue from {}",
+			"{task} by {due}: due from {}, overdue from {}",
 			instant(deadline.due_from),
 			instant(deadline.overdue_from)
 		),
 		(None, false) => format!(
-			"review at once: due and overdue from {}",
+			"{task} at once: due and overdue from {}",
 			instant(deadline.overdue_from)
 		),
 		(Some(due), true) => format!(
-			"review by {due} if committed now: due from {}, overdue from {}; \
+			"{task} by {due} if committed now: due from {}, overdue from {}; \
 			 it moves when the change is committed",
 			instant(deadline.due_from),
 			instant(deadline.overdue_from)
 		),
-		(None, true) => {
-			"review at once: due now, and overdue once the change is committed"
-				.to_owned()
-		}
+		(None, true) => format!(
+			"{task} at once: due now, and overdue once the change is committed"
+		),
 	}
+}
+
+/// The command that clears a document whose only pending work is a reread
+/// of the whole document, `reread-due` or `reread-overdue` and no other
+/// fact, as a sentence: ``Reread it whole, then run `source-sentry attest
+/// docs/host.md --reread` ``. `None` for any other subject.
+pub(crate) fn reread_hint(
+	workspace: &Workspace,
+	subject: &Subject,
+) -> Option<String> {
+	let document = subject.document()?;
+	let only_reread = subject
+		.facts
+		.iter()
+		.all(|fact| matches!(fact, Fact::RereadDue | Fact::RereadOverdue));
+	if !only_reread || !subject.facts.contains(&Fact::RereadDue) {
+		return None;
+	}
+
+	let argument = match &document.document {
+		DocumentId::Local(path) => workspace.document_argument(path),
+		DocumentId::Remote(_) => workspace.display_document(&document.document),
+	};
+	let command = format!(
+		"{} attest {} --reread",
+		workspace.command_prefix(),
+		crate::commands::shell_word(&argument)
+	);
+	Some(format!("Reread it whole, then run `{command}`"))
 }
 
 /// "1 failing", "2 warnings": a count and its noun.
@@ -535,7 +609,7 @@ mod tests {
 	use jiff::{Timestamp, civil::Date};
 	use source_sentry_core::claims::Mode;
 	use source_sentry_core::config::DocumentDefaults;
-	use source_sentry_core::evaluate::schedule::Deadline;
+	use source_sentry_core::evaluate::schedule::{Deadline, DeadlineKind};
 	use source_sentry_core::evaluate::settings::EffectiveSettings;
 	use source_sentry_core::evaluate::{
 		DocumentState, DocumentSubject, LiveDocument, Subject, SubjectKind,
@@ -561,6 +635,7 @@ mod tests {
 			due_from: instant("2026-12-15T00:00:00Z"),
 			overdue_from: instant("2026-12-16T00:00:00Z"),
 			provisional,
+			kind: DeadlineKind::Change,
 		}
 	}
 
@@ -576,6 +651,7 @@ mod tests {
 				field: "documents[\"doc.md\"]".to_owned(),
 				state: DocumentState::Live(LiveDocument {
 					unattested: None,
+					reread: None,
 					sources: Vec::new(),
 					stale_upstreams: Vec::new(),
 					due_upstreams: Vec::new(),

@@ -18,7 +18,7 @@ use crate::claims::{
 	SourceGlob, entry_field,
 };
 use crate::config::ConfigSet;
-use crate::evaluate::schedule::EffectiveSchedule;
+use crate::evaluate::schedule::invalid_rules;
 use crate::model::{
 	CadenceSetting, ClassName, Declaration, DocumentId, PathError, PathSource,
 	PatternSource, RepoPath, Schedule, SourceDecl, resolve_project_source,
@@ -385,7 +385,8 @@ fn names(target: &Target, placement: &Placement) -> bool {
 ///
 /// Reviews and attestations are kept, and the new sources are unattested,
 /// so the document is stale until they are reviewed. Classes and owners are
-/// added once each. A grace or cadence replaces only what it names.
+/// added once each. A grace, cadence or reread schedule replaces only what
+/// it names.
 ///
 /// # Errors
 ///
@@ -432,7 +433,7 @@ fn extend<S: Snapshot>(
 
 /// Adds sources and settings with the same rules for extension and succession.
 /// Duplicate sources are refused; classes and owners are added once, and
-/// grace and cadence replace only the fields supplied.
+/// grace, cadence and reread replace only the fields supplied.
 fn add(
 	project: &RepoPath,
 	document: &DocumentId,
@@ -475,12 +476,16 @@ fn add(
 		let schedule = declaration.schedule.get_or_insert(Schedule {
 			cadence: CadenceSetting::Inherit,
 			grace: None,
+			reread: CadenceSetting::Inherit,
 		});
 		if added.grace.is_some() {
 			schedule.grace = added.grace;
 		}
 		if !added.cadence.is_inherit() {
 			schedule.cadence = added.cadence;
+		}
+		if !added.reread.is_inherit() {
+			schedule.reread = added.reread;
 		}
 	}
 	if addition.url.is_some() {
@@ -935,8 +940,10 @@ fn declaration<S: Snapshot>(
 	if request.owners.iter().any(|owner| owner.trim().is_empty()) {
 		return Err(MutateError::EmptyOwner);
 	}
-	if let Some(schedule) = &request.schedule {
-		EffectiveSchedule::new(schedule)?;
+	if let Some(schedule) = &request.schedule
+		&& let Some((_, error)) = invalid_rules(schedule).into_iter().next()
+	{
+		return Err(error.into());
 	}
 	if request.url.is_some() && !matches!(request.document, DocumentId::Remote(_))
 	{

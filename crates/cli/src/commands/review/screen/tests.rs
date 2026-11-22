@@ -100,6 +100,9 @@ fn documents_not_due_yet_are_tagged_and_included_only_on_request() {
 		panic!("expected the confirmation");
 	};
 	assert_eq!((batch.due.len(), batch.later.len()), (1, 1));
+	// Both have no sources, so they are recorded only with the rereads.
+	assert!(shows(&drawn(&app, 120, 30), "rereads too"));
+	press(&mut app, &[Key::Char('r')]);
 	assert!(shows(&drawn(&app, 120, 30), "include those not due yet"));
 	press(&mut app, &[Key::Char('y')]);
 	assert!(repo.entry("docs/a.md")["reviewed"].is_object());
@@ -110,7 +113,7 @@ fn documents_not_due_yet_are_tagged_and_included_only_on_request() {
 	assert!(
 		matches!(&app.overlay, Some(Overlay::All(batch)) if batch.due.is_empty())
 	);
-	press(&mut app, &[Key::Char('i')]);
+	press(&mut app, &[Key::Char('r'), Key::Char('i')]);
 	assert!(repo.entry("docs/later.md")["reviewed"].is_object());
 }
 
@@ -129,6 +132,8 @@ fn everything_is_recorded_at_once_only_after_a_confirmation() {
 		(batch.due.len(), batch.unseen, batch.later.len()),
 		(2, 1, 0)
 	);
+	// `docs/b.md` has no sources, so it is recorded only with the rereads.
+	press(&mut app, &[Key::Char('r')]);
 	assert!(shows(
 		&drawn(&app, 120, 30),
 		"Record the 2 documents that are due, including 1 you have not seen?"
@@ -137,7 +142,7 @@ fn everything_is_recorded_at_once_only_after_a_confirmation() {
 	assert_eq!((app.overlay.is_none(), app.open.len()), (true, 2));
 	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
 
-	press(&mut app, &[Key::Char('a'), Key::Char('y')]);
+	press(&mut app, &[Key::Char('a'), Key::Char('r'), Key::Char('y')]);
 	assert_eq!((app.open.len(), app.cursor), (0, Cursor::None));
 	assert!(repo.entry("docs/b.md")["reviewed"].is_object());
 	assert_eq!(app.notice.as_deref(), Some("Recorded 2 reviews."));
@@ -832,7 +837,9 @@ fn the_closing_reports_changes_made_after_the_last_write() {
 }
 
 /// Several documents are picked with the space bar or with Shift and an
-/// arrow, and take one answer after a confirmation that lists them.
+/// arrow, and take one answer after a confirmation that lists them. A plain
+/// yes leaves out a document without sources, which it could only record by
+/// a reread; `r` takes it.
 #[test]
 fn picked_documents_take_one_answer_after_a_confirmation() {
 	let repo = fixture();
@@ -855,16 +862,22 @@ fn picked_documents_take_one_answer_after_a_confirmation() {
 	let Some(Overlay::Picked(comparisons, unseen, reread)) = &app.overlay else {
 		panic!("expected the confirmation");
 	};
-	assert_eq!((comparisons.len(), *unseen, *reread), (2, 0, false));
+	assert_eq!((comparisons.len(), *unseen, *reread), (1, 0, false));
+	assert_eq!(comparisons[0].0.document.to_string(), "docs/a.md");
 	assert!(shows(
 		&drawn(&app, 120, 30),
-		"Record the 2 picked documents, including 0 you have not seen?"
+		"Record the 1 picked document, including 0 you have not seen?"
 	));
 	press(&mut app, &[Key::Char('n')]);
 	assert_eq!(app.picked.len(), 2);
 	assert!(repo.entry("docs/b.md")["reviewed"].is_null());
 
-	press(&mut app, &[Key::Char('y'), Key::Char('y')]);
+	press(&mut app, &[Key::Char('r')]);
+	assert!(matches!(
+		&app.overlay,
+		Some(Overlay::Picked(comparisons, _, true)) if comparisons.len() == 2
+	));
+	press(&mut app, &[Key::Char('y')]);
 	assert!(app.picked.is_empty() && app.open.is_empty());
 	assert!(repo.entry("docs/b.md")["reviewed"].is_object());
 	assert_eq!(app.notice.as_deref(), Some("Recorded 2 reviews."));
@@ -1354,7 +1367,15 @@ fn a_shared_answer_is_taken_back_whole_and_a_changed_file_refuses() {
 	let lockfile = repo.read("source-sentry.lock");
 	let (workspace, args) = (repo.workspace(), repo.args(&[]));
 	let mut app = App::new(&workspace, &args).unwrap();
-	press(&mut app, &[Key::Char('a'), Key::Char('y'), Key::Char('u')]);
+	press(
+		&mut app,
+		&[
+			Key::Char('a'),
+			Key::Char('r'),
+			Key::Char('y'),
+			Key::Char('u'),
+		],
+	);
 	assert_eq!(app.log().len(), 1);
 	assert!(
 		app.log()[0]

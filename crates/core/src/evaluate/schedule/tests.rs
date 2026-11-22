@@ -2,7 +2,10 @@
 
 use jiff::{SignedDuration, Timestamp, civil::Date};
 
-use super::{Deadline, EffectiveSchedule, Recurrence, ScheduleError, TimeZone};
+use super::{
+	Deadline, DeadlineKind, EffectiveSchedule, Recurrence, ScheduleError,
+	TimeZone, invalid_rules, reread_deadline,
+};
 use crate::model::{Cadence, CadenceSetting, Schedule};
 
 fn date(text: &str) -> Date {
@@ -606,6 +609,7 @@ fn an_unset_grace_period_is_zero_days() {
 	let effective = EffectiveSchedule::new(&Schedule {
 		cadence: CadenceSetting::Inherit,
 		grace: None,
+		reread: CadenceSetting::Inherit,
 	})
 	.expect("valid schedule");
 	assert_eq!(effective, EffectiveSchedule::default());
@@ -621,6 +625,7 @@ fn a_schedule_validates_its_cadence() {
 			"FREQ=MONTHLY;INTERVAL=2",
 		)),
 		grace: Some(14),
+		reread: CadenceSetting::Inherit,
 	})
 	.expect("valid schedule");
 	assert_eq!(effective.grace, 14);
@@ -635,6 +640,7 @@ fn a_schedule_validates_its_cadence() {
 				"FREQ=DAILY;BYHOUR=9"
 			)),
 			grace: None,
+			reread: CadenceSetting::Inherit,
 		}),
 		Err(ScheduleError::TimeOfDay { .. })
 	));
@@ -653,6 +659,7 @@ fn zero_grace_without_a_cadence_is_due_at_once() {
 			due_from: start,
 			overdue_from: start,
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	assert!(due.is_overdue(start));
@@ -672,6 +679,7 @@ fn zero_grace_with_a_cadence_may_be_due_on_the_start_date() {
 			due_from: instant("2026-11-09T00:00:00Z"),
 			overdue_from: instant("2026-11-10T00:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	assert_eq!(
@@ -691,6 +699,7 @@ fn grace_without_a_cadence_ends_with_its_last_day() {
 			due_from: instant("2026-11-10T00:00:00Z"),
 			overdue_from: instant("2026-11-11T00:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	assert!(!due.is_overdue(instant("2026-11-10T23:59:59Z")));
@@ -709,6 +718,7 @@ fn grace_then_cadence_picks_the_first_occurrence_after_the_grace() {
 			due_from: instant("2026-12-01T00:00:00Z"),
 			overdue_from: instant("2026-12-02T00:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	// A change shortly before a cadence date is not due the next day.
@@ -731,6 +741,7 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 			due_from: instant("2026-03-28T23:00:00Z"),
 			overdue_from: instant("2026-03-29T22:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	// Fall back on 25 October 2026.
@@ -741,6 +752,7 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 			due_from: instant("2026-10-24T22:00:00Z"),
 			overdue_from: instant("2026-10-25T23:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	// The start's local date is already 29 March in Madrid.
@@ -751,6 +763,7 @@ fn deadlines_in_madrid_cross_daylight_saving_time() {
 			due_from: instant("2026-03-29T22:00:00Z"),
 			overdue_from: instant("2026-03-30T22:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	assert_eq!(
@@ -771,6 +784,7 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 			due_from: instant("2018-11-03T03:00:00Z"),
 			overdue_from: instant("2018-11-04T03:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	// 27 October and 3 November 2018 are Saturdays.
@@ -782,6 +796,7 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 			due_from: instant("2018-11-03T03:00:00Z"),
 			overdue_from: instant("2018-11-04T03:00:00Z"),
 			provisional: false,
+			kind: DeadlineKind::Change,
 		}
 	);
 	// On 17 February 2019 the clocks fell back from 00:00 to 23:00, so 23:30
@@ -795,6 +810,7 @@ fn deadlines_in_sao_paulo_cross_daylight_saving_time() {
 				due_from: instant("2019-02-16T02:00:00Z"),
 				overdue_from: instant("2019-02-17T03:00:00Z"),
 				provisional: false,
+				kind: DeadlineKind::Change,
 			}
 		);
 	}
@@ -807,4 +823,57 @@ fn an_enormous_grace_period_is_out_of_range() {
 			.deadline(instant("2026-11-07T00:00:00Z"), &TimeZone::utc()),
 		Err(ScheduleError::OutOfRange),
 	);
+}
+
+// Reread deadlines.
+
+/// A reread is due on the first date of its schedule strictly after the
+/// reread's local date, with no grace, and a `dtstart` after it is the
+/// first due date.
+#[test]
+fn a_reread_is_due_on_the_next_date_of_its_schedule() {
+	let monthly = recurrence("2026-01-01", "FREQ=MONTHLY");
+	let utc = TimeZone::utc();
+	let reread = |base: &str| {
+		reread_deadline(&monthly, instant(base), &utc).expect("a reread deadline")
+	};
+	assert_eq!(
+		reread("2026-08-05T10:00:00Z"),
+		Deadline {
+			due: Some(date("2026-09-01")),
+			due_from: instant("2026-09-01T00:00:00Z"),
+			overdue_from: instant("2026-09-02T00:00:00Z"),
+			provisional: false,
+			kind: DeadlineKind::Reread,
+		}
+	);
+	assert_eq!(reread("2026-09-01T00:00:00Z").due, Some(date("2026-10-01")));
+	assert_eq!(reread("2026-09-30T23:59:59Z").due, Some(date("2026-10-01")));
+
+	let later = recurrence("2027-03-01", "FREQ=MONTHLY");
+	assert_eq!(
+		reread_deadline(&later, instant("2026-08-05T10:00:00Z"), &utc)
+			.expect("a reread deadline")
+			.due,
+		Some(date("2027-03-01"))
+	);
+}
+
+/// Each rule a schedule writes is validated on its own, by its field.
+#[test]
+fn invalid_rules_are_named_by_their_field() {
+	let valid = cadence("2026-01-01", "FREQ=MONTHLY");
+	let invalid = cadence("2026-01-02", "FREQ=MONTHLY;BYMONTHDAY=1");
+	let schedule = Schedule {
+		cadence: CadenceSetting::Set(valid),
+		grace: None,
+		reread: CadenceSetting::Set(invalid),
+	};
+	let invalid = invalid_rules(&schedule);
+	assert_eq!(invalid.len(), 1);
+	assert_eq!(invalid[0].0, "reread");
+	assert!(matches!(
+		invalid[0].1,
+		ScheduleError::DtstartNotOccurrence { .. }
+	));
 }

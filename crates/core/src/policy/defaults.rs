@@ -14,8 +14,8 @@ use super::PolicyError;
 pub const DEFAULTS_VERSIONS: [u32; 1] = [1];
 
 /// Version 1: passes `fresh`; reports `stale`, `upstream-stale` and `missed`
-/// as notices; warns on every other fact, `due`, `upstream-due` and `overdue`
-/// included.
+/// as notices; warns on every other fact, `due`, `upstream-due`, `overdue`,
+/// `reread-due` and `reread-overdue` included.
 const CONTEXT_V1: &str = include_str!("../../defaults/context-v1.yaml");
 
 /// The YAML source of the built-in default context for a default-policy

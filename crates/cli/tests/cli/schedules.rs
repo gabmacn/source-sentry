@@ -388,6 +388,7 @@ fn a_valid_schedule_resolves_inherited_grace_and_time_zone() {
 		json!({
 			"due": "2026-10-02",
 			"due-from": "2026-10-02T04:00:00Z",
+			"kind": "change",
 			"overdue-from": "2026-10-03T04:00:00Z",
 			"provisional": false
 		})

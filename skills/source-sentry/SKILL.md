@@ -1,6 +1,6 @@
 ---
 name: source-sentry
-description: Keeps documentation in step with the code it describes, using the Source Sentry command-line tool. Use when `source-sentry check` fails or warns, when a change touches files that tracked documents describe, when adding, moving, renaming or deleting documentation, or when a task mentions source-sentry.lock, stale, due, overdue, unattested or unclaimed documents, review days, cadences, records, seals or attestations.
+description: Keeps documentation in step with the code it describes, using the Source Sentry command-line tool. Use when `source-sentry check` fails or warns, when a change touches files that tracked documents describe, when adding, moving, renaming or deleting documentation, or when a task mentions source-sentry.lock, stale, due, overdue, unattested or unclaimed documents, rereads, review days, cadences, records, seals or attestations.
 license: MIT
 ---
 
@@ -85,6 +85,8 @@ facts. A document can carry several facts at once:
 | `stale` | A source changed since its review, or was never reviewed | If it is also `due`, review it, as below. If not, it waits for its review day: see [Documents not due yet](#documents-not-due-yet) |
 | `due` | Its review day has come | Review it, as below |
 | `overdue` | Its deadline has passed | The same; it is only more urgent |
+| `reread-due` | Its reread schedule asks for the whole document to be reread | Reread it, as below. Reviewing its sources does not clear it |
+| `reread-overdue` | Its reread deadline has passed | The same; it is only more urgent |
 | `upstream-stale` | A document it uses as a source needs review | Review that document first when it is due; this fact then clears |
 | `upstream-due` | A document it uses as a source is due | Review that document first; this fact then clears |
 | `unattested` | Nothing about it was ever reviewed | Read the whole document against its sources, correct it, then `attest <document> --reread` |
@@ -143,6 +145,21 @@ restore. Tell the person before you discard anything.
 `source-sentry review` walks the same steps interactively, but it needs a
 terminal; agents use `diff` and `attest`.
 
+### Rereading a document
+
+A document on a reread schedule is due to be reread whole on the schedule's
+dates, whether or not its sources changed: `reread-due`, then
+`reread-overdue` from the next day. Neither fact spreads to the documents
+that cite it.
+
+1. Read the whole document, and check what it describes, as far as you can
+   reach it. Correct what is no longer true.
+2. If a source is also stale, review its changes first, as above.
+3. Run `source-sentry attest <document> --reread`, adding
+   `--reviewer "<your name>" --yes`. When the reread is all the document
+   needs, `check` and `explain` print this command. Only `--reread` resets
+   the schedule; attesting the sources alone leaves it due.
+
 ### Diagnostics
 
 | Code | What to do |
@@ -158,6 +175,7 @@ terminal; agents use `diff` and `attest`.
 | `invalid-lockfile`, `invalid-declaration`, `invalid-config`, `invalid-schedule` | A file is malformed, usually by a hand edit or a bad merge. Restore it from git or repair the merge, then run `check`. |
 | `shallow-history` | The clone lacks the history needed to date changes. Fetch it with `git fetch --unshallow`. |
 | `future-dated` | A commit is dated more than a day after the check. Do not work around it. Report it: a later commit with a correct date resolves it. |
+| `future-reread` | A document's last reread is dated after the check, which would postpone its next one. Report it; never change a stored date to move a deadline. |
 | `unsupported-filter`, `submodule` | A source cannot be compared. Report it; do not remove the source to silence it. |
 
 For any other code, run `source-sentry explain` on the document and follow
@@ -185,6 +203,13 @@ every code.
     first time.
   - For a document that is already tracked, propose the cadence to the
     person instead, with the command: a schedule is policy (rule 5).
+- **A document whose sources cannot show that it is out of date,** such as
+  one with no sources that describes a host only reachable over SSH, never
+  becomes stale. Give it a reread schedule, the dates on which the whole
+  document is due to be reread: `--reread <dtstart> <rrule>`, such as
+  `--reread 2026-12-07 'FREQ=MONTHLY;BYDAY=1MO'` for the first Monday of
+  every month. The same limits apply as for a cadence: only for a document
+  you are tracking for the first time, and otherwise propose it.
 - **A new source for a tracked document:** `track <document> --source
   <path>`. The document is stale until the new source is reviewed.
 - **A source that no longer applies:** `untrack <document> --source <path>`

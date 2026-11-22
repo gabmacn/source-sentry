@@ -50,6 +50,17 @@
 //!   and overdue from the first instant of the local day after `d`. With
 //!   `g = 0`, `d` may be `start_date` itself.
 //!
+//! # Reread deadlines
+//!
+//! [`reread_deadline`] computes when a document is due to be reread whole,
+//! given the instant its count starts: its last reread, or its declaration
+//! when it was never reread. Let `base` be the local date of that instant.
+//! The due date `d` is the first occurrence of the reread schedule with
+//! `d > base`, so a reread on one of the schedule's dates is due again at
+//! the next one, and a `dtstart` after `base` is itself the first due date.
+//! The document is due from the first instant of `d` and overdue from the
+//! first instant of the local day after `d`. Grace does not apply.
+//!
 //! The first instant of a local day is its midnight. When daylight saving
 //! time skips that midnight, it is the first instant after the skipped hour,
 //! the moment the clocks jump; when midnight occurs twice, it is the earlier
@@ -67,7 +78,7 @@ pub use self::{
 	recurrence::{HORIZON_DAYS, Recurrence},
 	zone::TimeZone,
 };
-use crate::model::Schedule;
+use crate::model::{Cadence, Schedule};
 
 /// Why a schedule, a cadence or a time zone was rejected, or why a date could
 /// not be computed.
@@ -93,16 +104,19 @@ pub enum ScheduleError {
 		/// What is wrong with it.
 		reason: String,
 	},
-	/// The rule has a time-of-day part, but cadences are date-only.
-	#[error("`{rule}` uses {part}, but cadences are date-only")]
+	/// The rule has a time-of-day part, but cadences and reread schedules are
+	/// date-only.
+	#[error(
+		"`{rule}` uses {part}, but cadences and reread schedules are date-only"
+	)]
 	TimeOfDay {
 		/// The rule as written.
 		rule: String,
 		/// The offending part, such as `BYHOUR` or `FREQ=HOURLY`.
 		part: &'static str,
 	},
-	/// The rule ends, but a cadence never does.
-	#[error("`{rule}` uses {part}, but a cadence never ends")]
+	/// The rule ends, but cadences and reread schedules never do.
+	#[error("`{rule}` uses {part}, but cadences and reread schedules never end")]
 	Bounded {
 		/// The rule as written.
 		rule: String,
@@ -196,6 +210,7 @@ impl EffectiveSchedule {
 				due_from: start,
 				overdue_from: start,
 				provisional: false,
+				kind: DeadlineKind::Change,
 			});
 		}
 		let earliest = add_days(zone.local_date(start), self.grace)?;
@@ -203,13 +218,86 @@ impl EffectiveSchedule {
 			Some(cadence) => cadence.next_on_or_after(earliest)?,
 			None => earliest,
 		};
-		Ok(Deadline {
-			due: Some(due),
-			due_from: zone.start_of_day(due)?,
-			overdue_from: zone.start_of_day(add_days(due, 1)?)?,
-			provisional: false,
-		})
+		day_deadline(due, zone, DeadlineKind::Change)
 	}
+}
+
+/// When a document whose count started at `base` is due to be reread whole
+/// on the reread schedule `reread`, with dates read in `zone`. The rules are
+/// described in the [module documentation](self#reread-deadlines).
+///
+/// # Errors
+///
+/// - [`ScheduleError::NoOccurrence`] when the reread schedule has no
+///   occurrence within [`HORIZON_DAYS`] of the day after `base`.
+/// - [`ScheduleError::OutOfRange`] when a date leaves the supported
+///   calendar.
+pub fn reread_deadline(
+	reread: &Recurrence,
+	base: Timestamp,
+	zone: &TimeZone,
+) -> Result<Deadline, ScheduleError> {
+	let after = add_days(zone.local_date(base), 1)?;
+	let due = reread.next_on_or_after(after)?;
+	day_deadline(due, zone, DeadlineKind::Reread)
+}
+
+/// The deadline of `kind` that is due on the local day `due`: due from its
+/// first instant, and overdue from the first instant of the day after it.
+///
+/// # Errors
+///
+/// Fails with [`ScheduleError::OutOfRange`] when the day after `due`, or the
+/// first instant of either day, cannot be represented.
+fn day_deadline(
+	due: Date,
+	zone: &TimeZone,
+	kind: DeadlineKind,
+) -> Result<Deadline, ScheduleError> {
+	Ok(Deadline {
+		due: Some(due),
+		due_from: zone.start_of_day(due)?,
+		overdue_from: zone.start_of_day(add_days(due, 1)?)?,
+		provisional: false,
+		kind,
+	})
+}
+
+/// Each recurrence rule that `schedule` writes, by the name of the field
+/// that writes it within the schedule: `cadence`, then `reread`.
+#[must_use]
+pub fn written_rules(schedule: &Schedule) -> Vec<(&'static str, &Cadence)> {
+	[("cadence", &schedule.cadence), ("reread", &schedule.reread)]
+		.into_iter()
+		.filter_map(|(field, setting)| setting.as_set().map(|rule| (field, rule)))
+		.collect()
+}
+
+/// Validates each recurrence rule that `schedule` writes on its own, so that
+/// every invalid one can be reported at its own field. Returns the invalid
+/// rules, each with the name of its field, as [`written_rules`] gives it,
+/// and why it was rejected; see [`Recurrence::new`].
+#[must_use]
+pub fn invalid_rules(
+	schedule: &Schedule,
+) -> Vec<(&'static str, ScheduleError)> {
+	written_rules(schedule)
+		.into_iter()
+		.filter_map(|(field, rule)| {
+			Recurrence::new(rule).err().map(|error| (field, error))
+		})
+		.collect()
+}
+
+/// What a deadline asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DeadlineKind {
+	/// A review of a change: a changed source, or a declaration that has
+	/// never been reviewed. A series' deadline for its next entry is of this
+	/// kind too.
+	Change,
+	/// A reread of the whole document, on its reread schedule.
+	Reread,
 }
 
 /// When a document becomes due, and when it becomes overdue.
@@ -229,6 +317,8 @@ pub struct Deadline {
 	/// of evaluation. A provisional deadline decides `due`, never `overdue`.
 	/// [`EffectiveSchedule::deadline`] always sets it to `false`.
 	pub provisional: bool,
+	/// Whether it asks for the review of a change or for a reread.
+	pub kind: DeadlineKind,
 }
 
 impl Deadline {

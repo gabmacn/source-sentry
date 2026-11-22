@@ -474,3 +474,25 @@ fn an_unreadable_lockfile_that_could_declare_a_cited_document_is_reported() {
 		assert_clean(&repo.evaluate(day(1), None));
 	}
 }
+
+/// A due reread never spreads, so the reread schedule of a document that
+/// another project cites is left to its own project: neither its facts nor
+/// an error in it, such as a reread dated in the future, reach the report of
+/// the project that cites it.
+#[test]
+fn a_cited_documents_reread_is_left_to_its_own_project() {
+	let config = "version: 1\nschedule:\n  reread:\n    dtstart: 2026-01-01\n    \
+	              rrule: 'FREQ=MONTHLY'\n";
+	let up = json!({"guide.md": {
+		"reviewed": {"at": "2026-12-01T00:00:00Z", "by": null},
+		"sources": [attested("/code.rs", "v1")],
+	}});
+	let repo = citing(config, &up, &["up/guide.md"], &[]);
+	let snapshot = repo.checkout();
+	let direct = check_project(&repo.history, &snapshot, "up", day(100)).unwrap();
+	assert_eq!(kinds(&direct), [DiagnosticKind::FutureReread]);
+
+	let evaluation = repo.evaluate(day(100), None);
+	assert_clean(&evaluation);
+	assert_eq!(facts(document(&evaluation, "docs/guide.md")), [Fact::Fresh]);
+}

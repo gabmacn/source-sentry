@@ -4,7 +4,7 @@ use jiff::{Span, Timestamp, civil::Date, tz::Offset};
 
 use super::next_deadline;
 use crate::evaluate::cadence::{CadenceStatus, Completion, Window};
-use crate::evaluate::schedule::{Deadline, Recurrence, TimeZone};
+use crate::evaluate::schedule::{Deadline, DeadlineKind, Recurrence, TimeZone};
 use crate::model::{Cadence, RepoPath};
 
 /// The first due date of every daily status built here.
@@ -92,6 +92,7 @@ fn deadline_by_membership(
 		due_from: zone.start_of_day(last_day).unwrap(),
 		overdue_from: zone.start_of_day(last_day.tomorrow().unwrap()).unwrap(),
 		provisional: false,
+		kind: DeadlineKind::Change,
 	})
 }
 

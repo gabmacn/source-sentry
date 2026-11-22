@@ -42,8 +42,8 @@ use jiff::Timestamp;
 pub use self::model::{
 	AppliedContext, AppliedRule, CompletionState, DocumentState, DocumentSubject,
 	Evaluation, Gates, LiveDocument, MemberCompletion, RecordCheck, RecordState,
-	RuleOrigin, SeriesCadence, SeriesKey, SeriesSubject, SourceReport,
-	SourceState, StartedClock, Subject, SubjectKind, Timing,
+	RereadBase, RereadClock, RuleOrigin, SeriesCadence, SeriesKey, SeriesSubject,
+	SourceReport, SourceState, StartedClock, Subject, SubjectKind, Timing,
 };
 use self::{
 	clocks::Requests,
@@ -129,6 +129,7 @@ fn check_within<S: Snapshot, H: History>(
 			requests: &mut requests,
 			diagnostics: &mut diagnostics,
 			elsewhere,
+			rereads: coverage.rereads(),
 		};
 		inventory
 			.claims
@@ -150,21 +151,21 @@ fn check_within<S: Snapshot, H: History>(
 
 	let answers = requests.answer(history, revision, at)?;
 
+	// The entries awaiting their seal, which no reread schedule applies to.
+	let (awaiting, awaiting_seal) = awaiting_seal(&series, awaiting);
 	let mut finisher = Finisher {
 		answers: &answers,
 		zone: zone.as_ref(),
 		at,
 		diagnostics: &mut diagnostics,
+		awaiting: &awaiting_seal,
+		rereads: coverage.rereads(),
 	};
 	let mut subjects: Vec<Subject> = documents
 		.into_iter()
 		.map(|plan| finisher.document(plan))
 		.collect();
 	propagate(&mut subjects, inventory);
-	for plan in &series {
-		let (key, members) = series::awaiting(plan);
-		mark_awaiting_seal(&mut subjects, &key, members);
-	}
 	for (key, members) in &awaiting {
 		mark_awaiting_seal(&mut subjects, key, members);
 	}
@@ -205,6 +206,31 @@ fn check_within<S: Snapshot, H: History>(
 		diagnostics,
 		summary,
 	})
+}
+
+/// Every series entry awaiting its seal, with the series that makes it:
+/// those of `series`, which the evaluation plans, then those of `cited`,
+/// found for the documents that another project cites. Also returns the
+/// entries themselves, as documents.
+fn awaiting_seal(
+	series: &[series::SeriesPlan<'_>],
+	cited: Vec<(SeriesKey, Vec<RepoPath>)>,
+) -> (Vec<(SeriesKey, Vec<RepoPath>)>, BTreeSet<DocumentId>) {
+	let awaiting: Vec<(SeriesKey, Vec<RepoPath>)> = series
+		.iter()
+		.map(|plan| {
+			let (key, members) = series::awaiting(plan);
+			(key, members.to_vec())
+		})
+		.chain(cited)
+		.collect();
+
+	let documents = awaiting
+		.iter()
+		.flat_map(|(_, members)| members)
+		.map(|member| DocumentId::Local(member.clone()))
+		.collect();
+	(awaiting, documents)
 }
 
 /// Whether `configs`' project owns `claim`: its declaration, and its
@@ -254,6 +280,15 @@ enum Coverage<'a> {
 	/// alone, and their series supply membership, which marks
 	/// `awaiting-seal`, but no cadence.
 	Cited(&'a BTreeSet<DocumentId>),
+}
+
+impl Coverage<'_> {
+	/// Whether reread schedules are evaluated: for the whole project, but
+	/// not for the documents another project cites, since a due reread
+	/// never spreads to the documents that cite it.
+	fn rereads(self) -> bool {
+		matches!(self, Self::Project(_))
+	}
 }
 
 /// Plans every series of `inventory`, with the completion clocks that each

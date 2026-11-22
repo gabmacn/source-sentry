@@ -184,9 +184,12 @@ pub(super) enum Step {
 	/// A response to the bulk confirmation, or end of input: `true` records
 	/// the due documents.
 	Confirm(Option<bool>),
-	/// A response to the bulk confirmation that includes the documents not
-	/// due yet.
-	ConfirmEverything,
+	/// A response to the bulk confirmation that records the due documents,
+	/// including those that can only be recorded by a reread.
+	ConfirmRereads,
+	/// A response to the bulk confirmation that records every document, not
+	/// due yet or recorded only by a reread included.
+	ConfirmEverythingAndRereads,
 	/// An external source edit made immediately after a review is recorded.
 	ChangeAfterReview(&'static str, String),
 	/// The files an editor command changes before it closes.
@@ -213,6 +216,12 @@ pub(super) struct Script {
 	pub(super) confirmations: Vec<(usize, usize)>,
 	/// How many documents not due yet each bulk confirmation offered.
 	pub(super) later: Vec<usize>,
+	/// How many documents each bulk confirmation named as recorded only by
+	/// a reread.
+	pub(super) rereads: Vec<usize>,
+	/// The listing of those documents that the line mode prints with each
+	/// bulk confirmation, for the documents it chose.
+	pub(super) listings: Vec<String>,
 	/// Full diffs requested by the user.
 	pub(super) diffs: Vec<String>,
 }
@@ -241,6 +250,8 @@ impl Script {
 			messages: Vec::new(),
 			confirmations: Vec::new(),
 			later: Vec::new(),
+			rereads: Vec::new(),
+			listings: Vec::new(),
 			diffs: Vec::new(),
 		}
 	}
@@ -293,13 +304,25 @@ impl Interface for Script {
 	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure> {
 		self.confirmations.push((batch.due.len(), batch.unseen));
 		self.later.push(batch.later.len());
-		match self.steps.pop_front() {
-			Some(Step::Confirm(answer)) => {
-				Ok(answer.map(|yes| if yes { Bulk::Due } else { Bulk::Leave }))
-			}
-			Some(Step::ConfirmEverything) => Ok(Some(Bulk::Everything)),
+		self.rereads.push(batch.rereads.len());
+		let record = |later, rereads| Bulk::Record { later, rereads };
+		let answer = match self.steps.pop_front() {
+			Some(Step::Confirm(answer)) => answer.map(|yes| {
+				if yes {
+					record(false, false)
+				} else {
+					Bulk::Leave
+				}
+			}),
+			Some(Step::ConfirmRereads) => Some(record(false, true)),
+			Some(Step::ConfirmEverythingAndRereads) => Some(record(true, true)),
 			_ => panic!("expected a confirmation"),
-		}
+		};
+		// The listing the line mode prints before asking about rereads, for
+		// the documents the answer chose.
+		let later = matches!(answer, Some(Bulk::Record { later: true, .. }));
+		self.listings.push(batch.rereads_listing(later));
+		Ok(answer)
 	}
 
 	fn full_diff(
