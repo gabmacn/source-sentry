@@ -293,7 +293,13 @@ git diff --name-only -z main... | source-sentry impact - -z
 ```
 
 A line's trailing carriage return is dropped. A name that git quotes, as it
-quotes unusual names without `-z`, is refused: pass `-z` to both. `--changed`
+quotes unusual names without `-z`, is refused: pass `-z` to both. Windows
+PowerShell 5.1 passes a program's output on as text: it replaces the
+characters its output encoding lacks, which nothing after it can detect,
+and after `-z` output it adds a line ending, which `impact` refuses rather
+than ignore, since the names before it may have changed. There, run the
+whole pipe with `cmd.exe /d /c '…'`, which passes the bytes on unchanged.
+`--changed`
 lists files as `git status` does, untracked files one by one, and a renamed
 file under both its names. `--staged`, for a `pre-commit` hook, reads the
 index that git gives the hook, including the temporary index of `git commit

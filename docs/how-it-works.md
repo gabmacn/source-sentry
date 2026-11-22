@@ -787,6 +787,8 @@ purpose and reviewed as such.
 - Paths that are not valid UTF-8. A commit that holds such a path cannot be
   checked, and such a name in an older commit's `.source-sentry/remotes` is
   not read as a lockfile.
+- Paths that contain a control character, such as a tab or a line break. A
+  snapshot that holds one cannot be checked either.
 - Checking whether a remote document exists.
 - Pre-release ordering of versions in a series.
 - Signed or notarised binaries.

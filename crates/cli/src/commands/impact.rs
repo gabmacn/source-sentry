@@ -223,7 +223,8 @@ pub(super) fn names_directory(
 /// # Errors
 ///
 /// Exit 4 when standard input cannot be read, and 64 for an entry that is
-/// not a repository path, or that git quoted.
+/// not a repository path, that git quoted, or, with `-z`, for a line ending
+/// after the last NUL.
 fn read_stdin(nul: bool) -> Result<Vec<RepoPath>, Failure> {
 	let mut bytes = Vec::new();
 	std::io::stdin().read_to_end(&mut bytes).map_err(|error| {
@@ -236,7 +237,23 @@ fn read_stdin(nul: bool) -> Result<Vec<RepoPath>, Failure> {
 }
 
 /// [`read_stdin`]'s parsing.
+///
+/// With `-z`, a line ending after the last NUL is refused with its cause
+/// named. A shell that passes a program's output on as text adds one, as
+/// Windows PowerShell 5.1 does, and such a shell may also have replaced
+/// characters in the names; ignoring the line ending would let those names
+/// match nothing in silence.
 fn parse_paths(bytes: &[u8], nul: bool) -> Result<Vec<RepoPath>, Failure> {
+	if nul && ends_with_line_ending(bytes) {
+		return Err(Failure::usage(
+			"standard input ends with a line ending after its last NUL, as a \
+			 shell adds when it passes a program's output on as text; Windows \
+			 PowerShell 5.1 does, and may also have replaced characters in the \
+			 names. Pass the bytes on unchanged, for example by running the \
+			 whole pipe with `cmd.exe /d /c '…'`",
+		));
+	}
+
 	let separator = if nul { b'\0' } else { b'\n' };
 	let mut paths = Vec::new();
 	for entry in bytes.split(|&byte| byte == separator) {
@@ -266,6 +283,17 @@ fn parse_paths(bytes: &[u8], nul: bool) -> Result<Vec<RepoPath>, Failure> {
 		paths.push(path);
 	}
 	Ok(paths)
+}
+
+/// Whether NUL-separated `bytes` end with a line ending after their last
+/// NUL: a final entry made only of carriage returns and line feeds.
+fn ends_with_line_ending(bytes: &[u8]) -> bool {
+	let Some(last_nul) = bytes.iter().rposition(|&byte| byte == b'\0') else {
+		return false;
+	};
+	let tail = &bytes[last_nul + 1..];
+
+	!tail.is_empty() && tail.iter().all(|&byte| matches!(byte, b'\r' | b'\n'))
 }
 
 /// The searched projects: the one a command runs in and those nested in it,
@@ -904,5 +932,26 @@ mod tests {
 			parse_paths(b"../outside.rs\n", false).unwrap_err().code,
 			crate::exit::USAGE
 		);
+	}
+
+	/// With `-z`, a line ending after the last NUL, which Windows PowerShell
+	/// 5.1 adds when it pipes a program's output as text, is refused with its
+	/// cause named rather than ignored.
+	#[test]
+	fn a_line_ending_after_the_last_nul_is_refused_with_its_cause() {
+		for input in [&b"src/a.rs\0\r\n"[..], b"src/a.rs\0\n", b"a\0b\0\r\n"] {
+			let failure = parse_paths(input, true).unwrap_err();
+			assert_eq!(failure.code, crate::exit::USAGE);
+			assert!(
+				failure.message.contains("PowerShell"),
+				"{}",
+				failure.message
+			);
+		}
+
+		// The same bytes are one line in line mode, and NUL input that ends
+		// with its NUL is accepted.
+		assert_eq!(parsed(b"src/a.rs\r\n", false), ["src/a.rs"]);
+		assert_eq!(parsed(b"src/a.rs\0", true), ["src/a.rs"]);
 	}
 }
