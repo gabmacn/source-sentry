@@ -271,6 +271,13 @@ pub(crate) fn join_alternates(
 
 /// The bytes of an environment value: as they are on Unix, and as UTF-8
 /// elsewhere, `None` when it is not.
+#[cfg_attr(
+	unix,
+	expect(
+		clippy::unnecessary_wraps,
+		reason = "only other platforms can fail; the signature is shared"
+	)
+)]
 fn os_bytes(value: OsString) -> Option<Vec<u8>> {
 	#[cfg(unix)]
 	{
@@ -284,6 +291,13 @@ fn os_bytes(value: OsString) -> Option<Vec<u8>> {
 }
 
 /// An environment value from its bytes, the inverse of [`os_bytes`].
+#[cfg_attr(
+	unix,
+	expect(
+		clippy::unnecessary_wraps,
+		reason = "only other platforms can fail; the signature is shared"
+	)
+)]
 fn bytes_os(bytes: Vec<u8>) -> Option<OsString> {
 	#[cfg(unix)]
 	{
@@ -332,6 +346,13 @@ fn answers<'a, const N: usize>(
 ///
 /// Fails, outside Unix, for a path that is not UTF-8, which git for those
 /// platforms never prints.
+#[cfg_attr(
+	unix,
+	expect(
+		clippy::unnecessary_wraps,
+		reason = "only other platforms can fail; the signature is shared"
+	)
+)]
 fn path(start: &Path, bytes: &[u8]) -> Result<PathBuf, BackendError> {
 	#[cfg(unix)]
 	{
