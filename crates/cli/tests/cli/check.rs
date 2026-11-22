@@ -212,6 +212,86 @@ fn invalid_configs_still_give_a_json_report() {
 	);
 }
 
+/// The diagnostic of a nested config that cannot be loaded names the config
+/// once, in its location, relative to the project, and its message says
+/// what is wrong without repeating the config's repository path.
+#[test]
+fn an_invalid_nested_config_is_named_once_relative_to_its_project() {
+	let repo = TestRepo::init();
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1
+unknown-key: 1
+",
+	);
+	repo.write(
+		"app/code.rs",
+		"fn main() {}
+",
+	);
+	repo.commit_at("2026-10-01T10:00:00Z");
+
+	let run = repo.run_in("app", &["check", "--at", AT, "--format", "json"]);
+	run.expect_code(3);
+	let report = run.json();
+	let diagnostics = report["diagnostics"].as_array().unwrap();
+	assert_eq!(diagnostics.len(), 1, "{report:#}");
+	let diagnostic = &diagnostics[0];
+	assert_eq!(diagnostic["code"], "invalid-config", "{report:#}");
+	assert_eq!(
+		diagnostic["location"]["file"],
+		".source-sentry/source-sentry.yaml"
+	);
+	let message = diagnostic["message"].as_str().unwrap();
+	assert!(message.starts_with("`unknown-key`: "), "{message}");
+	assert!(!message.contains("source-sentry.yaml"), "{message}");
+}
+
+/// A config that cannot be loaded in a project that a source leads into is
+/// reported by human `check` with its path once, in the location.
+#[test]
+fn human_check_names_an_invalid_config_once() {
+	let repo = TestRepo::init();
+	repo.write(
+		"app/.source-sentry/source-sentry.yaml",
+		"version: 1
+unknown-key: 1
+",
+	);
+	repo.write(
+		"app/code.rs",
+		"fn main() {}
+",
+	);
+	repo.write(
+		"docs/guide.md",
+		"---
+source-sentry:
+  sources:
+    - path: /app/code.rs
+---
+# Guide
+",
+	);
+	repo.commit_at("2026-10-01T10:00:00Z");
+
+	let run = repo.run(&["check", "--at", AT]);
+	run.expect_code(3);
+	let line = run
+		.stdout
+		.lines()
+		.find(|line| line.contains("invalid-config"))
+		.unwrap_or_else(|| panic!("{}", run.stdout));
+	assert_eq!(
+		line
+			.matches("app/.source-sentry/source-sentry.yaml")
+			.count(),
+		1,
+		"{line}"
+	);
+	assert!(line.contains("unknown setting `unknown-key`"), "{line}");
+}
+
 /// Rule diagnostics locate the named field in both report formats.
 fn assert_rule_field_locations(config: &str, expected: &[(&str, u64)]) {
 	let repo = TestRepo::init();

@@ -100,6 +100,44 @@ impl ConfigError {
 		self.import_chain = chain;
 		self
 	}
+
+	/// What is wrong, for a diagnostic whose location already names the file,
+	/// the position and the setting: the problem, the import chain and the
+	/// correction. The setting is named too when the error has a position,
+	/// since a location that has one names the position instead of the
+	/// setting.
+	#[must_use]
+	pub fn message(&self) -> String {
+		let mut text = String::new();
+		let _ = self.write_problem(&mut text, self.position.is_some());
+		text
+	}
+
+	/// Writes the setting, when `setting` asks for it, the problem, the
+	/// import chain and the correction.
+	fn write_problem(
+		&self,
+		out: &mut impl fmt::Write,
+		setting: bool,
+	) -> fmt::Result {
+		if setting && let Some(setting) = &self.setting {
+			write!(out, "`{setting}`: ")?;
+		}
+		write!(out, "{}", self.kind)?;
+		if !self.import_chain.is_empty() {
+			let chain = self
+				.import_chain
+				.iter()
+				.map(ToString::to_string)
+				.collect::<Vec<_>>()
+				.join(" → ");
+			write!(out, " (imported through {chain})")?;
+		}
+		if let Some(correction) = &self.correction {
+			write!(out, ". {correction}")?;
+		}
+		Ok(())
+	}
 }
 
 impl fmt::Display for ConfigError {
@@ -109,23 +147,7 @@ impl fmt::Display for ConfigError {
 			write!(formatter, ":{position}")?;
 		}
 		formatter.write_str(": ")?;
-		if let Some(setting) = &self.setting {
-			write!(formatter, "`{setting}`: ")?;
-		}
-		write!(formatter, "{}", self.kind)?;
-		if !self.import_chain.is_empty() {
-			let chain = self
-				.import_chain
-				.iter()
-				.map(ToString::to_string)
-				.collect::<Vec<_>>()
-				.join(" → ");
-			write!(formatter, " (imported through {chain})")?;
-		}
-		if let Some(correction) = &self.correction {
-			write!(formatter, ". {correction}")?;
-		}
-		Ok(())
+		self.write_problem(formatter, true)
 	}
 }
 

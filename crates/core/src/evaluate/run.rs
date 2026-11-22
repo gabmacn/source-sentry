@@ -310,7 +310,8 @@ fn awaiting_in_series(
 
 /// The evaluation of a snapshot whose configs cannot be loaded: nothing is
 /// judged, and each config error is an `invalid-config` diagnostic, except
-/// invalid cadences, which keep `invalid-schedule`. A report can still be
+/// invalid cadences, which keep `invalid-schedule`. Its location names the
+/// config, so its message does not repeat it. A report can still be
 /// written and the exit code is 3. The version and time zone are the built-in
 /// ones, because no config supplied others.
 #[must_use]
@@ -334,7 +335,7 @@ pub fn unloadable(
 				}
 				_ => DiagnosticKind::InvalidConfig,
 			};
-			Diagnostic::new(kind, location, error.to_string())
+			Diagnostic::new(kind, location, error.message())
 		})
 		.collect();
 	let summary = judge_all(&mut [], None, &diagnostics);

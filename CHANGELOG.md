@@ -381,6 +381,11 @@ that version's section, so a release cannot be made without one.
   an upstream document moves to the other documents, as the guide says,
   instead of staying in the queue to be reviewed again. It returns when its
   sources or that upstream document change.
+- An `invalid-config` or `invalid-schedule` diagnostic no longer repeats
+  the config's path and position at the start of its message, after the
+  location that names them. Run from a nested project, the repeated path
+  was relative to the repository rather than to the current directory, so
+  it did not lead to the file.
 
 ## [0.1.0] - 2026-11-14
 
