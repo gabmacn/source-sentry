@@ -161,7 +161,11 @@ pub(crate) fn facts(subject: &Subject, at: Timestamp) -> String {
 		};
 		phrases.push(phrase);
 	}
-	if phrases.is_empty() {
+	if subject.facts.is_empty() {
+		// No fact at all: a source or a record could not be checked, and an
+		// error says why.
+		"not judged".to_owned()
+	} else if phrases.is_empty() {
 		"fresh".to_owned()
 	} else {
 		phrases.join(", ")
@@ -285,7 +289,12 @@ pub(crate) fn source_change(
 	source: &SourceReport,
 ) -> String {
 	let path = workspace.display_path(&source.path);
-	let pattern = source.pattern.as_deref().unwrap_or("its pattern");
+	// The pattern as declared, whose `/` is the document's project root.
+	let pattern = if source.pattern.is_some() {
+		source.declared.as_str()
+	} else {
+		"its pattern"
+	};
 	let what = match source.state {
 		SourceState::Fresh => format!("{path} is unchanged"),
 		SourceState::Drifted => format!("{path} changed"),

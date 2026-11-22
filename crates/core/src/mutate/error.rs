@@ -129,7 +129,7 @@ pub enum MutateError {
 	},
 	/// `untrack` named a source that the declaration does not have.
 	#[error(
-		"`{document}` declares no source `{declared}`; `explain` lists the 		 sources it declares"
+		"`{document}` declares no source `{declared}`; `explain` lists the sources it declares"
 	)]
 	SourceNotDeclared {
 		/// The document.

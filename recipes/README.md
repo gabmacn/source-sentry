@@ -403,8 +403,10 @@ The GitLab and Woodpecker behaviours above were read in each engine's source;
 their documentation does not state them.
 
 With `structure/repository-config.example.yaml`, a stale privacy policy shows
-how this works. In `default`, `stale` only warns, so the pull
-request can merge and a staging build can proceed. In `production`, the rule
+how this works. In `default`, a stale privacy policy is a notice until its
+due day and a warning from its due day onward. The report gate passes
+before that day and fails from that day onward; the continue gate passes in
+both cases, so the pull request can merge and a staging build can proceed. In `production`, the rule
 for the `privacy` class maps `stale` to `fail`, so the production gate exits 2
 and the deploy does not run until the policy is reviewed and attested.
 

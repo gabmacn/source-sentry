@@ -684,3 +684,18 @@ fn a_registration_that_closes_a_cycle_is_refused() {
 		"{diagnostics:#?}"
 	);
 }
+
+/// The refusal of a source that a declaration does not have reads as one
+/// sentence, with no stray whitespace.
+#[test]
+fn an_undeclared_source_is_refused_in_one_sentence() {
+	let error = MutateError::SourceNotDeclared {
+		document: local("docs/guide.md"),
+		declared: ":/missing".to_owned(),
+	};
+	assert_eq!(
+		error.to_string(),
+		"`docs/guide.md` declares no source `:/missing`; `explain` lists the \
+		 sources it declares"
+	);
+}

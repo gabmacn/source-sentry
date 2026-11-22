@@ -19,9 +19,7 @@ use source_sentry_core::mutate::{
 use super::super::Batch;
 use super::super::changes::{self, Entry, Row};
 use super::super::session::{CHANGED, Session, Undone, Written};
-use super::super::state::{
-	Document, Key as Id, Reread, Stamp, State as Evaluated,
-};
+use super::super::state::{Document, Key as Id, Stamp, State as Evaluated};
 use crate::cli::ReviewArgs;
 use crate::describe;
 use crate::exit::Failure;
@@ -2245,10 +2243,11 @@ impl<'a> App<'a> {
 	/// reread takes every live document, and a plain yes one that needs
 	/// review, whether or not it was named when the session started. A plain
 	/// yes leaves out a document that it could only record by a reread, one
-	/// whose reread is all it needs or one without sources, since nothing is
-	/// reread without the word before the person who confirms it; `r` takes
-	/// them. The confirmation lists what this takes, and the batch records
-	/// what it still takes when its turn comes.
+	/// whose reread is due and none of whose sources changed, as a single
+	/// `y` rereads it, or one without sources, since nothing is reread
+	/// without the word before the person who confirms it; `r` takes them.
+	/// The confirmation lists what this takes, and the batch records what it
+	/// still takes when its turn comes.
 	fn takes(&self, id: &Id, compared: &DocumentDiff, reread: bool) -> bool {
 		self
 			.session
@@ -2258,8 +2257,8 @@ impl<'a> App<'a> {
 			.is_some_and(|document| {
 				reread
 					|| (document.pending
-						&& document.reread != Reread::Only
-						&& !compared.sources.is_empty())
+						&& !compared.sources.is_empty()
+						&& !self.session.yes_rereads(id, compared))
 			})
 	}
 

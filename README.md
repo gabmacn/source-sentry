@@ -136,11 +136,11 @@ docs/guide.md · 1 file changed since attested
   +++ src/settings.py (7db3392)
   @@ -1,7 +1,7 @@
    """Settings of the example web service."""
-
+   
    # The port the service listens on.
   -PORT = 8080
   +PORT = 9090
-
+   
    # How many requests one client may make per minute.
    RATE_LIMIT_PER_MINUTE = 60
 
@@ -155,7 +155,7 @@ terminal it asks before writing; `--yes` skips the question.
 
 ```
 $ source-sentry attest docs/guide.md --expect src/settings.py@sha1:7db3392d28ef19e1e56a6db947a73c00d2e42511 --yes
-Attest docs/guide.md (docs/guide.md `source-sentry`)
+Attest docs/guide.md (docs/guide.md:2)
   `../src/settings.py`
     src/settings.py  34255e9 → 7db3392
 Reviewed by Ada at 2026-11-14 20:45:46 UTC

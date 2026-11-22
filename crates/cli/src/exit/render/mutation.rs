@@ -111,7 +111,7 @@ pub(super) fn render(
 		MutateError::SourceNotDeclared { document, declared } => {
 			let document = workspace.display_document(document);
 			format!(
-				"`{document}` declares no source `{declared}`; `explain` lists the 		 sources it declares"
+				"`{document}` declares no source `{declared}`; `explain` lists the sources it declares"
 			)
 		}
 		MutateError::Sealed { document } => {

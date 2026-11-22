@@ -403,7 +403,7 @@ series' living entry included.
 
 | Fact | Meaning |
 |---|---|
-| `fresh` | Every source is as it was reviewed |
+| `fresh` | Every source is as it was reviewed, and nothing else asks for a review or a reread; an entry awaiting its seal can still be fresh. A document with a source that is missing or cannot be hashed has no fact at all, since an error already says why |
 | `stale` | A source changed since its review, or was never reviewed |
 | `due` | A deadline has arrived: its due day has begun |
 | `overdue` | A deadline has passed |

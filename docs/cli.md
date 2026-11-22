@@ -52,7 +52,10 @@ command-line input is resolved from the effective starting directory and
 stored rooted.
 
 Human output displays paths relative to the effective starting directory,
-including diagnostic locations and commands printed for copying. When the
+including diagnostic locations and commands printed for copying. A path
+named inside a diagnostic's message, such as the other file of a double
+claim, is a repository path, from the repository root, wherever the
+command runs. When the
 effective starting directory lies outside the working tree, which
 `GIT_WORK_TREE` allows, relative paths start at the working tree's root and
 are displayed relative to it, as git takes them. Relative document, source,
@@ -195,7 +198,9 @@ that is not due yet says when it will be (`review by`). A document on a
 [reread schedule](how-it-works.md#reread-schedules) reads
 `reread-due (reread by 2026-12-01)` or
 `reread-overdue (missed reread by 2026-12-01)`, with the date of its
-reread rather than that of a change. The JSON report lists every fact, and
+reread rather than that of a change. A document with a source that is
+missing or cannot be hashed has no fact at all and reads `not judged`,
+beside the error that says why. The JSON report lists every fact, and
 its `deadline`, the earliest of a document's change deadlines and its
 reread deadline, says which it is with `kind`: `change` or `reread`.
 
@@ -252,10 +257,12 @@ document claimed twice is explained once per claim, and a series name
 defined in several scopes once per scope. It takes the same `--context`,
 `--rev` and `--at` as `check`, but it is not a gate: a failing subject still
 exits 0. The diagnostics about the subject follow: those about its document,
-and the errors of its own project that stop it being judged, such as a
-`--context` that the project does not declare. An error among them sets the
-exit code as it would for `check`: 3, or 4 when, for example, a clock cannot
-be dated. Diagnostics of other projects, and those that do not concern the
+those about a file that its declaration names as a source, such as one that
+cannot be hashed, and the errors of its own project that stop it being
+judged, such as a `--context` that the project does not declare. An error
+among them sets the exit code as it would for `check`: 3, or 4 when, for
+example, a clock cannot be dated. Under `--quiet`, only those errors are
+printed. Diagnostics of other projects, and those that do not concern the
 subject, are left to `check`.
 
 `explain` also shows who cites a file. A local document or an unclaimed file
@@ -744,8 +751,9 @@ For a document whose reread is due, `reread-due` or `reread-overdue`:
 - With a changed source, `y` records the review of the sources alone, and
   the reread stays due; `r` records both.
 - A plain `y` given to several picked documents in the full screen leaves
-  out a document whose reread is all it needs, as it leaves out a document
-  without sources, and `r` takes both.
+  out a document whose reread is due and none of whose sources changed,
+  even when it also waits on an upstream document, as it leaves out a
+  document without sources, and `r` takes both.
 
 The prompt says which applies before the answer. Each accepted review is
 written immediately through the same planner and atomic write path as
@@ -760,7 +768,10 @@ them before its question, with its reason and whether it has not been seen
 yet; the full screen tags them in its list. It asks whether to include
 them, saying that this records that each was reread. Declining leaves them
 for answers of their own, and the rest of the batch is recorded as chosen.
-When only such documents remain, `a` asks about them alone.
+When only such documents remain, all of them due or all of them not due
+yet, `a` asks about them alone. When it asks which documents first,
+declining the rereads records the others it chose, or nothing when there
+are none.
 
 After every write and editor visit, the working tree is evaluated again.
 Documents that become fresh leave the queue, and documents that become stale

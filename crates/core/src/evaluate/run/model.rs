@@ -403,6 +403,10 @@ pub struct SourceReport {
 	/// For a pattern member, the pattern resolved against the repository
 	/// root, such as `/docs/*.md`; `None` for a path source.
 	pub pattern: Option<String>,
+	/// The path or pattern as the declaration writes it, such as `/src/*.rs`
+	/// in a nested project, whose `/` is that project's root: the spelling
+	/// that people read and that `--source` selects.
+	pub declared: String,
 	/// The source path.
 	pub path: RepoPath,
 	/// The attested oid, if the source was ever attested.
@@ -435,10 +439,11 @@ pub enum SourceState {
 	/// earlier keeps that earlier clock.
 	Removed,
 	/// An explicit path source that the snapshot lacks. Discovery reports
-	/// it, and it contributes no fact.
+	/// it, and it contributes no fact, but it keeps the document from being
+	/// `fresh`.
 	Missing,
 	/// Its canonical oid could not be computed. A diagnostic says why, and it
-	/// contributes no fact.
+	/// contributes no fact, but it keeps the document from being `fresh`.
 	Unhashable,
 }
 

@@ -19,8 +19,11 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "kebab-case")]
 pub enum Fact {
-	/// Every source matches its attestation. Always passes, and no rule may
-	/// target it.
+	/// Every source matches its attestation, and nothing else asks for a
+	/// review or a reread: no other fact applies but `awaiting-seal`. A sealed
+	/// record that matches its seal is fresh too. A document with a source
+	/// that is missing or cannot be hashed is not: it has no fact at all, and
+	/// an error says why. Always passes, and no rule may target it.
 	Fresh,
 	/// A source differs from its attestation.
 	Stale,

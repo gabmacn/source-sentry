@@ -98,7 +98,8 @@ pub(crate) enum Command {
 	Check(CheckArgs),
 	/// Explain one document, file or series in full: its settings and their
 	/// origins, its facts, the rules that matched, the timing evidence and its
-	/// next deadline.
+	/// next deadline, and the documents that cite it. A file that documents
+	/// cite is explained by those citations.
 	Explain(ExplainArgs),
 	/// List the documents that describe files: those whose sources name
 	/// them, and those that cite those documents in turn.
@@ -271,8 +272,8 @@ pub(crate) enum Format {
 /// `explain`.
 #[derive(Debug, Args)]
 pub(crate) struct ExplainArgs {
-	/// A document's path or remote identity, an unclaimed file's path, or a
-	/// series' name.
+	/// A document's path or remote identity, an unclaimed file's path, the
+	/// path of a file that documents cite, or a series' name.
 	#[arg(value_name = "SUBJECT")]
 	pub(crate) subject: String,
 	#[command(flatten)]
@@ -426,7 +427,7 @@ pub(crate) struct TrackArgs {
 	/// in DIRECTORY, a relative or absolute filesystem path.
 	#[expect(
 		clippy::option_option,
-		reason = "clap's shape for a flag whose value is optional: absent, 		          given alone, or given with a directory"
+		reason = "clap's shape for a flag whose value is optional: absent, given alone, or given with a directory"
 	)]
 	#[arg(
 		long,

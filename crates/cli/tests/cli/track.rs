@@ -452,10 +452,13 @@ fn track_extends_a_tracked_document() {
 	assert!(
 		run
 			.stdout
-			.contains("Add to the declaration of docs/guide.md"),
+			.contains("Extend the declaration of docs/guide.md"),
 		"{}",
 		run.stdout
 	);
+	// The plan lists the whole declaration as it will read, existing sources
+	// included, not only what is added.
+	assert!(run.stdout.contains("it will read:"), "{}", run.stdout);
 	let lockfile: Value =
 		serde_json::from_str(&repo.read("docs/source-sentry.lock")).unwrap();
 	let entry = &lockfile["documents"]["guide.md"];
@@ -610,10 +613,13 @@ fn untrack_fixes_a_missing_source_and_refuses_unknown_ones() {
 		repo.run(&["untrack", "docs/guide.md", "--source", "/src/z.rs", "--yes"]);
 	assert_ne!(unknown.code, 0);
 	assert!(
-		unknown.stderr.contains("declares no source"),
+		unknown
+			.stderr
+			.contains("; `explain` lists the sources it declares\n"),
 		"{}",
 		unknown.stderr
 	);
+	assert!(!unknown.stderr.contains('\t'), "{:?}", unknown.stderr);
 	repo
 		.run(&["untrack", "docs/guide.md", "--yes"])
 		.expect_code(64);

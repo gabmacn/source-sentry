@@ -120,7 +120,15 @@ impl Failure {
 			),
 			_ => chain(error),
 		};
-		if !matches!(error, ApplyError::RollbackFailed { .. }) {
+		// A failed write, deletion or intent-to-add already says that nothing
+		// was changed, and a failed rollback must not say it.
+		if !matches!(
+			error,
+			ApplyError::RollbackFailed { .. }
+				| ApplyError::WriteFailed { .. }
+				| ApplyError::DeleteFailed { .. }
+				| ApplyError::IntentToAddFailed { .. }
+		) {
 			message.push_str("; nothing was changed");
 		}
 		if let ApplyError::Stale {
@@ -202,6 +210,47 @@ mod tests {
 	use source_sentry_core::ports::Canonical;
 
 	use super::*;
+
+	/// A plan that failed while writing, deleting or adding to the index says
+	/// once that nothing was changed, as a plan refused before it began does.
+	#[test]
+	fn a_failed_plan_says_once_that_nothing_was_changed() {
+		let directory = tempfile::tempdir().unwrap();
+		let status = Command::new("git")
+			.args(["init", "--quiet"])
+			.current_dir(directory.path())
+			.env_remove("GIT_DIR")
+			.env_remove("GIT_WORK_TREE")
+			.env_remove("GIT_INDEX_FILE")
+			.status()
+			.unwrap();
+		assert!(status.success());
+		let workspace = Workspace::open(Some(directory.path())).unwrap();
+		let path = RepoPath::new("docs/source-sentry.lock").unwrap();
+		let denied = || std::io::Error::other("Access is denied");
+
+		let errors = [
+			ApplyError::WriteFailed {
+				path: path.clone(),
+				source: denied(),
+			},
+			ApplyError::DeleteFailed {
+				path: path.clone(),
+				source: denied(),
+			},
+			ApplyError::ChangedDuringVerification(path.clone()),
+		];
+		for error in &errors {
+			let failure = Failure::apply(&workspace, error);
+			assert_eq!(failure.code, OPERATIONAL);
+			assert_eq!(
+				failure.message.matches("nothing was changed").count(),
+				1,
+				"{}",
+				failure.message
+			);
+		}
+	}
 
 	/// The advice for a file that changed to CRLF in the index while a plan
 	/// was applied repeats `-C` and names the file from where git starts.

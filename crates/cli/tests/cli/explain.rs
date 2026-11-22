@@ -145,3 +145,97 @@ series:
 		assert!(!run.stdout.contains("Diagnostics"), "{}", run.stdout);
 	}
 }
+
+/// Under `--quiet`, `explain` still prints the errors that set its exit
+/// code, as `check` does, and nothing else.
+#[test]
+fn quiet_explain_prints_its_errors() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	repo.git(&["rm", "--quiet", "src/a.rs"]);
+	repo.commit_at("2026-10-20T10:00:00Z");
+
+	let run = repo.run(&["--quiet", "explain", "docs/guide.md", "--at", AT]);
+	run.expect_code(3);
+	assert_eq!(run.stdout, "");
+	assert!(run.stderr.contains("missing-source"), "{}", run.stderr);
+	assert_eq!(run.stderr.lines().count(), 1, "{}", run.stderr);
+}
+
+/// A source that cannot be hashed is reported once by `check`, at the
+/// file; `explain` shows that error under each document that names the
+/// source, and exits 4 as `check` does.
+#[test]
+fn explain_shows_a_source_that_cannot_be_hashed() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	repo.git(&["config", "filter.custom.clean", "cat"]);
+	repo.write(".gitattributes", "src/a.rs filter=custom\n");
+
+	let check = repo.run(&["check", "--at", AT]);
+	check.expect_code(4);
+	assert_eq!(check.stdout.matches("unsupported-filter").count(), 1);
+
+	let explain = repo.run(&["explain", "docs/guide.md", "--at", AT]);
+	explain.expect_code(4);
+	let (_, diagnostics) = explain
+		.stdout
+		.split_once("\nDiagnostics\n")
+		.unwrap_or_else(|| panic!("no diagnostics in:\n{}", explain.stdout));
+	assert!(
+		diagnostics.contains("unsupported-filter  src/a.rs"),
+		"{}",
+		explain.stdout
+	);
+	// A source that cannot be hashed leaves the document with no fact: it is
+	// not judged, and never called fresh.
+	assert!(explain.stdout.contains("not judged"), "{}", explain.stdout);
+	assert!(!explain.stdout.contains("fresh"), "{}", explain.stdout);
+
+	let json = repo.run(&["check", "--at", AT, "--format", "json"]);
+	json.expect_code(4);
+	let report = json.json();
+	let guide = report["subjects"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|subject| subject["document"] == "docs/guide.md")
+		.unwrap_or_else(|| panic!("{report:#}"));
+	assert_eq!(guide["facts"], serde_json::json!([]), "{report:#}");
+}
+
+/// `explain` names a pattern source as its declaration writes it, as `diff`
+/// does: `/src/*.rs` in a nested project, whose `/` is that project's root,
+/// whether it runs from the nested project or from the repository root.
+#[test]
+fn explain_names_a_pattern_as_declared() {
+	let repo = TestRepo::init();
+	repo.write("nested/.source-sentry/source-sentry.yaml", "version: 1\n");
+	repo.write("nested/doc.md", "# Nested\n");
+	repo.write("nested/src/b.rs", "fn b() {}\n");
+	repo.commit_at("2026-10-01T10:00:00Z");
+	repo
+		.run_in(
+			"nested",
+			&["track", "doc.md", "--pattern", "/src/*.rs", "--yes"],
+		)
+		.expect_code(0);
+	repo
+		.run(&["track", "docs/guide.md", "--pattern", "/src/*.rs", "--yes"])
+		.expect_code(0);
+	repo.commit_at("2026-10-02T10:00:00Z");
+
+	for (directory, document, member) in [
+		("nested", "doc.md", "src/b.rs"),
+		(".", "nested/doc.md", "nested/src/b.rs"),
+		(".", "docs/guide.md", "src/a.rs"),
+	] {
+		let run = repo.run_in(directory, &["explain", document, "--at", AT]);
+		let line = run
+			.stdout
+			.lines()
+			.find(|line| line.trim_start().starts_with(member))
+			.unwrap_or_else(|| panic!("no {member} in:\n{}", run.stdout));
+		assert!(line.ends_with(", from /src/*.rs"), "{document}: {line}");
+	}
+}

@@ -582,3 +582,45 @@ fn all_records_documents_without_sources_only_when_included() {
 		Some(true)
 	);
 }
+
+/// A plain `y` given to picked documents leaves out a document that a
+/// single `y` would reread: its reread is due and none of its sources
+/// changed, even when it also waits on an upstream document; `r` takes it.
+#[test]
+fn a_picked_yes_leaves_out_a_reread_beside_an_upstream_change() {
+	let schedule =
+		json!({"reread": {"dtstart": "2026-01-01", "rrule": "FREQ=MONTHLY"}});
+	let repo = Repo::new(json!({
+		"docs/up.md": {"sources": [{"path": "/src/a.rs"}]},
+		"docs/a.md": {"schedule": schedule, "sources": [{"path": "/docs/up.md"}]},
+	}));
+	repo.attest("docs/up.md");
+	repo.attest("docs/a.md");
+	repo.write("src/a.rs", "new a\n");
+	repo.git(&["add", "--all"]);
+	repo.git(&[
+		"commit",
+		"--quiet",
+		"-m",
+		"Reread in October, then a change",
+	]);
+	let earlier = repo.entry("docs/a.md")["reviewed"]["at"].clone();
+	let (workspace, args) = (repo.workspace(), repo.args(&[]));
+	let mut app = App::new(&workspace, &args).unwrap();
+	let a = app
+		.open
+		.iter()
+		.position(|id| id.document.to_string() == "docs/a.md")
+		.unwrap();
+	app.click(Target::Row(Cursor::Open(a))).unwrap();
+	press(&mut app, &[Key::Char(' ')]);
+	assert_eq!(app.picked.len(), 1);
+
+	press(&mut app, &[Key::Char('y')]);
+	assert!(app.overlay.is_none());
+	assert!(app.notice.as_ref().unwrap().contains("r records a reread"));
+	assert_eq!(repo.entry("docs/a.md")["reviewed"]["at"], earlier);
+
+	press(&mut app, &[Key::Char('r')]);
+	assert!(matches!(app.overlay, Some(Overlay::Picked(_, _, true))));
+}

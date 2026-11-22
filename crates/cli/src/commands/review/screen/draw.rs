@@ -1638,8 +1638,9 @@ fn batch_box(app: &App, batch: &Batch, pen: &mut Pen, area: Rect) {
 		(batch.counts(false, with), batch.counts(true, with));
 	let ask = if due > 0 {
 		format!(
-			"Record the {} that are due, including {unseen} you have not seen?",
-			documents(due)
+			"Record the {} that {} due, including {unseen} you have not seen?",
+			documents(due),
+			if due == 1 { "is" } else { "are" }
 		)
 	} else if later > 0 {
 		format!(

@@ -23,6 +23,8 @@ that version's section, so a release cannot be made without one.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-22
+
 ### Added
 
 - `impact` lists the documents that describe given files: those whose
@@ -47,7 +49,8 @@ that version's section, so a release cannot be made without one.
 - The facts `reread-due` and `reread-overdue`, which the built-in `default`
   context warns on. They never spread to the documents that cite a
   document, and never make it `due`, `overdue` or `stale`.
-- `track --reread <dtstart> <rrule>` writes a reread schedule.
+- `track --reread <dtstart> <rrule>` writes a reread schedule, and
+  `track --no-reread` writes `reread: null`, which removes an inherited one.
 - In `review`, `y` records a reread for a document whose reread is due and
   whose sources did not change. The confirmation of `a` names the
   documents it can only record by a reread, those and the documents without
@@ -68,13 +71,21 @@ that version's section, so a release cannot be made without one.
 
 ### Changed
 
+- A document with a source that is missing or cannot be hashed is no longer
+  `fresh`. It has no fact at all, as a sealed record that cannot be checked
+  already had, beside the error that says why, and `check` and `explain`
+  show it as `not judged`. The exit code is unchanged: the error decides it.
+- The plan of `track` on a document that is already tracked now reads
+  `Extend the declaration of <document> … With new sources unattested, it
+  will read:`, followed by the whole declaration, existing sources
+  included, instead of `Add to the declaration of <document>`, which made
+  the existing sources look new.
 - In `review`, neither `a` nor a plain `y` given to several picked
   documents records a document without sources any longer, since recording
   such a document records that it was reread whole: `a` records it only
   when the reviewer includes the rereads in its confirmation, and `r` takes
   picked ones. A `y` given to a single document still records the reread,
   and the full screen's question for it now says so.
-
 - Dates and instants are now read and written with `jiff` instead of
   `chrono`, which has been declared unmaintained (RUSTSEC-2026-0543).
   Every instant Source Sentry has written reads back as before, unless its
@@ -112,11 +123,26 @@ that version's section, so a release cannot be made without one.
   `jiff::Zoned`, and `HORIZON_DAYS` is a `u32`. `model::parse_date` reads a
   `YYYY-MM-DD` date, and `model::whole_second` drops the fraction of a
   second from an instant.
+- The `source-sentry-core` crate's interface grows with reread schedules,
+  which breaks code that builds these values or matches them exhaustively:
+  `Schedule` has a `reread` field, as do `DocumentDefaults`,
+  `EffectiveSettings` and `report::SettingsReport`; `Deadline` has a
+  `kind`, a `DeadlineKind`, and `report::DeadlineReport` a `kind` too;
+  `LiveDocument` has a `reread`, a `RereadClock` with its `RereadBase`;
+  `Fact` gains `RereadDue` and `RereadOverdue`, `DiagnosticKind` gains
+  `FutureReread`, `ConfigErrorKind` gains `RereadInSeries`, and
+  `mutate::Setting` gains `Reread`. It adds `schedule::reread_deadline`,
+  `schedule::written_rules` and `schedule::invalid_rules`,
+  `LiveDocument::change_deadline`, `LiveDocument::change_deadlines`,
+  `LiveDocument::reread_deadline` and `Timing::deadline`, and
+  `evaluate::SourceReport` has a `declared` field, the source as its
+  declaration writes it. It also gains the
+  `impact` module, with `impact::impact`, and the `report::ImpactReport`
+  shapes that `impact --format json` writes.
 - A cadence's rule no longer accepts `BYWEEKDAY`, a synonym of `BYDAY`
   that RFC 5545 does not have. A rule that uses it is a configuration
   error whose message says to write `BYDAY`; the occurrences are the
   same.
-
 - Configs, presets and declarations in frontmatter refuse a bare number or
   boolean where text belongs, such as `owners: [123]`, and a quoted number
   or boolean where one belongs, such as `grace: '2'` or `root: 'true'`,
@@ -423,6 +449,20 @@ that version's section, so a release cannot be made without one.
   location that names them. Run from a nested project, the repeated path
   was relative to the repository rather than to the current directory, so
   it did not lead to the file.
+- `explain --quiet` prints the errors that set its exit code on standard
+  error, as `check --quiet` does, instead of exiting 3 or 4 with no output.
+- `explain` shows the error about a source that cannot be hashed, such as
+  one behind an unsupported clean filter, under each document that names
+  the source, and exits 4 as `check` does, instead of leaving it out and
+  exiting 0.
+- `explain` and `check` name a pattern source as it is declared, such as
+  `/src/*.rs`, instead of as resolved from the repository root, which in a
+  nested project read as `/nested/src/*.rs`, a path that names another
+  directory.
+- The refusal of `untrack` for a source that a document does not declare
+  no longer carries two stray tab characters.
+- A plan that fails while writing, deleting or adding files to git's index
+  says once, not twice, that nothing was changed.
 
 ## [0.1.0] - 2026-11-14
 

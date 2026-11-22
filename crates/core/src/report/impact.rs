@@ -24,7 +24,10 @@
 //!         "matches": [{"path": "src/auth.rs", "source": "/src/*.rs"}]
 //!       },
 //!       "sealed": false,
-//!       "settings": {"cadence": {…}, "classes": {…}, "grace": {…}, "owners": {…}}
+//!       "settings": {
+//!         "cadence": {…}, "classes": {…}, "grace": {…}, "owners": {…},
+//!         "reread": {…}
+//!       }
 //!     },
 //!     {
 //!       "document": "docs/overview.md",

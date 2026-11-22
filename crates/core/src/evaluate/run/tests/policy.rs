@@ -299,10 +299,9 @@ fn an_unsupported_filter_is_an_operational_error() {
 			.message
 			.contains("unsupported clean filter crypt")
 	);
-	assert_eq!(
-		facts(document(&evaluation, "docs/privacy.md")),
-		[Fact::Fresh]
-	);
+	// A source that cannot be hashed leaves the document with no fact: the
+	// error says why, and `fresh` would claim more than is known.
+	assert_eq!(facts(document(&evaluation, "docs/privacy.md")), []);
 	assert!(!evaluation.is_complete());
 	assert_eq!(
 		gates(&evaluation),

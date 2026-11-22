@@ -73,19 +73,17 @@ impl Interface for Terminal {
 	}
 
 	fn confirm_all(&mut self, batch: &Batch) -> Result<Option<Bulk>, Failure> {
-		// Which documents: the due ones, or those not due yet too. When the
-		// due documents can all be recorded only by a reread, the question
-		// about rereads alone remains.
-		let only_rereads =
-			batch.later.is_empty() && batch.rereads.len() == batch.due.len();
-		let later = if only_rereads {
-			false
-		} else {
-			match scope(batch)? {
+		// Which documents: the due ones, or those not due yet too. When every
+		// document can only be recorded by a reread and there is no choice
+		// between the two, the question about rereads alone remains.
+		let alone = batch.rereads_alone();
+		let later = match alone {
+			Some(later) => later,
+			None => match scope(batch)? {
 				Some(Bulk::Record { later, .. }) => later,
 				Some(Bulk::Leave) => return Ok(Some(Bulk::Leave)),
 				None => return Ok(None),
-			}
+			},
 		};
 
 		let (due, sourceless, unseen) = batch.reread_counts(later);
@@ -100,7 +98,7 @@ impl Interface for Terminal {
 		// question that records them.
 		output::data(batch.rereads_listing(later).trim_end_matches('\n'));
 		let documents = crate::describe::count(count, "document", "documents");
-		let question = if only_rereads {
+		let question = if alone.is_some() {
 			format!(
 				"The remaining {documents} can only be recorded as reread: {}. Record that each was reread, including {unseen} you have not seen?",
 				batch.rereads_named(later)
@@ -117,11 +115,13 @@ impl Interface for Terminal {
 				.with_render_config(render_config())
 				.prompt(),
 		)?;
+		// Declining records the others, or nothing when there are none,
+		// rather than an empty batch taken for an answer.
 		Ok(answer.map(|rereads| {
-			if only_rereads && !rereads {
-				Bulk::Leave
-			} else {
+			if rereads {
 				Bulk::Record { later, rereads }
+			} else {
+				batch.without_rereads(later)
 			}
 		}))
 	}
@@ -196,8 +196,9 @@ fn scope(batch: &Batch) -> Result<Option<Bulk>, Failure> {
 	// for their review day.
 	let choices = vec![
 		format!(
-			"Record the {} that are due, including {} you have not seen",
+			"Record the {} that {} due, including {} you have not seen",
 			documents(due),
+			if due == 1 { "is" } else { "are" },
 			batch.unseen
 		),
 		format!(

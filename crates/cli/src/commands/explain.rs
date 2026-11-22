@@ -59,20 +59,26 @@ pub(super) fn run(
 			if answer.documents.is_empty() {
 				return Err(unanswered(workspace, failure, &search));
 			}
-			printer.print(&source(
-				workspace,
-				&evaluation,
-				&path,
-				rev,
-				&answer,
-				&search,
-			));
+			if printer.is_quiet() {
+				write_errors(search.error_lines(workspace));
+			} else {
+				printer.print(&source(
+					workspace,
+					&evaluation,
+					&path,
+					rev,
+					&answer,
+					&search,
+				));
+			}
 			return Ok(search.code());
 		}
 		Err(failure) => return Err(failure),
 	};
 	let mut code = exit::SUCCESS;
 	let mut explanations = Vec::new();
+	// Under `--quiet`, the errors alone, which set the exit code.
+	let mut errors = Vec::new();
 	for subject in subjects {
 		let own = own_diagnostics(&evaluation, subject);
 		for diagnostic in &own {
@@ -82,11 +88,20 @@ pub(super) fn run(
 				Severity::Operational => exit::OPERATIONAL,
 			});
 		}
+		errors.extend(super::check::diagnostic_lines(
+			workspace,
+			own
+				.iter()
+				.copied()
+				.filter(|diagnostic| diagnostic.severity().is_fatal()),
+		));
+
 		let mut text = explain(workspace, &evaluation, subject);
 		if let Some(path) = subject_path(subject) {
 			let (answer, search) =
 				super::impact::citations(workspace, origin, rev, path)?;
 			code = code.max(search.code());
+			errors.extend(search.error_lines(workspace));
 			heading(&mut text, "Cited by");
 			text.push_str(&super::impact::cited_by(
 				workspace, path, rev, &answer, &search,
@@ -100,8 +115,24 @@ pub(super) fn run(
 		}
 		explanations.push(text);
 	}
-	printer.print(&explanations.join("\n"));
+	if printer.is_quiet() {
+		write_errors(errors);
+	} else {
+		printer.print(&explanations.join("\n"));
+	}
 	Ok(code)
+}
+
+/// Writes each error line once on standard error: what `--quiet` keeps of
+/// an explanation, as `check` and `impact` keep their errors.
+fn write_errors(lines: impl IntoIterator<Item = String>) {
+	let mut written: Vec<String> = Vec::new();
+	for line in lines {
+		if !written.contains(&line) {
+			output::write_err(&line);
+			written.push(line);
+		}
+	}
 }
 
 /// The refusal of a name that matches nothing (exit 2), naming the errors
@@ -195,22 +226,44 @@ fn source(
 
 /// The diagnostics about `subject`, which `check` lists among all the
 /// others: those about its document, such as a clock that could not be
-/// dated, and the errors of its project that stop it being judged. They keep
-/// the order `check` gives them.
+/// dated, those about a file that its declaration names as a source, such
+/// as one that cannot be hashed, and the errors of its project that stop it
+/// being judged. They keep the order `check` gives them.
 fn own_diagnostics<'a>(
 	evaluation: &'a Evaluation,
 	subject: &Subject,
 ) -> Vec<&'a Diagnostic> {
-	let document = subject.document().map(|document| &document.document);
+	let document = subject.document();
 	let no_context = evaluation.context.is_none();
 	evaluation
 		.diagnostics
 		.iter()
 		.filter(|diagnostic| {
-			(document.is_some() && diagnostic.document.as_ref() == document)
-				|| (no_context && stops_judgement(diagnostic))
+			document.is_some_and(|document| {
+				diagnostic.document.as_ref() == Some(&document.document)
+					|| names_a_source_of(diagnostic, document)
+			}) || (no_context && stops_judgement(diagnostic))
 		})
 		.collect()
+}
+
+/// Whether `diagnostic`, about a file rather than a document, names among
+/// its other places a source of `document`'s own declaration: the claim's
+/// file, at one of its sources. A file that cannot be hashed is reported
+/// once, at the file, with every declaration that names it.
+fn names_a_source_of(
+	diagnostic: &Diagnostic,
+	document: &DocumentSubject,
+) -> bool {
+	let sources = format!("{}.sources[", document.field);
+	diagnostic.document.is_none()
+		&& diagnostic.related.iter().any(|location| {
+			location.file == document.declared_in
+				&& location
+					.field
+					.as_deref()
+					.is_some_and(|field| field.starts_with(&sources))
+		})
 }
 
 /// Whether `diagnostic` is an error that leaves the evaluated project
@@ -545,10 +598,14 @@ fn sources(workspace: &Workspace, text: &mut String, live: &LiveDocument) {
 		text.push_str("  none declared\n");
 	}
 	for source in &live.sources {
-		let pattern = source
-			.pattern
-			.as_ref()
-			.map_or_else(String::new, |pattern| format!(", from {pattern}"));
+		// The pattern as declared, as `diff` names it: its resolved form
+		// starts at the repository root, which `/` does not name in a
+		// nested project.
+		let pattern = if source.pattern.is_some() {
+			format!(", from {}", source.declared)
+		} else {
+			String::new()
+		};
 		let _ = writeln!(
 			text,
 			"  {}  {}{pattern}",

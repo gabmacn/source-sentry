@@ -11,7 +11,7 @@ define:
   classes: {}
   # The built-in default: stale documents, documents with a stale upstream
   # document and missed series entries are notices; other findings, such as
-  # `due`, `upstream-due` and `overdue`, warn.
+  # `due`, `upstream-due`, `overdue`, `reread-due` and `reread-overdue`, warn.
   contexts:
     default:
       fallback: warn
@@ -65,8 +65,12 @@ documents:
 schedule:
   # The built-in default: documents must follow their sources at once.
   grace: 0
-  # No recurring reread deadline unless a document declares one.
+  # The built-in default: no cadence, so a change is never held for a review
+  # day.
   cadence: null
+  # The built-in default: no reread schedule, so no document is due to be
+  # reread whole unless it, or a config, declares one.
+  reread: null
 
 # No additional scoped context rules or versioned series.
 rules: {}

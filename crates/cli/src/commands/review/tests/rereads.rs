@@ -2,7 +2,8 @@
 
 use serde_json::{Value, json};
 
-use super::super::Answer;
+use super::super::session::Session;
+use super::super::{Answer, Batch, Bulk};
 use super::support::{Repo, Script, Step, local};
 
 /// When the earlier reviewer reread every document of the fixtures.
@@ -192,4 +193,60 @@ fn all_asks_about_the_rereads_when_only_they_remain() {
 		assert_eq!(script.listings, ["  docs/a.md  it has no sources\n"]);
 		assert_eq!(reread_at(&repo, "docs/a.md") != EARLIER, include);
 	}
+}
+
+/// The batch of `a` for a session over `repo`, with `--all`, which also
+/// holds the documents not due yet.
+fn batch_of(repo: &Repo) -> Batch {
+	let workspace = repo.workspace();
+	let mut args = repo.args(&[]);
+	args.all = true;
+	let session = Session::new(&workspace, &args).unwrap();
+	let queue = session.pending().unwrap();
+	session.batch(session.comparisons(&queue, None).unwrap())
+}
+
+/// When every document can only be recorded by a reread and none is due
+/// yet, only the question about rereads is left, for the documents not due
+/// yet; declining it records nothing rather than an empty batch.
+#[test]
+fn only_rereads_not_due_yet_take_the_reread_question_alone() {
+	let repo = Repo::new(json!({"docs/later.md": {"schedule": {"grace": 3650}}}));
+	let batch = batch_of(&repo);
+	assert_eq!(
+		(batch.due.len(), batch.later.len(), batch.rereads.len()),
+		(0, 1, 1)
+	);
+	assert_eq!(batch.rereads_alone(), Some(true));
+	assert_eq!(batch.without_rereads(true), Bulk::Leave);
+}
+
+/// With rereads both due and not due yet, the reviewer chooses the
+/// documents first; declining the rereads then leaves them, and records
+/// nothing when nothing else was chosen, but the other documents when there
+/// are any.
+#[test]
+fn declining_the_rereads_records_only_the_other_documents() {
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/later.md": {"schedule": {"grace": 3650}},
+	}));
+	let batch = batch_of(&repo);
+	assert_eq!(batch.rereads_alone(), None);
+	assert_eq!(batch.without_rereads(false), Bulk::Leave);
+	assert_eq!(batch.without_rereads(true), Bulk::Leave);
+
+	let repo = Repo::new(json!({
+		"docs/a.md": {},
+		"docs/c.md": {"sources": [{"path": "/src/a.rs"}]},
+	}));
+	let batch = batch_of(&repo);
+	assert_eq!(batch.rereads_alone(), None);
+	assert_eq!(
+		batch.without_rereads(false),
+		Bulk::Record {
+			later: false,
+			rereads: false
+		}
+	);
 }

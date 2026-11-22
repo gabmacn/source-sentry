@@ -210,6 +210,34 @@ impl Batch {
 		parts.join(" and ")
 	}
 
+	/// Whether only the question about rereads is left: `Some(later)` when
+	/// every document of the batch can only be recorded by a reread and
+	/// there is no choice between the due ones and those not due yet,
+	/// because one of the two is empty, with `later` when they are not due
+	/// yet. `None` when the reviewer chooses the documents first.
+	fn rereads_alone(&self) -> Option<bool> {
+		let every = self.rereads.len() == self.due.len() + self.later.len();
+		match (every, self.due.is_empty(), self.later.is_empty()) {
+			(true, false, true) => Some(false),
+			(true, true, false) => Some(true),
+			_ => None,
+		}
+	}
+
+	/// The answer when the reviewer declines the rereads among the
+	/// documents chosen with `later`: the others, or nothing at all when
+	/// every chosen document can only be recorded by a reread.
+	fn without_rereads(&self, later: bool) -> Bulk {
+		if self.chosen(later, false).is_empty() {
+			Bulk::Leave
+		} else {
+			Bulk::Record {
+				later,
+				rereads: false,
+			}
+		}
+	}
+
 	/// The rereads among the due documents, and with `later` among those
 	/// not due yet too, one line each, in the order they would be recorded:
 	/// the document's name, why it can only be recorded by a reread, and

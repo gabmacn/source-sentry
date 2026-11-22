@@ -968,3 +968,32 @@ fn local_lockfile_diagnostics_point_at_their_lines() {
 fn remote_lockfile_diagnostics_point_at_their_lines() {
 	lockfile_diagnostics_point_at_their_lines(true);
 }
+
+/// A document whose declared source has gone missing is never called fresh:
+/// the source cannot be compared with its review, and the error says why.
+#[test]
+fn a_document_with_a_missing_source_is_not_fresh() {
+	let repo = TestRepo::init();
+	repo.reviewed_guide();
+	std::fs::remove_file(repo.path().join("src/a.rs")).unwrap();
+	repo.commit_at("2026-10-03T10:00:00Z");
+
+	let run = repo.run(&["check", "--at", AT, "--format", "json"]);
+	let report = run.json();
+	let guide = report["subjects"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|subject| subject["document"] == "docs/guide.md")
+		.unwrap_or_else(|| panic!("{report:#}"));
+	let facts = guide["facts"].as_array().unwrap();
+	assert!(!facts.contains(&json!("fresh")), "{report:#}");
+	assert!(
+		report["diagnostics"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|diagnostic| diagnostic["code"] == "missing-source"),
+		"{report:#}"
+	);
+}

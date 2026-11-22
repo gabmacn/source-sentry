@@ -12,7 +12,7 @@
               "oid": "sha1:deaf0003f0bd26c502cce6b5dbf546d6b7bcbc40",
               "path": "forgejo-actions.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -20,7 +20,7 @@
               "oid": "sha1:570b9026baf1ee2a6712f1906a6f7ff2473b8fc7",
               "path": "github-actions.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -28,7 +28,7 @@
               "oid": "sha1:91c60fa7681943481746140cb517a9c0809d0c21",
               "path": "gitlab-ci.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -36,7 +36,7 @@
               "oid": "sha1:9bf5903bcb7ce04b32ffc0aaf72a0aae99168498",
               "path": "woodpecker/source-sentry-continue.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -44,7 +44,7 @@
               "oid": "sha1:64d38984ed5a23697c797331789f95fb763c9379",
               "path": "woodpecker/source-sentry-deploy.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             },
@@ -52,22 +52,22 @@
               "oid": "sha1:45dc192a168a7cc657d9bebfd3ee49f3362bbb2a",
               "path": "woodpecker/source-sentry-report.yml",
               "reviewed": {
-                "at": "2026-11-22T05:33:19Z",
+                "at": "2026-11-22T07:35:37Z",
                 "by": "Opus (Claude)"
               }
             }
           ],
           "pattern": "**/*.yml",
           "reviewed": {
-            "at": "2026-11-22T05:33:19Z",
+            "at": "2026-11-22T07:35:37Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:19Z",
+            "at": "2026-11-22T07:35:37Z",
             "by": "Opus (Claude)"
           }
         },
@@ -75,15 +75,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:19Z",
+            "at": "2026-11-22T07:35:37Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:19Z",
+            "at": "2026-11-22T07:35:37Z",
             "by": "Opus (Claude)"
           }
         },
@@ -91,7 +91,7 @@
           "oid": "sha1:4ff60fa49c26dc90a73967482b95b659052263dc",
           "path": "../crates/core/src/config/parse.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:19Z",
+            "at": "2026-11-22T07:35:37Z",
             "by": "Opus (Claude)"
           }
         }
@@ -104,10 +104,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:14Z",
+            "at": "2026-11-22T07:35:31Z",
             "by": "Opus (Claude)"
           }
         },
@@ -115,15 +115,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:14Z",
+            "at": "2026-11-22T07:35:31Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:14Z",
+            "at": "2026-11-22T07:35:31Z",
             "by": "Opus (Claude)"
           }
         },
@@ -131,7 +131,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:14Z",
+            "at": "2026-11-22T07:35:31Z",
             "by": "Opus (Claude)"
           }
         }
@@ -144,10 +144,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:15Z",
+            "at": "2026-11-22T07:35:32Z",
             "by": "Opus (Claude)"
           }
         },
@@ -155,15 +155,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:15Z",
+            "at": "2026-11-22T07:35:32Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:15Z",
+            "at": "2026-11-22T07:35:32Z",
             "by": "Opus (Claude)"
           }
         },
@@ -171,7 +171,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:15Z",
+            "at": "2026-11-22T07:35:32Z",
             "by": "Opus (Claude)"
           }
         }
@@ -184,10 +184,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:33Z",
             "by": "Opus (Claude)"
           }
         },
@@ -195,15 +195,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:33Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:33Z",
             "by": "Opus (Claude)"
           }
         },
@@ -211,7 +211,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:33Z",
             "by": "Opus (Claude)"
           }
         }
@@ -224,10 +224,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:34Z",
             "by": "Opus (Claude)"
           }
         },
@@ -235,15 +235,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:34Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:34Z",
             "by": "Opus (Claude)"
           }
         },
@@ -251,7 +251,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:16Z",
+            "at": "2026-11-22T07:35:34Z",
             "by": "Opus (Claude)"
           }
         }
@@ -264,10 +264,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:17Z",
+            "at": "2026-11-22T07:35:35Z",
             "by": "Opus (Claude)"
           }
         },
@@ -275,15 +275,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:17Z",
+            "at": "2026-11-22T07:35:35Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:17Z",
+            "at": "2026-11-22T07:35:35Z",
             "by": "Opus (Claude)"
           }
         },
@@ -291,7 +291,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:17Z",
+            "at": "2026-11-22T07:35:35Z",
             "by": "Opus (Claude)"
           }
         }
@@ -304,10 +304,10 @@
       },
       "sources": [
         {
-          "oid": "sha1:c6ffbd587cbc43fef6c787c0e7a7b69bb545d5fd",
+          "oid": "sha1:d92787e63870b87f8e28e746f6e7bdbd79617227",
           "path": "../../crates/cli/src/cli.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:18Z",
+            "at": "2026-11-22T07:35:36Z",
             "by": "Opus (Claude)"
           }
         },
@@ -315,15 +315,15 @@
           "oid": "sha1:195d356868d87a512572f65636a81ce96d0d08da",
           "path": "../../crates/cli/src/commands/check.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:18Z",
+            "at": "2026-11-22T07:35:36Z",
             "by": "Opus (Claude)"
           }
         },
         {
-          "oid": "sha1:bf927456fae760ce10fabd2b7e7896850e88e5de",
+          "oid": "sha1:6313b9d7d6813ec0291296ae02f06b4a1b5c878d",
           "path": "../../crates/cli/src/exit.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:18Z",
+            "at": "2026-11-22T07:35:36Z",
             "by": "Opus (Claude)"
           }
         },
@@ -331,7 +331,7 @@
           "oid": "sha1:b3a8acbce3d18efb6bd400635d55899ed2aae0e0",
           "path": "../../crates/core/src/policy/gate.rs",
           "reviewed": {
-            "at": "2026-11-22T05:33:18Z",
+            "at": "2026-11-22T07:35:36Z",
             "by": "Opus (Claude)"
           }
         }

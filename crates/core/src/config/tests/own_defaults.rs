@@ -44,9 +44,20 @@ fn own_project_restates_the_built_in_defaults() {
 			.collect::<Vec<_>>(),
 		BUILT_IN_DOCUMENT_TYPES
 	);
+	let effective = EffectiveSettings::new(&settings.defaults, None);
+	assert_eq!(effective.grace.value, 0);
+	// The cadence and the reread schedule are written out as `null`, which
+	// is what the built-in defaults set.
+	for (name, written) in [
+		("cadence", &settings.defaults.cadence),
+		("reread", &settings.defaults.reread),
+	] {
+		let written = written.as_ref().map(|resolved| &resolved.value);
+		assert_eq!(written, Some(&None), "{name} is written out as null");
+	}
 	assert_eq!(
-		EffectiveSettings::new(&settings.defaults, None).grace.value,
-		0
+		(effective.cadence.value, effective.reread.value),
+		(None, None)
 	);
 	// Product-specific example patterns, adapters and ignores are deliberate
 	// additions and are outside this comparison.

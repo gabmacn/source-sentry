@@ -228,6 +228,7 @@ impl<'i> Planner<'i, '_, '_> {
 			report: SourceReport {
 				index: source.index,
 				pattern: None,
+				declared: declared(claim, source.index, source.path.as_str()),
 				path: source.path.clone(),
 				attested,
 				current,
@@ -316,6 +317,7 @@ impl<'i> Planner<'i, '_, '_> {
 				report: SourceReport {
 					index: source.index,
 					pattern: Some(source.glob.clone()),
+					declared: declared(claim, source.index, &source.glob),
 					path: path.clone(),
 					attested,
 					current,
@@ -441,6 +443,17 @@ enum Membership<'a> {
 	/// It was attested, but the pattern no longer matches it, because the
 	/// snapshot lacks it.
 	Removed(&'a Attestation),
+}
+
+/// The path or pattern that `claim` declares at `index`, as written, or
+/// `fallback` when the declaration has no source there.
+fn declared(claim: &Claim, index: usize, fallback: &str) -> String {
+	claim
+		.declaration
+		.sources
+		.get(index)
+		.map_or(fallback, SourceDecl::declared)
+		.to_owned()
 }
 
 /// Whether a declaration has never been reviewed: no document-level
@@ -920,7 +933,10 @@ const PROPAGATING_DUE: [Fact; 2] = [Fact::Due, Fact::UpstreamDue];
 /// Adds `upstream-stale` to every document with an upstream document that
 /// carries a propagating fact, and `upstream-due` to every document with an
 /// upstream document that is due, transitively, then `fresh` to every live
-/// document with none of its own facts.
+/// document with none of its own facts whose sources could all be compared
+/// with their reviews. A document with a source that is missing or cannot be
+/// hashed is left with no fact at all, as a sealed record that cannot be
+/// checked is: an error says why, and `fresh` would claim more than is known.
 ///
 /// A document's facts are the union over its claims. Each propagation is a
 /// breadth-first search over the reversed dependency edges, so it ends even
@@ -1007,7 +1023,11 @@ pub(super) fn propagate(subjects: &mut [Subject], inventory: &Inventory) {
 			live.stale_upstreams.dedup();
 			live.due_upstreams.sort();
 			live.due_upstreams.dedup();
-			if subject.facts.is_empty() {
+			let compared = live.sources.iter().all(|source| {
+				!matches!(source.state, SourceState::Missing | SourceState::Unhashable)
+			});
+
+			if subject.facts.is_empty() && compared {
 				subject.facts.insert(Fact::Fresh);
 			}
 		}

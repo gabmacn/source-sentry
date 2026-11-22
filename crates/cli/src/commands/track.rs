@@ -270,7 +270,8 @@ pub(super) fn registration(
 	if registered.extended {
 		let _ = writeln!(
 			text,
-			"Add to the declaration of {}, {} ({}); new sources are unattested",
+			"Extend the declaration of {}, {} ({}). With new sources unattested, \
+			 it will read:",
 			output::bold(&workspace.display_document(&registered.document)),
 			placement_name(workspace, &registered.placement),
 			describe::location(workspace, &registered.declared_in)
